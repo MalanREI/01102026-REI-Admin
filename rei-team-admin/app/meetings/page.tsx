@@ -1,69 +1,60 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { PageShell } from "@/src/components/PageShell";
-import { Button, Card, Input, Textarea, Pill, Modal } from "@/src/components/ui";
+import Link from "next/link";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
-import {
-  DndContext,
-  DragEndEvent,
-  DragOverlay,
-  PointerSensor,
-  closestCorners,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { useDroppable } from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { Button, Card, Input, Modal, Textarea } from "@/src/components/ui";
+import { prettyDate } from "@/src/lib/format";
 
-type Column = { id: string; name: string; position: number };
-type CardRow = {
+type Meeting = {
   id: string;
   title: string;
-  notes: string | null;
-  column_id: string;
-  position: number;
-  updated_at: string;
+  location: string | null;
+  start_at: string;
+  duration_minutes: number;
+  rrule: string | null;
 };
+
+function rruleFromPreset(preset: string): string | null {
+  switch (preset) {
+    case "none":
+      return null;
+    case "weekly":
+      return "FREQ=WEEKLY;INTERVAL=1";
+    case "biweekly":
+      return "FREQ=WEEKLY;INTERVAL=2";
+    case "monthly":
+      return "FREQ=MONTHLY;INTERVAL=1";
+    default:
+      return null;
+  }
+}
 
 export default function MeetingsPage() {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [columns, setColumns] = useState<Column[]>([]);
-  const [cards, setCards] = useState<CardRow[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const [newColName, setNewColName] = useState("");
-  const [newCardTitle, setNewCardTitle] = useState("");
-  const [selectedColId, setSelectedColId] = useState<string>("");
-
-  const [activeCard, setActiveCard] = useState<CardRow | null>(null);
-  const [activeNotes, setActiveNotes] = useState("");
-  const [savingCard, setSavingCard] = useState(false);
-
-  // DnD
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [location, setLocation] = useState("");
+  const [startAt, setStartAt] = useState("");
+  const [duration, setDuration] = useState(60);
+  const [freq, setFreq] = useState("weekly");
+  const [attendees, setAttendees] = useState("");
+  const [agendaSeed, setAgendaSeed] = useState(
+    "A1 - Opening & Recap\nA2 - Review Milestones\nB1 - Residential Operations\nB2 - Commercial Operations\nC1 - Marketing & Outreach\nC2 - Team Operations\nD1 - Open Discussion"
+  );
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     setLoading(true);
-    setError(null);
-    const [colRes, cardRes] = await Promise.all([
-      sb.from("kanban_columns").select("*").order("position"),
-      sb.from("kanban_cards").select("*").order("position"),
-    ]);
-    if (colRes.error) setError(colRes.error.message);
-    if (cardRes.error) setError(cardRes.error.message);
-    const cols = (colRes.data as any[]) ?? [];
-    setColumns(cols);
-    setSelectedColId((prev) => prev || cols?.[0]?.id || "");
-    setCards((cardRes.data as any[]) ?? []);
+    const { data, error } = await sb
+      .from("meetings")
+      .select("id,title,location,start_at,duration_minutes,rrule")
+      .order("start_at", { ascending: true });
+    if (!error) setMeetings((data ?? []) as any);
     setLoading(false);
   }
 
@@ -71,317 +62,188 @@ export default function MeetingsPage() {
     void load();
   }, []);
 
-  function cardsFor(colId: string) {
-    return cards
-      .filter((c) => c.column_id === colId)
-      .sort((a, b) => a.position - b.position);
-  }
-
-  async function addColumn() {
-    if (!newColName.trim()) return;
-    const nextPos = columns.length ? Math.max(...columns.map((c) => c.position)) + 1 : 1;
-    const { error } = await sb.from("kanban_columns").insert([{ name: newColName.trim(), position: nextPos }]);
-    if (error) setError(error.message);
-    setNewColName("");
-    await load();
-  }
-
-  async function renameColumn(col: Column) {
-    const name = prompt("Column name:", col.name);
-    if (!name) return;
-    const { error } = await sb.from("kanban_columns").update({ name }).eq("id", col.id);
-    if (error) setError(error.message);
-    await load();
-  }
-
-  async function addCard() {
-    if (!newCardTitle.trim() || !selectedColId) return;
-    const inCol = cardsFor(selectedColId);
-    const nextPos = inCol.length ? Math.max(...inCol.map((c) => c.position)) + 1 : 1;
-    const { error } = await sb
-      .from("kanban_cards")
-      .insert([{ title: newCardTitle.trim(), column_id: selectedColId, position: nextPos }]);
-    if (error) setError(error.message);
-    setNewCardTitle("");
-    await load();
-  }
-
-  function openCard(c: CardRow) {
-    setActiveCard(c);
-    setActiveNotes(c.notes ?? "");
-  }
-
-  async function saveCard() {
-    if (!activeCard) return;
-    setSavingCard(true);
+  async function createMeeting() {
+    setBusy(true);
+    setErr(null);
     try {
-      const { error } = await sb
-        .from("kanban_cards")
-        .update({ notes: activeNotes, updated_at: new Date().toISOString() })
-        .eq("id", activeCard.id);
+      if (!title.trim()) throw new Error("Meeting name is required.");
+      if (!startAt) throw new Error("Date/time is required.");
+
+      const { data: userData } = await sb.auth.getUser();
+      const userId = userData?.user?.id ?? null;
+
+      const { data: created, error } = await sb
+        .from("meetings")
+        .insert({
+          title: title.trim(),
+          location: location.trim() || null,
+          start_at: new Date(startAt).toISOString(),
+          duration_minutes: Number(duration) || 60,
+          rrule: rruleFromPreset(freq),
+          created_by: userId,
+        })
+        .select("id")
+        .single();
       if (error) throw error;
-      setActiveCard(null);
-      await load();
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to save card");
-    } finally {
-      setSavingCard(false);
-    }
-  }
 
-  async function deleteCard(cardId: string) {
-    if (!confirm("Delete this card?")) return;
-    const { error } = await sb.from("kanban_cards").delete().eq("id", cardId);
-    if (error) setError(error.message);
-    await load();
-  }
+      const meetingId = created.id as string;
 
-  function findCard(cardId: string) {
-    return cards.find((c) => c.id === cardId) || null;
-  }
-
-  function findColumnByCardId(cardId: string) {
-    const c = findCard(cardId);
-    return c ? c.column_id : null;
-  }
-
-  async function persistColumnOrder(colId: string, orderedCardIds: string[]) {
-    // normalize positions to 10,20,30... to keep room for future inserts
-    const updates = orderedCardIds.map((id, idx) => ({ id, position: (idx + 1) * 10, column_id: colId }));
-    const { error } = await sb.from("kanban_cards").upsert(updates, { onConflict: "id" });
-    if (error) throw error;
-  }
-
-  async function onDragEnd(evt: DragEndEvent) {
-    const { active, over } = evt;
-    setDraggingCardId(null);
-    if (!over) return;
-
-    const activeId = String(active.id);
-    const overId = String(over.id);
-
-    if (activeId === overId) return;
-
-    const fromColId = findColumnByCardId(activeId);
-    if (!fromColId) return;
-
-    // If dropped over a column container, add to end of that column.
-    const overIsColumn = columns.some((c) => c.id === overId);
-    const toColId = overIsColumn ? overId : findColumnByCardId(overId);
-    if (!toColId) return;
-
-    const fromCards = cardsFor(fromColId).map((c) => c.id);
-    const toCards = cardsFor(toColId).map((c) => c.id);
-
-    const fromIdx = fromCards.indexOf(activeId);
-    if (fromIdx === -1) return;
-
-    try {
-      if (fromColId === toColId) {
-        // reorder within same column
-        const toIdx = overIsColumn ? toCards.length - 1 : toCards.indexOf(overId);
-        const newOrder = arrayMove(toCards, fromIdx, Math.max(0, toIdx));
-        await persistColumnOrder(toColId, newOrder);
-      } else {
-        // move across columns
-        const nextFrom = fromCards.filter((id) => id !== activeId);
-        const insertAt = overIsColumn ? toCards.length : Math.max(0, toCards.indexOf(overId));
-        const nextTo = [...toCards];
-        nextTo.splice(insertAt, 0, activeId);
-
-        await persistColumnOrder(fromColId, nextFrom);
-        await persistColumnOrder(toColId, nextTo);
+      // Attendees
+      const emails = attendees
+        .split(/[,\n]/g)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (emails.length) {
+        const rows = emails.map((email) => ({ meeting_id: meetingId, email }));
+        const ins = await sb.from("meeting_attendees").insert(rows);
+        if (ins.error) throw ins.error;
       }
 
+      // Default columns (matches your sheet headers, editable later)
+      const defaultColumns = [
+        "MILESTONES",
+        "Residential Operations",
+        "Commercial Operations",
+        "Marketing/Outreach",
+        "Team Operations",
+      ];
+      const colRows = defaultColumns.map((name, idx) => ({ meeting_id: meetingId, name, position: idx + 1 }));
+      const colIns = await sb.from("meeting_task_columns").insert(colRows);
+      if (colIns.error) throw colIns.error;
+
+      // Agenda seed
+      const agendaLines = agendaSeed
+        .split(/\n/g)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (agendaLines.length) {
+        const agendaRows = agendaLines.map((line, idx) => {
+          const m = /^([A-Z]\d+)\s*-\s*(.+)$/.exec(line);
+          return {
+            meeting_id: meetingId,
+            code: m?.[1] ?? null,
+            title: (m?.[2] ?? line).trim(),
+            position: idx + 1,
+          };
+        });
+        const aIns = await sb.from("meeting_agenda_items").insert(agendaRows);
+        if (aIns.error) throw aIns.error;
+      }
+
+      setOpen(false);
+      setTitle("");
+      setLocation("");
+      setStartAt("");
+      setDuration(60);
+      setAttendees("");
       await load();
+      window.location.href = `/meetings/${meetingId}`;
     } catch (e: any) {
-      setError(e?.message ?? "Failed to move card");
+      setErr(e?.message ?? "Failed to create meeting");
+    } finally {
+      setBusy(false);
     }
   }
 
-  const aiEnabled = (process.env.NEXT_PUBLIC_FEATURE_MEETING_AI ?? "false") === "true";
-
-  const draggingCard = draggingCardId ? findCard(draggingCardId) : null;
-
   return (
-    <PageShell>
-      <div className="max-w-6xl space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold">Meetings</h1>
-            <div className="text-sm text-gray-600 mt-1">
-              Kanban for meeting action items + notes. Drag cards between columns.
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (!aiEnabled) {
-                  alert("AI Meeting Recorder is stubbed for now. Turn on NEXT_PUBLIC_FEATURE_MEETING_AI=true later.");
-                  return;
-                }
-                alert("AI module enabled, but not implemented yet.");
-              }}
-            >
-              Record meeting {aiEnabled ? <Pill>AI</Pill> : <Pill>stub</Pill>}
-            </Button>
-          </div>
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Meetings</h1>
+          <p className="text-sm text-gray-600">Create meetings, manage agenda + tasks, and record minutes.</p>
         </div>
+        <Button onClick={() => setOpen(true)}>Add meeting</Button>
+      </div>
 
-        <Card title="Quick Add">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="text-xs text-gray-600">New Column</label>
-              <div className="flex gap-2">
-                <Input value={newColName} onChange={(e) => setNewColName(e.target.value)} placeholder="e.g., In Progress" />
-                <Button onClick={addColumn} disabled={!newColName.trim()}>
-                  Add
-                </Button>
-              </div>
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs text-gray-600">New Card</label>
-              <div className="flex flex-wrap gap-2">
-                <select
-                  className="rounded-lg border px-3 py-2 text-sm"
-                  value={selectedColId}
-                  onChange={(e) => setSelectedColId(e.target.value)}
-                >
-                  {columns.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  value={newCardTitle}
-                  onChange={(e) => setNewCardTitle(e.target.value)}
-                  placeholder="Action item title..."
-                  className="flex-1 min-w-[240px]"
-                />
-                <Button onClick={addCard} disabled={!newCardTitle.trim() || !selectedColId}>
-                  Add
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {error && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{error}</div>}
-        </Card>
-
+      <Card title="Your meetings">
         {loading ? (
           <div className="text-sm text-gray-600">Loading...</div>
+        ) : meetings.length === 0 ? (
+          <div className="text-sm text-gray-600">No meetings yet. Click “Add meeting”.</div>
         ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={(evt) => setDraggingCardId(String(evt.active.id))}
-            onDragEnd={onDragEnd}
-          >
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {columns.map((col) => {
-                const colCardIds = cardsFor(col.id).map((c) => c.id);
-                return (
-                  <div key={col.id} className="rounded-2xl border bg-white shadow-sm p-3">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <button className="font-semibold text-sm hover:underline" onClick={() => renameColumn(col)}>
-                        {col.name}
-                      </button>
-                      <Pill>{colCardIds.length}</Pill>
-                    </div>
-
-                    <SortableContext items={colCardIds} strategy={verticalListSortingStrategy}>
-                      <div className="space-y-2 min-h-[40px]" data-col={col.id}>
-                        {/* Column drop zone */}
-                        <ColumnDropZone id={col.id} />
-                        {cardsFor(col.id).map((c) => (
-                          <KanbanCard key={c.id} card={c} onOpen={openCard} onDelete={deleteCard} />
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </div>
-                );
-              })}
-            </div>
-
-            <DragOverlay>
-              {draggingCard ? (
-                <div className="rounded-xl border bg-gray-50 p-3 shadow-lg w-64">
-                  <div className="text-sm font-medium">{draggingCard.title}</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {meetings.map((m) => (
+              <Link
+                key={m.id}
+                href={`/meetings/${m.id}`}
+                className="rounded-2xl border bg-white p-4 hover:bg-gray-50"
+              >
+                <div className="text-base font-semibold">{m.title}</div>
+                <div className="mt-1 text-sm text-gray-600">
+                  {prettyDate(m.start_at)} • {m.duration_minutes} min
                 </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
+                {m.location && <div className="text-sm text-gray-600">{m.location}</div>}
+                {m.rrule && <div className="mt-2 text-xs text-gray-500">Recurring: {m.rrule}</div>}
+              </Link>
+            ))}
+          </div>
         )}
+      </Card>
 
-        <Modal
-          open={!!activeCard}
-          title={activeCard?.title ?? ""}
-          onClose={() => setActiveCard(null)}
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setActiveCard(null)}>
-                Cancel
-              </Button>
-              <Button onClick={saveCard} disabled={savingCard}>
-                {savingCard ? "Saving..." : "Save"}
-              </Button>
-            </>
-          }
-        >
-          <div className="text-xs text-gray-500">Updated: {activeCard ? new Date(activeCard.updated_at).toLocaleString() : ""}</div>
-          <div className="mt-3">
-            <label className="text-xs text-gray-600">Notes</label>
+      <Modal
+        open={open}
+        title="Add meeting"
+        onClose={() => {
+          setOpen(false);
+          setErr(null);
+        }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={createMeeting} disabled={busy}>
+              {busy ? "Saving..." : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label className="text-xs text-gray-600">Meeting name</label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Operations Weekly" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Date/time</label>
+            <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Duration (minutes)</label>
+            <Input type="number" min={15} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Location</label>
+            <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Zoom / Office" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Frequency</label>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+              value={freq}
+              onChange={(e) => setFreq(e.target.value)}
+            >
+              <option value="none">One-time</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-xs text-gray-600">Attendee emails (comma or new line separated)</label>
             <Textarea
-              rows={10}
-              value={activeNotes}
-              onChange={(e) => setActiveNotes(e.target.value)}
-              placeholder="Type meeting notes, action details, owners, dates..."
+              rows={3}
+              value={attendees}
+              onChange={(e) => setAttendees(e.target.value)}
+              placeholder="alan@...\nnate@..."
             />
           </div>
-        </Modal>
-      </div>
-    </PageShell>
-  );
-}
-
-function KanbanCard({ card, onOpen, onDelete }: { card: CardRow; onOpen: (c: CardRow) => void; onDelete: (id: string) => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  } as React.CSSProperties;
-
-  return (
-    <div ref={setNodeRef} style={style} className={isDragging ? "opacity-60" : ""}>
-      <div className="rounded-xl border bg-gray-50 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <button className="text-sm font-medium hover:underline text-left" onClick={() => onOpen(card)}>
-            {card.title}
-          </button>
-          <button
-            className="text-xs text-gray-500 hover:text-gray-900"
-            {...attributes}
-            {...listeners}
-            title="Drag"
-          >
-            Drag
-          </button>
+          <div className="md:col-span-2">
+            <label className="text-xs text-gray-600">Default agenda topics (editable later)</label>
+            <Textarea rows={6} value={agendaSeed} onChange={(e) => setAgendaSeed(e.target.value)} />
+          </div>
         </div>
-        <div className="mt-2 flex justify-end">
-          <Button variant="ghost" onClick={() => onDelete(card.id)}>
-            Delete
-          </Button>
-        </div>
-      </div>
+        {err && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+      </Modal>
     </div>
   );
-}
-
-function ColumnDropZone({ id }: { id: string }) {
-  const { setNodeRef } = useDroppable({ id });
-  // We treat an `over.id` that matches a column id as dropping into that column.
-  return <div ref={setNodeRef} className="h-2" />;
 }
