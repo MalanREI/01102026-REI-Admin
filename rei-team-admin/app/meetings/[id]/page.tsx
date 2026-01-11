@@ -51,7 +51,7 @@ function DroppableColumn({ id, children }: { id: string; children: React.ReactNo
 }
 
 function DraggableTaskCard({ id, children }: { id: string; children: React.ReactNode }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useDraggable({ id });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
   const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.6 : 1,
