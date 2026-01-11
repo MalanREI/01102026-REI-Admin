@@ -625,7 +625,7 @@ export default function MeetingDetailPage() {
   const cols = sortByPos(columns);
 
   return (
-    <PageShell title="Meetings">
+    <PageShell>
       {!meeting ? (
         <div className="text-sm text-gray-600">Loading...</div>
       ) : (
