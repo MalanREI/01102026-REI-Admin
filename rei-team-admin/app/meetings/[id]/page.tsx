@@ -54,7 +54,6 @@ function DraggableTaskCard({ id, children }: { id: string; children: React.React
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useDraggable({ id });
   const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
-    transition,
     opacity: isDragging ? 0.6 : 1,
   };
   return (
