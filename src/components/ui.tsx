@@ -1,0 +1,128 @@
+import { ReactNode, useEffect } from "react";
+
+export function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
+  return (
+    <section className="rounded-2xl bg-white shadow-sm border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-base font-semibold">{title}</h2>
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={[
+        "w-full rounded-lg border px-3 py-2 text-sm outline-none",
+        "focus:ring-2 focus:ring-gray-300",
+        props.className ?? "",
+      ].join(" ")}
+    />
+  );
+}
+
+export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={[
+        "w-full rounded-lg border px-3 py-2 text-sm outline-none",
+        "focus:ring-2 focus:ring-gray-300",
+        props.className ?? "",
+      ].join(" ")}
+    />
+  );
+}
+
+export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" }) {
+  const variant = props.variant ?? "primary";
+  const base =
+    "rounded-lg px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed";
+  const styles =
+    variant === "primary"
+      ? "bg-gray-900 text-white hover:bg-black"
+      : "bg-transparent hover:bg-gray-100 border";
+  return <button {...props} className={[base, styles, props.className ?? ""].join(" ")} />;
+}
+
+export function Pill({ children }: { children: ReactNode }) {
+  return <span className="rounded-full border bg-gray-50 px-2 py-0.5 text-xs">{children}</span>;
+}
+
+export function Modal({
+  open,
+  title,
+  children,
+  onClose,
+  footer,
+}: {
+  open: boolean;
+  title?: string;
+  children: ReactNode;
+  onClose: () => void;
+  footer?: ReactNode;
+}) {
+  // ESC to close
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={onClose}>
+      <div
+        className="w-full max-w-2xl rounded-2xl bg-white border shadow-lg p-5"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="text-lg font-semibold">{title}</div>
+          <Button variant="ghost" onClick={onClose} aria-label="Close modal">
+            Close
+          </Button>
+        </div>
+        <div className="mt-4">{children}</div>
+        {footer && <div className="mt-4 flex justify-end gap-2">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+export function Tabs({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: Array<{ value: string; label: string }>;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-xl border bg-white p-1">
+      {tabs.map((t) => {
+        const active = t.value === value;
+        return (
+          <button
+            key={t.value}
+            onClick={() => onChange(t.value)}
+            className={[
+              "px-3 py-1.5 text-sm rounded-lg",
+              active ? "bg-gray-900 text-white" : "hover:bg-gray-50",
+            ].join(" ")}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
