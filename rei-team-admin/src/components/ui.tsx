@@ -1,3 +1,4 @@
+"use client";
 import { ReactNode, useEffect } from "react";
 
 export function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
