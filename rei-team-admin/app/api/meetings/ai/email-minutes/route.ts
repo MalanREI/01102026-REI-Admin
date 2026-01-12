@@ -164,7 +164,7 @@ export async function POST(req: Request) {
     } catch {
       // no-op
     }
-
+export { POST } from "@/app/api/meetings/ai/email-minutes/route";
     return NextResponse.json({ ok: true, sent: attendees.length });
   } catch (e: any) {
     return NextResponse.json(
