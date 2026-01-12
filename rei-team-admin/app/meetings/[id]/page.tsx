@@ -672,46 +672,73 @@ function profileName(userId: string | null | undefined): string {
   }
 
   async function stopRecordingAndUpload(): Promise<{ recordingPath: string } | null> {
-    if (!mediaRecorderRef.current) return null;
-    setRecBusy(true);
-    setRecErr(null);
+  if (!mediaRecorderRef.current) return null;
+  setRecBusy(true);
+  setRecErr(null);
 
-    try {
-      const mr = mediaRecorderRef.current;
-      mr.stop();
-      mediaRecorderRef.current = null;
-      setIsRecording(false);
-      if (tickRef.current) window.clearInterval(tickRef.current);
+  try {
+    const mr = mediaRecorderRef.current;
 
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    // Capture final chunks safely: dataavailable may fire after stop() is called.
+    const stopped = new Promise<void>((resolve) => {
+      const prevStop = mr.onstop;
+      mr.onstop = () => {
+        try {
+          // Ensure stream tracks are stopped
+          const stream = (mr as any).stream as MediaStream | undefined;
+          if (stream) stream.getTracks().forEach((t) => t.stop());
+          if (typeof prevStop === "function") prevStop.call(mr, undefined as any);
+        } finally {
+          resolve();
+        }
+      };
+    });
 
-      // Upload recording through the server route (so buckets are env-configured)
-      const form = new FormData();
-      form.append("meetingId", meetingId);
-      form.append("sessionId", currentSession!.id);
-      form.append("durationSeconds", String(recSeconds));
-      form.append("file", blob, "recording.webm");
+    mr.stop();
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+    if (tickRef.current) window.clearInterval(tickRef.current);
 
-      const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
-      const upJson = await upRes.json().catch(() => ({} as any));
-      if (!upRes.ok) throw new Error(upJson?.error || "Recording upload failed");
+    await stopped;
 
-      const rp = String(upJson?.recordingPath || "");
-      if (!rp) throw new Error("Recording upload failed (no path returned)");
+    // Small micro-wait to let the last `ondataavailable` flush in some browsers.
+    await new Promise((r) => setTimeout(r, 50));
 
-      setLastRecordingPath(rp);
-      setRecMin(true);
+    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    if (!blob || blob.size === 0) throw new Error("Recording is empty. Please try again.");
 
-      return { recordingPath: rp };
-    } catch (e: any) {
-      setRecErr(e?.message ?? "Upload failed");
-      return null;
-    } finally {
-      setRecBusy(false);
-    }
+    // Identify the current user (optional but preferred for audit trail)
+    const { data: userData } = await sb.auth.getUser();
+    const userId = userData?.user?.id ?? "";
+
+    // Upload recording through the server route (so buckets are env-configured)
+    const form = new FormData();
+    form.append("meetingId", meetingId);
+    form.append("sessionId", currentSession!.id);
+    form.append("durationSeconds", String(recSeconds));
+    if (userId) form.append("userId", userId);
+    form.append("file", blob, "recording.webm");
+
+    const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
+    const upJson = await upRes.json().catch(() => ({} as any));
+    if (!upRes.ok) throw new Error(upJson?.error || "Recording upload failed");
+
+    const rp = String(upJson?.recordingPath || "");
+    if (!rp) throw new Error("Recording upload failed (no path returned)");
+
+    setLastRecordingPath(rp);
+    setRecMin(true);
+
+    return { recordingPath: rp };
+  } catch (e: any) {
+    setRecErr(e?.message ?? "Upload failed");
+    return null;
+  } finally {
+    setRecBusy(false);
   }
+}
 
-  async function concludeMeeting() {
+async function concludeMeeting() {
   if (!currentSession?.id) return;
   setBusy(true);
   setErr(null);
@@ -1468,4 +1495,3 @@ function AddStatusRow({ onAdd }: { onAdd: (name: string) => void }) {
     </div>
   );
 }
-
