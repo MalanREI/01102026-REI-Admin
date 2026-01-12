@@ -1180,6 +1180,7 @@ setEmailSettingsOpen(false);
                       </div>
                     )}
                   </div>
+                </div>
               )}
             </div>
               </div>
