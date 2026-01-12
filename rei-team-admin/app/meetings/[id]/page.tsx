@@ -1166,17 +1166,26 @@ setEmailSettingsOpen(false);
                             <div className="flex items-center justify-between">
                               <div className="font-medium">
                                 {e.event_type}{" "}
-                                <span className="text-xs text-gray-500 font-normal">by {profileName(e.created_by ?? null)}</span>
+                                <span className="text-xs text-gray-500 font-normal">
+                                  by {profileName(e.created_by ?? null)}
+                                </span>
                               </div>
                               <div className="text-xs text-gray-500">{prettyDate(e.created_at)}</div>
                             </div>
+                    
                             {e.event_type === "comment" ? (
-                              <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{e.payload?.text ?? ""}</div>
+                              <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">
+                                {e.payload?.text ?? ""}
+                              </div>
                             ) : (
-                              <pre className="mt-2 text-xs text-gray-700 whitespace-pre-wrap">{JSON.stringify(e.payload, null, 2)}</pre>
+                              <pre className="mt-2 text-xs text-gray-700 whitespace-pre-wrap">
+                                {JSON.stringify(e.payload, null, 2)}
+                              </pre>
                             )}
                           </div>
                         ))}
+                      </div>
+                    )}
           </Modal>
 
           {/* Agenda Editor */}
