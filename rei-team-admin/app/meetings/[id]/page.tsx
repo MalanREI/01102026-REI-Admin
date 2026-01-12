@@ -248,7 +248,13 @@ function profileName(userId: string | null | undefined): string {
       { meeting_id: meetingId, name: "Waiting", position: 3 },
       { meeting_id: meetingId, name: "Completed", position: 4 },
     ];
-    await sb.from("meeting_task_statuses").insert(seed).catch(() => null as any);
+    {
+  const ins = await sb.from("meeting_task_statuses").insert(seed);
+  // ignore if table doesn't exist yet / RLS / duplicates
+  if (ins.error) {
+    // no-op
+  }
+}
 
     const again = await sb
       .from("meeting_task_statuses")
