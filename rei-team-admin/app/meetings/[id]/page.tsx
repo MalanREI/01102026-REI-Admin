@@ -340,6 +340,27 @@ function profileName(userId: string | null | undefined): string {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
 
+
+  async function ensureSelfProfile() {
+  const { data: userData } = await sb.auth.getUser();
+  const u = userData?.user;
+  if (!u?.id) return;
+
+  const fullName =
+    (u.user_metadata as any)?.full_name ||
+    (u.user_metadata as any)?.name ||
+    (u.user_metadata as any)?.fullName ||
+    null;
+
+  await sb
+    .from("profiles")
+    .upsert(
+      { id: u.id, email: u.email ?? null, full_name: fullName, updated_at: new Date().toISOString() } as any,
+      { onConflict: "id" }
+    );
+}
+
+  
   async function ensureCurrentSession() {
     if (currentSession && currentSession.ended_at === null) return currentSession;
 
@@ -692,29 +713,33 @@ function profileName(userId: string | null | undefined): string {
   }
 
   async function concludeMeeting() {
-    if (!currentSession?.id) return;
-    setBusy(true);
-    try {
-      const end = await sb
-        .from("meeting_minutes_sessions")
-        .update({ ended_at: new Date().toISOString() })
-        .eq("id", currentSession.id)
-        .select("id,started_at,ended_at")
-        .single();
-      if (end.error) throw end.error;
-      setCurrentSession(end.data as any);
+  if (!currentSession?.id) return;
+  setBusy(true);
+  setErr(null);
+  try {
+    const res = await fetch("/api/meetings/ai/conclude", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId, sessionId: currentSession.id }),
+    });
+    const j = await res.json().catch(() => ({} as any));
+    if (!res.ok) throw new Error(j?.error || "Failed to conclude meeting");
 
-      await fetch("/api/meetings/email-minutes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meetingId, sessionId: currentSession.id }),
-      }).catch(() => null);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to conclude meeting");
-    } finally {
-      setBusy(false);
-    }
+    const s = await sb
+      .from("meeting_minutes_sessions")
+      .select("id,started_at,ended_at,pdf_path")
+      .eq("id", currentSession.id)
+      .single();
+    if (!s.error) setCurrentSession(s.data as any);
+
+    if (j?.pdfUrl) window.open(j.pdfUrl, "_blank", "noopener,noreferrer");
+  } catch (e: any) {
+    setErr(e?.message ?? "Failed to conclude meeting");
+  } finally {
+    setBusy(false);
   }
+}
+
 
   async function loadPreviousSessions() {
     const s = await sb
@@ -853,8 +878,8 @@ setEmailSettingsOpen(false);
 
           {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
 
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-1 space-y-6">
+          <div className="flex flex-col lg:flex-row gap-6">
+            <div className={["space-y-6 w-full", agendaCollapsed ? "lg:w-[72px]" : "lg:w-[420px]"].join(" ")}>
               <Card
                 title="Agenda + Minutes"
                 right={
@@ -905,7 +930,7 @@ setEmailSettingsOpen(false);
               </Card>
             </div>
 
-            <div className="lg:col-span-2 space-y-6">
+            <div className="flex-1 space-y-6">
               <Card
                 title="Tasks Board"
                 right={<div className="text-xs text-gray-500">Drag cards between columns • Scroll horizontally if needed</div>}
@@ -994,10 +1019,12 @@ setEmailSettingsOpen(false);
             <div className="space-y-4">
               <div className="rounded-xl border p-3">
                 {!titleEditMode ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xl font-semibold leading-tight">{tTitle || "Untitled task"}</div>
+                  <div className="relative">
+                    <div className="text-center text-xl md:text-2xl font-semibold leading-tight tracking-tight text-gray-900">
+                      {tTitle || "Untitled task"}
+                    </div>
                     <button
-                      className="rounded-lg border px-2 py-1 text-sm hover:bg-gray-50"
+                      className="absolute right-0 top-0 rounded-lg border px-2 py-1 text-sm hover:bg-gray-50"
                       onClick={() => setTitleEditMode(true)}
                       aria-label="Edit title"
                       type="button"
