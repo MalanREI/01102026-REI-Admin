@@ -741,11 +741,22 @@ function profileName(userId: string | null | undefined): string {
     if (!meeting) return;
     setBusy(true);
     try {
-      await sb
-        .from("meeting_email_settings")
-        .upsert({ meeting_id: meetingId, reminder_frequency: reminderFreq, updated_at: new Date().toISOString() }, { onConflict: "meeting_id" })
-        .catch(() => null as any);
-      setEmailSettingsOpen(false);
+      {
+  const up = await sb
+    .from("meeting_email_settings")
+    .upsert(
+      { meeting_id: meetingId, reminder_frequency: reminderFreq, updated_at: new Date().toISOString() },
+      { onConflict: "meeting_id" }
+    );
+
+  // ignore if table not migrated yet / RLS / etc.
+  if (up.error) {
+    // no-op
+  }
+}
+
+setEmailSettingsOpen(false);
+
     } finally {
       setBusy(false);
     }
