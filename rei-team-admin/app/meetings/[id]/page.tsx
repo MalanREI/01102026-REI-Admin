@@ -128,7 +128,9 @@ export default function MeetingDetailPage() {
   const [prevSessions, setPrevSessions] = useState<MinutesSession[]>([]);
   const [statusMgrOpen, setStatusMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
-  const [reminderFreq, setReminderFreq] = useState<"none" | "daily" | "weekly">("weekly");
+  const [reminderFreq, setReminderFreq] = useState<
+  "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly" >("weekly");
+
 
   // Task modal
   const [taskOpen, setTaskOpen] = useState(false);
