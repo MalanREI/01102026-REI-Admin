@@ -1,8 +1,6 @@
 {
   "crons": [
-    {
-      "path": "app/api/meetings/ai/cron/meeting-reminders",
-      "schedule": "0 17 * * *"
-    }
+    { "path": "app/api/meetings/ai/cron/meeting-reminders", "schedule": "0 16 * * *" },
+    { "path": "app/api/meetings/ai/cron/meeting-reminders", "schedule": "0 17 * * *" }
   ]
 }
