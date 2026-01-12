@@ -19,7 +19,26 @@ function shouldSend(frequency: string, lastSentAt: string | null): boolean {
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
   if (frequency === "daily") return diffDays >= 1;
+
+  if (frequency === "weekdays") {
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "short" })
+      .format(now)
+      .toLowerCase();
+    const isWeekend = weekday.startsWith("sat") || weekday.startsWith("sun");
+    if (isWeekend) return false;
+    return diffDays >= 1;
+  }
+
   if (frequency === "weekly") return diffDays >= 7;
+  if (frequency === "biweekly") return diffDays >= 14;
+
+  if (frequency === "monthly") {
+    const lastLa = new Date(last.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    const nowLa = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    const newMonth = nowLa.getFullYear() !== lastLa.getFullYear() || nowLa.getMonth() !== lastLa.getMonth();
+    return newMonth && diffDays >= 28;
+  }
+
   return false;
 }
 
