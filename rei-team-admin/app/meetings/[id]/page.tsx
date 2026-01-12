@@ -714,7 +714,7 @@ async function stopRecordingAndUpload() {
 }
 
 
-  async function concludeMeeting() {
+async function concludeMeeting() {
   if (!currentSession?.id) return;
   setBusy(true);
   setErr(null);
@@ -727,21 +727,14 @@ async function stopRecordingAndUpload() {
     const j = await res.json().catch(() => ({} as any));
     if (!res.ok) throw new Error(j?.error || "Failed to conclude meeting");
 
-    const s = await sb
-      .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at,pdf_path")
-      .eq("id", currentSession.id)
-      .single();
-    if (!s.error) setCurrentSession(s.data as any);
-
-    if (j?.pdfUrl) window.open(j.pdfUrl, "_blank", "noopener,noreferrer");
+    // refresh previous sessions list so the PDF shows up there
+    await loadPreviousSessions();
   } catch (e: any) {
     setErr(e?.message ?? "Failed to conclude meeting");
   } finally {
     setBusy(false);
   }
 }
-
 
   async function loadPreviousSessions() {
     const s = await sb
