@@ -167,11 +167,37 @@ export default function MeetingDetailPage() {
     return p?.color_hex || "#E5E7EB";
   }
 
-  function profileName(userId: string | null | undefined): string {
-    if (!userId) return "Unknown";
-    const p = profiles.find((x) => x.id === userId);
-    return p?.full_name?.trim() || p?.email?.trim() || "Unknown";
-  }
+function firstNameFromFullName(fullName: string | null | undefined): string | null {
+  const s = (fullName ?? "").trim();
+  if (!s) return null;
+  const parts = s.split(/\s+/).filter(Boolean);
+  return parts[0] ?? null;
+}
+
+function firstNameFromEmail(email: string | null | undefined): string | null {
+  const s = (email ?? "").trim();
+  if (!s || !s.includes("@")) return null;
+  const local = s.split("@")[0] ?? "";
+  const cleaned = local.replace(/[._-]+/g, " ").trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  const guess = parts[0] ?? null;
+  if (!guess) return null;
+  return guess.charAt(0).toUpperCase() + guess.slice(1);
+}
+
+function profileName(userId: string | null | undefined): string {
+  if (!userId) return "Unknown";
+  const p = profiles.find((x) => x.id === userId);
+
+  const fn = firstNameFromFullName(p?.full_name);
+  if (fn) return fn;
+
+  const fe = firstNameFromEmail(p?.email);
+  if (fe) return fe;
+
+  return "Unknown";
+}
+
 
   async function loadAgendaNotes(sessionId: string, isCurrent: boolean) {
     const n = await sb.from("meeting_agenda_notes").select("agenda_item_id,notes").eq("session_id", sessionId);
