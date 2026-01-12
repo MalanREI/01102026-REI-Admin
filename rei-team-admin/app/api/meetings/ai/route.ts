@@ -1,107 +1,128 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
 
-type Payload = { meetingId: string; sessionId: string; recordingPath: string };
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing ${name}`);
+  return v;
+}
+
+function escapeIcsText(s: string) {
+  return String(s)
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function buildIcs(opts: {
+  uid: string;
+  start: Date;
+  end: Date;
+  summary: string;
+  description?: string;
+  location?: string | null;
+  organizerEmail: string;
+  attendees: string[];
+  url?: string;
+}) {
+  const dt = (d: Date) =>
+    d
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}Z$/, "Z");
+
+  const lines: string[] = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//REI Admin//Meetings//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:REQUEST",
+    "BEGIN:VEVENT",
+    `UID:${opts.uid}`,
+    `DTSTAMP:${dt(new Date())}`,
+    `DTSTART:${dt(opts.start)}`,
+    `DTEND:${dt(opts.end)}`,
+    `SUMMARY:${escapeIcsText(opts.summary)}`,
+    opts.location ? `LOCATION:${escapeIcsText(opts.location)}` : "",
+    opts.url ? `URL:${escapeIcsText(opts.url)}` : "",
+    opts.description ? `DESCRIPTION:${escapeIcsText(opts.description)}` : "",
+    `ORGANIZER:MAILTO:${opts.organizerEmail}`,
+    ...opts.attendees.map((a) => `ATTENDEE;ROLE=REQ-PARTICIPANT;RSVP=TRUE:MAILTO:${a}`),
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].filter(Boolean);
+
+  return lines.join("\r\n");
+}
 
 export async function POST(req: Request) {
-  const payload = (await req.json().catch(() => null)) as Payload | null;
-  if (!payload?.meetingId || !payload?.sessionId || !payload?.recordingPath) {
-    return NextResponse.json({ ok: false, error: "Missing meetingId/sessionId/recordingPath" }, { status: 400 });
-  }
-
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    // Not configured; still ok.
-    return NextResponse.json({ ok: true, skipped: true });
-  }
-
-  const admin = supabaseAdmin();
-
-  // 1) Get a signed URL for the audio file
-  const signed = await admin.storage.from("recordings").createSignedUrl(payload.recordingPath, 60);
-  if (signed.error || !signed.data?.signedUrl) {
-    return NextResponse.json({ ok: false, error: signed.error?.message ?? "Could not sign URL" }, { status: 500 });
-  }
-
-  // 2) Fetch audio bytes
-  const audioRes = await fetch(signed.data.signedUrl);
-  if (!audioRes.ok) {
-    return NextResponse.json({ ok: false, error: "Could not fetch audio" }, { status: 500 });
-  }
-  const audioBuf = await audioRes.arrayBuffer();
-
-  // 3) Transcribe
-  const openai = new OpenAI({ apiKey: openaiKey });
-  const transcribeModel = process.env.OPENAI_TRANSCRIBE_MODEL || "whisper-1";
-  const file = new File([audioBuf], "meeting.webm", { type: "audio/webm" });
-
-  const transcriptResp = await openai.audio.transcriptions.create({
-    file,
-    model: transcribeModel,
-  });
-  const transcript = transcriptResp.text || "";
-
-  // Save transcript onto the recording row
-  await admin
-    .from("meeting_recordings")
-    .update({ transcript })
-    .eq("session_id", payload.sessionId)
-    .eq("storage_path", payload.recordingPath);
-
-  // 4) Summarize into agenda notes (JSON keyed by agenda_item_id)
-  const agenda = await admin
-    .from("meeting_agenda_items")
-    .select("id,code,title,description,position")
-    .eq("meeting_id", payload.meetingId)
-    .order("position", { ascending: true });
-
-  if (agenda.error) {
-    return NextResponse.json({ ok: true, transcript, summarized: false, error: agenda.error.message });
-  }
-
-  const items = agenda.data ?? [];
-  const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
-
-  const sys =
-    "You are an assistant that turns a meeting transcript into agenda-topic minutes. " +
-    "Return STRICT JSON only (no markdown). Keys must be agenda_item_id and values must be concise notes. " +
-    "If a topic was not discussed, return an empty string for that topic.";
-
-  const user = {
-    meetingId: payload.meetingId,
-    sessionId: payload.sessionId,
-    agenda: items.map((x: any) => ({ id: x.id, code: x.code, title: x.title, description: x.description })),
-    transcript,
-  };
-
-  const completion = await openai.chat.completions.create({
-    model: chatModel,
-    temperature: 0.2,
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: JSON.stringify(user) },
-    ],
-    response_format: { type: "json_object" },
-  });
-
-  const content = completion.choices?.[0]?.message?.content || "{}";
-  let notesById: Record<string, string> = {};
   try {
-    notesById = JSON.parse(content);
-  } catch {
-    notesById = {};
+    const { meetingId } = (await req.json()) as { meetingId?: string };
+    if (!meetingId) return NextResponse.json({ error: "meetingId required" }, { status: 400 });
+
+    const admin = supabaseAdmin();
+
+    const m = await admin
+      .from("meetings")
+      .select("id,title,location,start_at,duration_minutes")
+      .eq("id", meetingId)
+      .single();
+    if (m.error) throw m.error;
+
+    const a = await admin.from("meeting_attendees").select("email").eq("meeting_id", meetingId);
+    if (a.error) throw a.error;
+
+    const attendees = (a.data ?? []).map((x: any) => String(x.email).trim()).filter(Boolean);
+    if (!attendees.length) return NextResponse.json({ ok: true, skipped: "no attendees" });
+
+    const smtpHost = requireEnv("SMTP_HOST");
+    const smtpPort = Number(requireEnv("SMTP_PORT"));
+    const smtpUser = requireEnv("SMTP_USER");
+    const smtpPass = requireEnv("SMTP_PASS");
+    const fromEmail = requireEnv("SMTP_FROM");
+    const baseUrl = process.env.APP_BASE_URL || new URL(req.url).origin;
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+
+    const start = new Date(m.data.start_at);
+    const end = new Date(start.getTime() + Number(m.data.duration_minutes || 60) * 60_000);
+
+    const url = `${baseUrl}/meetings/${meetingId}`;
+    const uid = `rei-meeting-${meetingId}@renewableenergyincentives.com`;
+    const ics = buildIcs({
+      uid,
+      start,
+      end,
+      summary: m.data.title,
+      description: `REI meeting. Open the meeting page for agenda, tasks, and minutes: ${url}`,
+      location: m.data.location,
+      organizerEmail: fromEmail,
+      attendees,
+      url,
+    });
+
+    await transporter.sendMail({
+      from: fromEmail,
+      to: attendees.join(","),
+      subject: `Invite: ${m.data.title}`,
+      text: `You have been invited to: ${m.data.title}\nWhen: ${start.toLocaleString()}\nWhere: ${
+        m.data.location ?? "(not set)"
+      }\nLink: ${url}`,
+      icalEvent: {
+        method: "REQUEST",
+        content: ics,
+      },
+    });
+
+    return NextResponse.json({ ok: true, invited: attendees.length });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Invite failed" }, { status: 500 });
   }
-
-  // Upsert notes into meeting_agenda_notes
-  const upserts = items.map((i: any) => ({
-    session_id: payload.sessionId,
-    agenda_item_id: i.id,
-    notes: typeof notesById[i.id] === "string" ? notesById[i.id] : "",
-    updated_at: new Date().toISOString(),
-  }));
-
-  await admin.from("meeting_agenda_notes").upsert(upserts, { onConflict: "session_id,agenda_item_id" });
-
-  return NextResponse.json({ ok: true, transcript, summarized: true });
 }
