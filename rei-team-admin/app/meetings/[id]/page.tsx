@@ -760,9 +760,6 @@ function profileName(userId: string | null | undefined): string {
   }
 }
 
-}
-
-
   async function loadPreviousSessions() {
     const s = await sb
       .from("meeting_minutes_sessions")
