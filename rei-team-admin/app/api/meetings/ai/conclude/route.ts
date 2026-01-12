@@ -9,92 +9,52 @@ function requireEnv(name: string): string {
   return v;
 }
 
-function escapeHtml(s: string) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-async function makeMinutesPdf(opts: {
-  meeting: { title: string; location: string | null; start_at: string; duration_minutes: number };
+async function buildPdf(opts: {
+  title: string;
+  when: string;
+  location: string | null;
   attendees: string[];
-  agenda: Array<{ code: string | null; title: string; description: string | null; notes: string; prevNotes: string }>;
-  tasks: Array<{ title: string; column: string; status: string; priority: string; owner: string; due: string | null }>;
+  tasks: Array<{ title: string; status: string; priority: string; owner: string; due: string | null; column: string }>;
+  agenda: Array<{ label: string; notes: string; prevNotes: string }>;
 }) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const margin = 48;
-  const lineH = 14;
-  let page = pdf.addPage();
-  let { width, height } = page.getSize();
+  const page = pdf.addPage();
+  const { width, height } = page.getSize();
+
+  const margin = 40;
   let y = height - margin;
 
-  const wrapText = (text: string, f: any, size: number, maxWidth: number) => {
-    const words = String(text).replace(/\r/g, "").split(/\s+/g).filter(Boolean);
-    const out: string[] = [];
-    let cur = "";
-    for (const w of words) {
-      const next = cur ? cur + " " + w : w;
-      const wWidth = f.widthOfTextAtSize(next, size);
-      if (wWidth <= maxWidth) cur = next;
-      else {
-        if (cur) out.push(cur);
-        cur = w;
-      }
-    }
-    if (cur) out.push(cur);
-    return out.length ? out : [""];
+  const line = (text: string, isBold = false, size = 11) => {
+    const f = isBold ? bold : font;
+    page.drawText(text, { x: margin, y, size, font: f });
+    y -= size + 6;
   };
 
-  const writeLine = (text: string, bold = false, size = 11) => {
-    const f = bold ? fontBold : font;
-    const lines = wrapText(text, f, size, width - margin * 2);
-    for (const ln of lines) {
-      if (y < margin + lineH * 2) {
-        page = pdf.addPage();
-        ({ width, height } = page.getSize());
-        y = height - margin;
-      }
-      page.drawText(ln, { x: margin, y, size, font: f });
-      y -= lineH;
-    }
-  };
+  line("REI — MEETING MINUTES", true, 16);
+  line(`Meeting: ${opts.title}`, true, 12);
+  line(`When: ${opts.when}`);
+  if (opts.location) line(`Location: ${opts.location}`);
+  line(`Attendees: ${opts.attendees.join(", ") || "(none)"}`);
+  y -= 8;
 
-  writeLine("RENEWABLE ENERGY INCENTIVES", true, 12);
-  writeLine("MEETING MINUTES", true, 18);
-  writeLine(`Meeting: ${opts.meeting.title}`, true, 12);
-  writeLine(`When: ${new Date(opts.meeting.start_at).toLocaleString()}`);
-  writeLine(`Duration: ${opts.meeting.duration_minutes} minutes`);
-  if (opts.meeting.location) writeLine(`Location: ${opts.meeting.location}`);
-  if (opts.attendees.length) writeLine(`Attendees: ${opts.attendees.join(", ")}`);
-  y -= 10;
-
-  writeLine("OPEN TASKS", true, 14);
-  if (!opts.tasks.length) {
-    writeLine("(No open tasks)");
-  } else {
-    for (const t of opts.tasks) {
-      writeLine(`${t.column} • ${t.status} • ${t.priority} • ${t.owner}${t.due ? " • Due " + t.due : ""}`, false, 10);
-      writeLine(`- ${t.title}`, true, 11);
-      y -= 4;
-    }
+  line("OPEN TASKS", true, 13);
+  if (!opts.tasks.length) line("(No open tasks)");
+  for (const t of opts.tasks) {
+    line(`• ${t.title}`, true, 11);
+    line(`  ${t.column} | ${t.status} | ${t.priority} | ${t.owner}${t.due ? " | Due: " + t.due : ""}`, false, 10);
+    y -= 2;
   }
-  y -= 10;
 
-  writeLine("AGENDA + MINUTES", true, 14);
+  y -= 8;
+  line("AGENDA NOTES", true, 13);
   for (const a of opts.agenda) {
-    writeLine(`${a.code ? a.code + " - " : ""}${a.title}`, true, 12);
-    if (a.description) writeLine(a.description, false, 10);
-    writeLine("Current meeting notes:", true, 10);
-    writeLine(a.notes || "(No notes)", false, 10);
-    writeLine("Previous meeting notes:", true, 10);
-    writeLine(a.prevNotes || "(No previous notes)", false, 10);
-    y -= 8;
+    line(a.label, true, 11);
+    line(`Current: ${a.notes || "(none)"}`, false, 10);
+    line(`Previous: ${a.prevNotes || "(none)"}`, false, 10);
+    y -= 4;
   }
 
   return pdf.save();
@@ -103,17 +63,20 @@ async function makeMinutesPdf(opts: {
 export async function POST(req: Request) {
   try {
     const { meetingId, sessionId } = (await req.json()) as { meetingId?: string; sessionId?: string };
-    if (!meetingId || !sessionId) return NextResponse.json({ error: "meetingId + sessionId required" }, { status: 400 });
+    if (!meetingId || !sessionId) {
+      return NextResponse.json({ error: "meetingId + sessionId required" }, { status: 400 });
+    }
 
     const admin = supabaseAdmin();
 
-    const endRes = await admin
+    // End session
+    const ended = await admin
       .from("meeting_minutes_sessions")
       .update({ ended_at: new Date().toISOString() })
       .eq("id", sessionId)
-      .select("id,meeting_id,started_at,ended_at,pdf_path")
+      .select("id,meeting_id,started_at,ended_at")
       .single();
-    if (endRes.error) throw endRes.error;
+    if (ended.error) throw ended.error;
 
     const meetingRes = await admin
       .from("meetings")
@@ -128,82 +91,94 @@ export async function POST(req: Request) {
 
     const agendaRes = await admin
       .from("meeting_agenda_items")
-      .select("id,code,title,description,position")
+      .select("id,code,title,position")
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
     if (agendaRes.error) throw agendaRes.error;
 
-    const notesRes = await admin.from("meeting_agenda_notes").select("agenda_item_id,notes").eq("session_id", sessionId);
+    const notesRes = await admin
+      .from("meeting_agenda_notes")
+      .select("agenda_item_id,notes")
+      .eq("session_id", sessionId);
     if (notesRes.error) throw notesRes.error;
 
-    const prevRes = await admin
+    // Previous session notes (latest session before current)
+    const prevSessionRes = await admin
       .from("meeting_minutes_sessions")
       .select("id,started_at")
       .eq("meeting_id", meetingId)
-      .lt("started_at", endRes.data.started_at)
+      .lt("started_at", ended.data.started_at)
       .order("started_at", { ascending: false })
       .limit(1);
 
-    const prevSessionId = (prevRes.data ?? [])[0]?.id ?? null;
-    let prevNotesByAgenda: Record<string, string> = {};
+    const prevSessionId = (prevSessionRes.data ?? [])[0]?.id ?? null;
+
+    let prevNotesMap: Record<string, string> = {};
     if (prevSessionId) {
       const pn = await admin.from("meeting_agenda_notes").select("agenda_item_id,notes").eq("session_id", prevSessionId);
       if (!pn.error) {
-        for (const row of pn.data ?? []) prevNotesByAgenda[String((row as any).agenda_item_id)] = String((row as any).notes ?? "");
+        for (const r of pn.data ?? []) prevNotesMap[String((r as any).agenda_item_id)] = String((r as any).notes ?? "");
       }
     }
 
-    const notesByAgenda: Record<string, string> = {};
-    for (const row of notesRes.data ?? []) notesByAgenda[String((row as any).agenda_item_id)] = String((row as any).notes ?? "");
+    const notesMap: Record<string, string> = {};
+    for (const r of notesRes.data ?? []) notesMap[String((r as any).agenda_item_id)] = String((r as any).notes ?? "");
 
+    // OPEN tasks only
     const tasksRes = await admin
       .from("meeting_tasks")
-      .select("id,title,status,priority,owner_id,due_date,column_id")
+      .select("title,status,priority,owner_id,due_date,column_id")
       .eq("meeting_id", meetingId)
-      .neq("status", "Completed")
-      .order("updated_at", { ascending: false });
+      .neq("status", "Completed");
 
     const colsRes = await admin.from("meeting_task_columns").select("id,name").eq("meeting_id", meetingId);
-    const profilesRes = await admin.from("profiles").select("id,full_name,email");
+    const profRes = await admin.from("profiles").select("id,full_name,email");
 
-    const colNameById = new Map((colsRes.data ?? []).map((c: any) => [String(c.id), String(c.name)]));
-    const ownerNameById = new Map(
-      (profilesRes.data ?? []).map((p: any) => [String(p.id), String(p.full_name?.trim() || p.email?.trim() || "Unassigned")])
+    const colName = new Map((colsRes.data ?? []).map((c: any) => [String(c.id), String(c.name)]));
+    const ownerName = new Map(
+      (profRes.data ?? []).map((p: any) => [
+        String(p.id),
+        String(p.full_name?.trim() || p.email?.trim() || "Unassigned"),
+      ])
     );
 
-    const agenda = (agendaRes.data ?? []).map((a: any) => {
-      const id = String(a.id);
-      return {
-        code: a.code ? String(a.code) : null,
-        title: String(a.title ?? ""),
-        description: a.description ? String(a.description) : null,
-        notes: String(notesByAgenda[id] ?? "").trim(),
-        prevNotes: String(prevNotesByAgenda[id] ?? "").trim(),
-      };
-    });
-
-    const tasks = ((tasksRes.data ?? []) as any[]).map((t) => ({
+    const tasks = (tasksRes.data ?? []).map((t: any) => ({
       title: String(t.title ?? ""),
-      column: colNameById.get(String(t.column_id)) ?? "",
       status: String(t.status ?? ""),
       priority: String(t.priority ?? ""),
-      owner: t.owner_id ? ownerNameById.get(String(t.owner_id)) ?? "Unassigned" : "Unassigned",
+      owner: t.owner_id ? ownerName.get(String(t.owner_id)) ?? "Unassigned" : "Unassigned",
       due: t.due_date ? String(t.due_date) : null,
+      column: colName.get(String(t.column_id)) ?? "",
     }));
 
-    const pdfBytes = await makeMinutesPdf({ meeting: meetingRes.data, attendees, agenda, tasks });
+    const agenda = (agendaRes.data ?? []).map((a: any) => ({
+      label: `${a.code ? a.code + " - " : ""}${String(a.title ?? "")}`,
+      notes: String(notesMap[String(a.id)] ?? "").trim(),
+      prevNotes: String(prevNotesMap[String(a.id)] ?? "").trim(),
+    }));
+
+    const pdfBytes = await buildPdf({
+      title: meetingRes.data.title,
+      when: new Date(meetingRes.data.start_at).toLocaleString(),
+      location: meetingRes.data.location,
+      attendees,
+      tasks,
+      agenda,
+    });
 
     const pdfBucket = requireEnv("MINUTES_PDF_BUCKET");
     const pdfPath = `meetings/${meetingId}/sessions/${sessionId}/minutes.pdf`;
 
-    const up = await admin.storage.from(pdfBucket).upload(pdfPath, pdfBytes, { contentType: "application/pdf", upsert: true });
-    if (up.error) throw up.error;
+    const upPdf = await admin.storage.from(pdfBucket).upload(pdfPath, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+    if (upPdf.error) throw upPdf.error;
 
-    await admin.from("meeting_minutes_sessions").update({ pdf_path: pdfPath }).eq("id", sessionId);
+    // store path for “View Previous Meetings”
+    await admin.from("meeting_minutes_sessions").update({ pdf_path: pdfPath } as any).eq("id", sessionId);
 
-    const signed = await admin.storage.from(pdfBucket).createSignedUrl(pdfPath, 60 * 60 * 24 * 30);
-    const pdfUrl = signed.data?.signedUrl ?? null;
-
+    // email pdf
     if (attendees.length) {
       const transporter = nodemailer.createTransport({
         host: requireEnv("SMTP_HOST"),
@@ -212,44 +187,18 @@ export async function POST(req: Request) {
         auth: { user: requireEnv("SMTP_USER"), pass: requireEnv("SMTP_PASS") },
       });
 
-      const fromEmail = requireEnv("SMTP_FROM");
-      const baseUrl = process.env.APP_BASE_URL || new URL(req.url).origin;
-      const meetingUrl = `${baseUrl}/meetings/${meetingId}`;
-      const started = new Date(meetingRes.data.start_at);
-
-      const html = `
-        <div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:#f9fafb; padding:20px;">
-          <div style="max-width:720px; margin:0 auto;">
-            <div style="background:#111827; color:white; padding:16px 18px; border-radius:18px;">
-              <div style="font-size:18px; font-weight:800;">Meeting Minutes (PDF)</div>
-              <div style="opacity:.9; margin-top:4px; font-size:13px;">${escapeHtml(meetingRes.data.title)} • ${started.toLocaleString()}</div>
-              <div style="opacity:.9; margin-top:6px; font-size:13px;">Meeting page: <a href="${meetingUrl}" style="color:white; text-decoration:underline;">${meetingUrl}</a></div>
-              ${pdfUrl ? `<div style="opacity:.9; margin-top:6px; font-size:13px;">PDF link: <a href="${pdfUrl}" style="color:white; text-decoration:underline;">Open PDF</a></div>` : ""}
-            </div>
-            <div style="margin-top:12px; color:#6b7280; font-size:12px;">The PDF is also attached to this email.</div>
-          </div>
-        </div>
-      `;
-
       await transporter.sendMail({
-        from: fromEmail,
+        from: requireEnv("SMTP_FROM"),
         to: attendees.join(","),
-        subject: `Minutes PDF: ${meetingRes.data.title} (${started.toLocaleDateString()})`,
-        html,
-        text: `Minutes PDF: ${meetingRes.data.title}\nMeeting page: ${meetingUrl}${pdfUrl ? `\nPDF: ${pdfUrl}` : ""}`,
+        subject: `Minutes PDF: ${meetingRes.data.title} (${new Date(meetingRes.data.start_at).toLocaleDateString()})`,
+        text: "Meeting minutes PDF attached.",
         attachments: [
           { filename: `Minutes - ${meetingRes.data.title}.pdf`, content: Buffer.from(pdfBytes), contentType: "application/pdf" },
         ],
       });
-
-      try {
-        await admin.from("meeting_email_settings").upsert({ meeting_id: meetingId, last_sent_at: new Date().toISOString() }, { onConflict: "meeting_id" });
-      } catch {
-        // no-op
-      }
     }
 
-    return NextResponse.json({ ok: true, pdfUrl });
+    return NextResponse.json({ ok: true, pdfPath });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Conclude failed" }, { status: 500 });
   }
