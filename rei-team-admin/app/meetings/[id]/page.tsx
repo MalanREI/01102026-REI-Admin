@@ -846,7 +846,7 @@ async function selectPreviousSession(sessionId: string) {
     }
     await sb.from("meeting_task_statuses").delete().eq("id", id);
     setStatuses((prev) => prev.filter((s) => s.id !== id));
-
+    } 
   useEffect(() => {
     void loadReminderSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
