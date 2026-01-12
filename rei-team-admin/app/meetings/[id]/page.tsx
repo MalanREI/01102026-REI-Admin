@@ -16,6 +16,7 @@ import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import { Button, Card, Input, Modal, Pill, Textarea } from "@/src/components/ui";
 import { prettyDate } from "@/src/lib/format";
 import { PageShell } from "@/src/components/PageShell";
+import ResizableSidebar from "@/src/components/ResizableSidebar";
 
 type Meeting = {
   id: string;
@@ -874,6 +875,23 @@ setEmailSettingsOpen(false);
           </div>
 
           {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+
+                        <ResizableSidebar
+                storageKey={`meetings:${meetingId}:agenda`}
+                defaultWidth={420}
+                minWidth={300}
+                maxWidth={620}
+                collapsedWidth={56}
+                sidebar={
+                  <div className="space-y-6">
+                    {/* MOVE your existing Agenda + Minutes JSX here */}
+                  </div>
+                }
+              >
+                <div className="space-y-6">
+                  {/* MOVE your existing Tasks Board JSX here */}
+                </div>
+              </ResizableSidebar>
 
           <div className="flex flex-col lg:flex-row gap-6">
             <div className={["space-y-6 w-full", agendaCollapsed ? "lg:w-[72px]" : "lg:w-[420px]"].join(" ")}>
