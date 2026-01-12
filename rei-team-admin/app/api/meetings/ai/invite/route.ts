@@ -120,7 +120,7 @@ export async function POST(req: Request) {
         content: ics,
       },
     });
-
+export { POST } from "@/app/api/meetings/ai/invite/route";
     return NextResponse.json({ ok: true, invited: attendees.length });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Invite failed" }, { status: 500 });
