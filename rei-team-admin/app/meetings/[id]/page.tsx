@@ -1183,8 +1183,6 @@ setEmailSettingsOpen(false);
                 </div>
               )}
             </div>
-              </div>
-            </div>
           </Modal>
 
           {/* Agenda Editor */}
