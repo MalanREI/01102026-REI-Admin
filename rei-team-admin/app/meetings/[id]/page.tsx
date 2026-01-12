@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
@@ -24,11 +24,14 @@ type Meeting = {
   start_at: string;
   duration_minutes: number;
   rrule: string | null;
+  minutes_reminder_frequency?: "none" | "daily" | "weekly" | null;
 };
 
-type Profile = { id: string; full_name: string | null; color_hex: string | null };
+type Profile = { id: string; full_name: string | null; email?: string | null; color_hex: string | null };
 
 type Column = { id: string; name: string; position: number };
+
+type StatusOpt = { id: string; name: string; position: number };
 
 type Task = {
   id: string;
@@ -77,23 +80,16 @@ function DroppableColumn({ id, children }: { id: string; children: React.ReactNo
   return (
     <div
       ref={setNodeRef}
-      className={[
-        "rounded-2xl border bg-gray-50 p-3 min-h-[200px]",
-        isOver ? "ring-2 ring-gray-300" : "",
-      ].join(" ")}
+      className={["rounded-2xl border bg-gray-50 p-3 min-h-[200px]", isOver ? "ring-2 ring-gray-300" : ""].join(
+        " "
+      )}
     >
       {children}
     </div>
   );
 }
 
-function DraggableTaskCard({
-  id,
-  children,
-}: {
-  id: string;
-  children: React.ReactNode;
-}) {
+function DraggableTaskCard({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
   const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
@@ -108,24 +104,31 @@ function DraggableTaskCard({
 
 export default function MeetingDetailPage() {
   const params = useParams<{ id: string }>();
+  const search = useSearchParams();
   const meetingId = params.id;
-  const sb = useMemo(() => supabaseBrowser(), []);
 
-  // Fix: allow click-to-open reliably; drag requires intentional movement
+  const sb = useMemo(() => supabaseBrowser(), []);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
+  const [statuses, setStatuses] = useState<StatusOpt[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agenda, setAgenda] = useState<AgendaItem[]>([]);
   const [currentSession, setCurrentSession] = useState<MinutesSession | null>(null);
   const [prevSession, setPrevSession] = useState<MinutesSession | null>(null);
   const [agendaNotes, setAgendaNotes] = useState<Record<string, string>>({});
   const [prevAgendaNotes, setPrevAgendaNotes] = useState<Record<string, string>>({});
-
-  // Task “last update” (card footer)
   const [latestEventByTask, setLatestEventByTask] = useState<LatestEventMap>({});
+
+  // UI toggles
+  const [agendaCollapsed, setAgendaCollapsed] = useState(false);
+  const [prevMeetingsOpen, setPrevMeetingsOpen] = useState(false);
+  const [prevSessions, setPrevSessions] = useState<MinutesSession[]>([]);
+  const [statusMgrOpen, setStatusMgrOpen] = useState(false);
+  const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
+  const [reminderFreq, setReminderFreq] = useState<"none" | "daily" | "weekly">("weekly");
 
   // Task modal
   const [taskOpen, setTaskOpen] = useState(false);
@@ -139,13 +142,15 @@ export default function MeetingDetailPage() {
   const [tNotes, setTNotes] = useState("");
   const [tColumnId, setTColumnId] = useState<string>("");
   const [tEvents, setTEvents] = useState<TaskEvent[]>([]);
+  const [titleEditMode, setTitleEditMode] = useState(false);
+  const [commentText, setCommentText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   // Agenda edit
   const [agendaOpen, setAgendaOpen] = useState(false);
 
-  // Recording (Fixes: collapsible / no minimum duration / supports 2hr)
+  // Recording
   const [recOpen, setRecOpen] = useState(false);
   const [recMin, setRecMin] = useState(true);
   const [recBusy, setRecBusy] = useState(false);
@@ -165,7 +170,7 @@ export default function MeetingDetailPage() {
   function profileName(userId: string | null | undefined): string {
     if (!userId) return "Unknown";
     const p = profiles.find((x) => x.id === userId);
-    return p?.full_name || userId.slice(0, 8);
+    return p?.full_name?.trim() || p?.email?.trim() || "Unknown";
   }
 
   async function loadAgendaNotes(sessionId: string, isCurrent: boolean) {
@@ -199,8 +204,37 @@ export default function MeetingDetailPage() {
     setLatestEventByTask(latest);
   }
 
+  async function ensureDefaultStatuses(meetingId: string) {
+    const s = await sb
+      .from("meeting_task_statuses")
+      .select("id,name,position")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true });
+
+    if (!s.error && (s.data?.length ?? 0) > 0) {
+      setStatuses((s.data ?? []) as any);
+      return;
+    }
+
+    const seed = [
+      { meeting_id: meetingId, name: "In Progress", position: 1 },
+      { meeting_id: meetingId, name: "Needs Review", position: 2 },
+      { meeting_id: meetingId, name: "Waiting", position: 3 },
+      { meeting_id: meetingId, name: "Completed", position: 4 },
+    ];
+    await sb.from("meeting_task_statuses").insert(seed).catch(() => null as any);
+
+    const again = await sb
+      .from("meeting_task_statuses")
+      .select("id,name,position")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true })
+      .catch(() => null as any);
+
+    if (again && !again.error) setStatuses((again.data ?? []) as any);
+  }
+
   async function loadAll() {
-    // Meeting
     const m = await sb
       .from("meetings")
       .select("id,title,location,start_at,duration_minutes,rrule")
@@ -209,11 +243,12 @@ export default function MeetingDetailPage() {
     if (m.error) throw m.error;
     setMeeting(m.data as any);
 
-    // Profiles
-    const pr = await sb.from("profiles").select("id,full_name,color_hex").order("created_at", { ascending: true });
+    const pr = await sb
+      .from("profiles")
+      .select("id,full_name,email,color_hex")
+      .order("created_at", { ascending: true });
     if (!pr.error) setProfiles((pr.data ?? []) as any);
 
-    // Columns
     const c = await sb
       .from("meeting_task_columns")
       .select("id,name,position")
@@ -222,7 +257,8 @@ export default function MeetingDetailPage() {
     if (c.error) throw c.error;
     setColumns((c.data ?? []) as any);
 
-    // Tasks
+    await ensureDefaultStatuses(meetingId);
+
     const t = await sb
       .from("meeting_tasks")
       .select("id,column_id,title,status,priority,owner_id,start_date,due_date,notes,position,updated_at")
@@ -231,11 +267,8 @@ export default function MeetingDetailPage() {
     if (t.error) throw t.error;
     const taskRows = (t.data ?? []) as any as Task[];
     setTasks(taskRows);
-
-    // Latest per-task event for card footer
     await loadLatestEvents(taskRows.map((x) => x.id));
 
-    // Agenda
     const a = await sb
       .from("meeting_agenda_items")
       .select("id,code,title,description,position")
@@ -244,7 +277,6 @@ export default function MeetingDetailPage() {
     if (a.error) throw a.error;
     setAgenda((a.data ?? []) as any);
 
-    // Sessions (latest + previous)
     const s = await sb
       .from("meeting_minutes_sessions")
       .select("id,started_at,ended_at")
@@ -258,6 +290,11 @@ export default function MeetingDetailPage() {
 
     if (sessions[0]?.id) await loadAgendaNotes(sessions[0].id, true);
     if (sessions[1]?.id) await loadAgendaNotes(sessions[1].id, false);
+
+    const prevSessionId = search?.get("prevSessionId");
+    if (prevSessionId) {
+      await selectPreviousSession(prevSessionId);
+    }
   }
 
   useEffect(() => {
@@ -284,7 +321,6 @@ export default function MeetingDetailPage() {
       .single();
     if (created.error) throw created.error;
 
-    // shift sessions
     setPrevSession(currentSession);
     setCurrentSession(created.data as any);
     setPrevAgendaNotes(agendaNotes);
@@ -299,7 +335,7 @@ export default function MeetingDetailPage() {
     try {
       await ensureCurrentSession();
       setRecOpen(true);
-      setRecMin(true); // start collapsed
+      setRecMin(true);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to start minutes");
     } finally {
@@ -321,22 +357,26 @@ export default function MeetingDetailPage() {
   }
 
   async function renameColumn(columnId: string, name: string) {
-    // optimistic UI
     setColumns((prev) => prev.map((c) => (c.id === columnId ? { ...c, name } : c)));
     await sb.from("meeting_task_columns").update({ name }).eq("id", columnId);
   }
+
+  const cols = sortByPos(columns);
+  const statusOpts = sortByPos(statuses);
 
   function openNewTask(colId: string) {
     setEditingTaskId(null);
     setTColumnId(colId);
     setTTitle("");
-    setTStatus("In Progress");
+    setTStatus(statusOpts[0]?.name ?? "In Progress");
     setTPriority("Normal");
     setTOwner("");
     setTStart("");
     setTDue("");
     setTNotes("");
     setTEvents([]);
+    setCommentText("");
+    setTitleEditMode(true);
     setErr(null);
     setTaskOpen(true);
   }
@@ -355,6 +395,8 @@ export default function MeetingDetailPage() {
     setTDue(toISODate(task.due_date));
     setTNotes(task.notes ?? "");
     setTaskOpen(true);
+    setTitleEditMode(false);
+    setCommentText("");
 
     const ev = await sb
       .from("meeting_task_events")
@@ -449,7 +491,6 @@ export default function MeetingDetailPage() {
             if ((before as any)[k] !== (after as any)[k]) changes[k] = { from: (before as any)[k], to: (after as any)[k] };
           }
         }
-
         if (Object.keys(changes).length) {
           await writeTaskEvent(after.id, "updated", { changes });
           await refreshLatestForTask(after.id);
@@ -482,6 +523,28 @@ export default function MeetingDetailPage() {
       setTaskOpen(false);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to delete task");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addComment() {
+    if (!editingTaskId) return;
+    const text = commentText.trim();
+    if (!text) return;
+
+    setBusy(true);
+    try {
+      await writeTaskEvent(editingTaskId, "comment", { text });
+      setCommentText("");
+      const ev = await sb
+        .from("meeting_task_events")
+        .select("id,event_type,payload,created_at,created_by")
+        .eq("task_id", editingTaskId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (!ev.error) setTEvents((ev.data ?? []) as any);
+      await refreshLatestForTask(editingTaskId);
     } finally {
       setBusy(false);
     }
@@ -529,26 +592,20 @@ export default function MeetingDetailPage() {
         stream.getTracks().forEach((t) => t.stop());
       };
 
-      // chunk every 1s to support long sessions safely
       mr.start(1000);
       mediaRecorderRef.current = mr;
 
       setIsRecording(true);
       setRecSeconds(0);
 
-      // timer + optional auto-stop at 2 hours
       tickRef.current = window.setInterval(() => {
         setRecSeconds((s) => {
           const next = s + 1;
-          if (next >= 7200) {
-            // auto-stop at 2 hours
-            setTimeout(() => stopRecordingAndUpload(), 0);
-          }
+          if (next >= 7200) setTimeout(() => stopRecordingAndUpload(), 0);
           return next;
         });
       }, 1000);
 
-      // collapse panel so it doesn't block workflow
       setRecMin(true);
     } catch (e: any) {
       setRecErr(e?.message ?? "Could not start recording");
@@ -568,7 +625,6 @@ export default function MeetingDetailPage() {
       if (tickRef.current) window.clearInterval(tickRef.current);
 
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-      // Fix: allow any duration (no “too short” validation)
 
       const { data: userData } = await sb.auth.getUser();
       const userId = userData?.user?.id ?? "unknown";
@@ -582,19 +638,19 @@ export default function MeetingDetailPage() {
 
       const recRow = await sb
         .from("meeting_recordings")
-        .insert({ session_id: currentSession!.id, storage_path: path, duration_seconds: recSeconds })
+        .insert({ session_id: currentSession!.id, storage_path: path, duration_seconds: recSeconds, created_by: userId })
         .select("id")
         .single();
       if (recRow.error) throw recRow.error;
 
-      // AI summarize to agenda notes (server route)
       await fetch("/api/meetings/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meetingId, sessionId: currentSession!.id, recordingPath: path }),
-      });
+      }).catch(() => null);
 
-      // keep panel open but collapsed; user can expand to see status
+      await loadAgendaNotes(currentSession!.id, true);
+
       setRecMin(true);
     } catch (e: any) {
       setRecErr(e?.message ?? "Upload failed");
@@ -615,6 +671,12 @@ export default function MeetingDetailPage() {
         .single();
       if (end.error) throw end.error;
       setCurrentSession(end.data as any);
+
+      await fetch("/api/meetings/email-minutes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meetingId, sessionId: currentSession.id }),
+      }).catch(() => null);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to conclude meeting");
     } finally {
@@ -622,7 +684,75 @@ export default function MeetingDetailPage() {
     }
   }
 
-  const cols = sortByPos(columns);
+  async function loadPreviousSessions() {
+    const s = await sb
+      .from("meeting_minutes_sessions")
+      .select("id,started_at,ended_at")
+      .eq("meeting_id", meetingId)
+      .order("started_at", { ascending: false })
+      .limit(50);
+    if (!s.error) setPrevSessions((s.data ?? []) as any);
+  }
+
+  async function selectPreviousSession(sessionId: string) {
+    const s = await sb
+      .from("meeting_minutes_sessions")
+      .select("id,started_at,ended_at")
+      .eq("id", sessionId)
+      .single();
+    if (!s.error) setPrevSession(s.data as any);
+    await loadAgendaNotes(sessionId, false);
+    setPrevMeetingsOpen(false);
+  }
+
+  async function saveReminderSettings() {
+    if (!meeting) return;
+    setBusy(true);
+    try {
+      await sb
+        .from("meeting_email_settings")
+        .upsert({ meeting_id: meetingId, reminder_frequency: reminderFreq, updated_at: new Date().toISOString() }, { onConflict: "meeting_id" })
+        .catch(() => null as any);
+      setEmailSettingsOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadReminderSettings() {
+    const r = await sb.from("meeting_email_settings").select("reminder_frequency").eq("meeting_id", meetingId).single();
+    if (!r.error && (r.data as any)?.reminder_frequency) setReminderFreq(((r.data as any).reminder_frequency as any) ?? "weekly");
+  }
+
+  async function addStatus(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const maxPos = Math.max(0, ...statusOpts.map((s) => s.position ?? 0));
+    const ins = await sb.from("meeting_task_statuses").insert({ meeting_id: meetingId, name: trimmed, position: maxPos + 1 }).select("id,name,position").single();
+    if (!ins.error) setStatuses((prev) => [...prev, ins.data as any]);
+  }
+
+  async function updateStatus(id: string, name: string) {
+    setStatuses((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)));
+    await sb.from("meeting_task_statuses").update({ name }).eq("id", id);
+  }
+
+  async function deleteStatus(id: string) {
+    const statusName = statuses.find((s) => s.id === id)?.name;
+    if (!statusName) return;
+    const used = tasks.some((t) => t.status === statusName);
+    if (used) {
+      alert("That status is currently used by at least one task. Change those tasks first.");
+      return;
+    }
+    await sb.from("meeting_task_statuses").delete().eq("id", id);
+    setStatuses((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  useEffect(() => {
+    void loadReminderSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingId]);
 
   return (
     <PageShell>
@@ -638,11 +768,27 @@ export default function MeetingDetailPage() {
                 {meeting.location ? ` • ${meeting.location}` : ""}
               </div>
               {meeting.rrule && <div className="text-xs text-gray-500 mt-1">Recurring: {meeting.rrule}</div>}
+              {isRecording && (
+                <div className="mt-2">
+                  <button
+                    className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                    onClick={() => setRecOpen(true)}
+                  >
+                    ● Recording… click to open controls
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 justify-end">
               <Button variant="ghost" onClick={() => setAgendaOpen(true)}>
                 Edit agenda
+              </Button>
+              <Button variant="ghost" onClick={() => { setStatusMgrOpen(true); }}>
+                Statuses
+              </Button>
+              <Button variant="ghost" onClick={() => setEmailSettingsOpen(true)}>
+                Email settings
               </Button>
               <Button onClick={onNewMinutes} disabled={busy}>
                 New meeting minutes
@@ -650,8 +796,14 @@ export default function MeetingDetailPage() {
               <Button variant="ghost" onClick={concludeMeeting} disabled={busy}>
                 Conclude meeting
               </Button>
-              <Button variant="ghost" onClick={() => { setRecOpen(true); setRecMin(true); }}>
-                Recording
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  await loadPreviousSessions();
+                  setPrevMeetingsOpen(true);
+                }}
+              >
+                View Previous Meetings
               </Button>
             </div>
           </div>
@@ -659,103 +811,116 @@ export default function MeetingDetailPage() {
           {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
 
           <div className="grid gap-6 lg:grid-cols-3">
-            {/* Agenda */}
             <div className="lg:col-span-1 space-y-6">
-              <Card title="Agenda + Minutes">
-                <div className="space-y-4">
-                  {agenda.length === 0 ? (
-                    <div className="text-sm text-gray-600">No agenda topics yet.</div>
-                  ) : (
-                    sortByPos(agenda).map((a) => (
-                      <div key={a.id} className="rounded-xl border p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-sm font-semibold">
-                            {a.code ? `${a.code} - ` : ""}
-                            {a.title}
+              <Card
+                title="Agenda + Minutes"
+                right={
+                  <Button variant="ghost" onClick={() => setAgendaCollapsed((v) => !v)}>
+                    {agendaCollapsed ? "Expand" : "Collapse"}
+                  </Button>
+                }
+              >
+                {agendaCollapsed ? (
+                  <div className="text-sm text-gray-600">Collapsed. Expand to edit minutes.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {agenda.length === 0 ? (
+                      <div className="text-sm text-gray-600">No agenda topics yet.</div>
+                    ) : (
+                      sortByPos(agenda).map((a) => (
+                        <div key={a.id} className="rounded-xl border p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold">
+                              {a.code ? `${a.code} - ` : ""}
+                              {a.title}
+                            </div>
+                            {currentSession ? <Pill>Current</Pill> : <Pill>No session</Pill>}
                           </div>
-                          {currentSession ? <Pill>Current</Pill> : <Pill>No session</Pill>}
-                        </div>
-                        {a.description && <div className="text-xs text-gray-600 mt-1">{a.description}</div>}
+                          {a.description && <div className="text-xs text-gray-600 mt-1">{a.description}</div>}
 
-                        <div className="mt-3 grid gap-2">
-                          <div>
-                            <div className="text-xs text-gray-500 mb-1">Meeting minutes (current)</div>
-                            <Textarea
-                              rows={4}
-                              value={agendaNotes[a.id] ?? ""}
-                              onChange={(e) => saveAgendaNote(a.id, e.target.value)}
-                              placeholder="Notes for this agenda topic..."
-                              disabled={!currentSession || !!currentSession.ended_at}
-                            />
-                          </div>
-                          <div>
-                            <div className="text-xs text-gray-500 mb-1">Previous meeting minutes</div>
-                            <Textarea rows={3} value={prevAgendaNotes[a.id] ?? ""} readOnly className="bg-gray-50" />
+                          <div className="mt-3 grid gap-2">
+                            <div>
+                              <div className="text-xs text-gray-500 mb-1">Meeting minutes (current)</div>
+                              <Textarea
+                                rows={4}
+                                value={agendaNotes[a.id] ?? ""}
+                                onChange={(e) => saveAgendaNote(a.id, e.target.value)}
+                                placeholder="Notes for this agenda topic..."
+                                disabled={!currentSession || !!currentSession.ended_at}
+                              />
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500 mb-1">Previous meeting minutes</div>
+                              <Textarea rows={3} value={prevAgendaNotes[a.id] ?? ""} readOnly className="bg-gray-50" />
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </Card>
             </div>
 
-            {/* Tasks */}
             <div className="lg:col-span-2 space-y-6">
-              <Card title="Tasks Board" right={<div className="text-xs text-gray-500">Drag cards between columns</div>}>
+              <Card
+                title="Tasks Board"
+                right={<div className="text-xs text-gray-500">Drag cards between columns • Scroll horizontally if needed</div>}
+              >
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-                  <div
-                    className="grid gap-4"
-                    style={{ gridTemplateColumns: `repeat(${Math.max(cols.length, 1)}, minmax(260px, 1fr))` }}
-                  >
-                    {cols.map((c) => (
-                      <DroppableColumn key={c.id} id={c.id}>
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <Input
-                            value={c.name}
-                            onChange={(e) => {
-                              // local update, but persist onBlur to reduce writes
-                              const name = e.target.value;
-                              setColumns((prev) => prev.map((x) => (x.id === c.id ? { ...x, name } : x)));
-                            }}
-                            onBlur={async (e) => {
-                              await renameColumn(c.id, e.target.value);
-                            }}
-                          />
-                          <Button variant="ghost" onClick={() => openNewTask(c.id)}>
-                            +
-                          </Button>
-                        </div>
+                  <div className="overflow-x-auto">
+                    <div
+                      className="grid gap-4 min-w-max"
+                      style={{ gridTemplateColumns: `repeat(${Math.max(cols.length, 1)}, 280px)` }}
+                    >
+                      {cols.map((c) => (
+                        <DroppableColumn key={c.id} id={c.id}>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <Input
+                              value={c.name}
+                              onChange={(e) => {
+                                const name = e.target.value;
+                                setColumns((prev) => prev.map((x) => (x.id === c.id ? { ...x, name } : x)));
+                              }}
+                              onBlur={async (e) => {
+                                await renameColumn(c.id, e.target.value);
+                              }}
+                            />
+                            <Button variant="ghost" onClick={() => openNewTask(c.id)}>
+                              +
+                            </Button>
+                          </div>
 
-                        <div className="space-y-2">
-                          {sortByPos(tasks.filter((t) => t.column_id === c.id)).map((t) => {
-                            const le = latestEventByTask[t.id];
-                            return (
-                              <DraggableTaskCard key={t.id} id={t.id}>
-                                <div
-                                  className="rounded-xl border bg-white p-3 cursor-pointer select-none"
-                                  style={{ borderLeft: `6px solid ${ownerColor(t.owner_id)}` }}
-                                  onClick={() => openEditTask(t.id)}
-                                >
-                                  <div className="text-sm font-semibold">{t.title}</div>
-                                  <div className="mt-1 flex flex-wrap gap-2">
-                                    <Pill>{t.status}</Pill>
-                                    <Pill>{t.priority}</Pill>
-                                    {t.due_date && <Pill>Due {t.due_date}</Pill>}
-                                  </div>
-
-                                  {le && (
-                                    <div className="mt-2 text-xs text-gray-500">
-                                      Updated {prettyDate(le.created_at)} by {profileName(le.created_by ?? null)}
+                          <div className="space-y-2">
+                            {sortByPos(tasks.filter((t) => t.column_id === c.id)).map((t) => {
+                              const le = latestEventByTask[t.id];
+                              return (
+                                <DraggableTaskCard key={t.id} id={t.id}>
+                                  <div
+                                    className="rounded-xl border bg-white p-3 cursor-pointer select-none"
+                                    style={{ borderLeft: `6px solid ${ownerColor(t.owner_id)}` }}
+                                    onClick={() => openEditTask(t.id)}
+                                  >
+                                    <div className="text-sm font-semibold">{t.title}</div>
+                                    <div className="mt-1 flex flex-wrap gap-2">
+                                      <Pill>{t.status}</Pill>
+                                      <Pill>{t.priority}</Pill>
+                                      {t.due_date && <Pill>Due {t.due_date}</Pill>}
                                     </div>
-                                  )}
-                                </div>
-                              </DraggableTaskCard>
-                            );
-                          })}
-                        </div>
-                      </DroppableColumn>
-                    ))}
+
+                                    {le && (
+                                      <div className="mt-2 text-xs text-gray-500">
+                                        Updated {prettyDate(le.created_at)} by {profileName(le.created_by ?? null)}
+                                      </div>
+                                    )}
+                                  </div>
+                                </DraggableTaskCard>
+                              );
+                            })}
+                          </div>
+                        </DroppableColumn>
+                      ))}
+                    </div>
                   </div>
                 </DndContext>
               </Card>
@@ -783,98 +948,156 @@ export default function MeetingDetailPage() {
               </>
             }
           >
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="md:col-span-2">
-                <label className="text-xs text-gray-600">Title</label>
-                <Input value={tTitle} onChange={(e) => setTTitle(e.target.value)} />
+            <div className="space-y-4">
+              <div className="rounded-xl border p-3">
+                {!titleEditMode ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xl font-semibold leading-tight">{tTitle || "Untitled task"}</div>
+                    <button
+                      className="rounded-lg border px-2 py-1 text-sm hover:bg-gray-50"
+                      onClick={() => setTitleEditMode(true)}
+                      aria-label="Edit title"
+                      type="button"
+                    >
+                      ✎
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <label className="text-xs text-gray-600">Title</label>
+                    <Input
+                      value={tTitle}
+                      onChange={(e) => setTTitle(e.target.value)}
+                      onBlur={() => setTitleEditMode(false)}
+                      autoFocus
+                    />
+                    <div className="text-xs text-gray-500">Click outside the field to finish editing.</div>
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="text-xs text-gray-600">Status</label>
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tStatus} onChange={(e) => setTStatus(e.target.value)}>
-                  <option>In Progress</option>
-                  <option>Needs Review</option>
-                  <option>Sidebar Task</option>
-                  <option>Completed</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-600">Priority</label>
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tPriority} onChange={(e) => setTPriority(e.target.value)}>
-                  <option>Low</option>
-                  <option>Normal</option>
-                  <option>High</option>
-                  <option>!Urgent!</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-600">Owner</label>
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tOwner} onChange={(e) => setTOwner(e.target.value)}>
-                  <option value="">Unassigned</option>
-                  {profiles.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name || p.id.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-600">Column</label>
-                <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tColumnId} onChange={(e) => setTColumnId(e.target.value)}>
-                  {cols.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-600">Start date</label>
-                <Input type="date" value={tStart} onChange={(e) => setTStart(e.target.value)} />
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-600">Due date</label>
-                <Input type="date" value={tDue} onChange={(e) => setTDue(e.target.value)} />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-xs text-gray-600">Notes</label>
-                <Textarea rows={5} value={tNotes} onChange={(e) => setTNotes(e.target.value)} />
-              </div>
-            </div>
-
-            {editingTaskId && (
-              <div className="mt-4">
-                <div className="text-sm font-semibold mb-2">Activity log</div>
-                <div className="max-h-56 overflow-auto rounded-xl border bg-gray-50">
-                  {tEvents.length === 0 ? (
-                    <div className="p-3 text-sm text-gray-600">No events yet.</div>
-                  ) : (
-                    <div className="divide-y">
-                      {tEvents.map((e) => (
-                        <div key={e.id} className="p-3 text-sm">
-                          <div className="flex items-center justify-between">
-                            <div className="font-medium">
-                              {e.event_type}{" "}
-                              <span className="text-xs text-gray-500 font-normal">
-                                by {profileName(e.created_by ?? null)}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-500">{prettyDate(e.created_at)}</div>
-                          </div>
-                          <pre className="mt-2 text-xs text-gray-700 whitespace-pre-wrap">{JSON.stringify(e.payload, null, 2)}</pre>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-xs text-gray-600">Status</label>
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={tStatus}
+                    onChange={(e) => setTStatus(e.target.value)}
+                  >
+                    {statusOpts.length ? (
+                      statusOpts.map((s) => (
+                        <option key={s.id} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option>In Progress</option>
+                        <option>Needs Review</option>
+                        <option>Waiting</option>
+                        <option>Completed</option>
+                      </>
+                    )}
+                  </select>
                 </div>
+
+                <div>
+                  <label className="text-xs text-gray-600">Priority</label>
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={tPriority}
+                    onChange={(e) => setTPriority(e.target.value)}
+                  >
+                    <option>Low</option>
+                    <option>Normal</option>
+                    <option>High</option>
+                    <option>!Urgent!</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600">Owner</label>
+                  <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tOwner} onChange={(e) => setTOwner(e.target.value)}>
+                    <option value="">Unassigned</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name?.trim() || p.email?.trim() || "Unknown"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600">Column</label>
+                  <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tColumnId} onChange={(e) => setTColumnId(e.target.value)}>
+                    {cols.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600">Start date</label>
+                  <Input type="date" value={tStart} onChange={(e) => setTStart(e.target.value)} />
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600">Due date</label>
+                  <Input type="date" value={tDue} onChange={(e) => setTDue(e.target.value)} />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="text-xs text-gray-600">Notes</label>
+                  <Textarea rows={5} value={tNotes} onChange={(e) => setTNotes(e.target.value)} />
+                </div>
+
+                {editingTaskId && (
+                  <div className="md:col-span-2">
+                    <label className="text-xs text-gray-600">Add comment</label>
+                    <div className="grid gap-2">
+                      <Textarea rows={3} value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Type a comment..." />
+                      <div className="flex justify-end">
+                        <Button variant="ghost" onClick={addComment} disabled={busy || !commentText.trim()}>
+                          Comment
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+
+              {editingTaskId && (
+                <div>
+                  <div className="text-sm font-semibold mb-2">Activity log</div>
+                  <div className="max-h-56 overflow-auto rounded-xl border bg-gray-50">
+                    {tEvents.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-600">No events yet.</div>
+                    ) : (
+                      <div className="divide-y">
+                        {tEvents.map((e) => (
+                          <div key={e.id} className="p-3 text-sm">
+                            <div className="flex items-center justify-between">
+                              <div className="font-medium">
+                                {e.event_type}{" "}
+                                <span className="text-xs text-gray-500 font-normal">by {profileName(e.created_by ?? null)}</span>
+                              </div>
+                              <div className="text-xs text-gray-500">{prettyDate(e.created_at)}</div>
+                            </div>
+                            {e.event_type === "comment" ? (
+                              <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{e.payload?.text ?? ""}</div>
+                            ) : (
+                              <pre className="mt-2 text-xs text-gray-700 whitespace-pre-wrap">{JSON.stringify(e.payload, null, 2)}</pre>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </Modal>
 
           {/* Agenda Editor */}
@@ -890,9 +1113,7 @@ export default function MeetingDetailPage() {
               </>
             }
           >
-            <div className="text-sm text-gray-600 mb-3">
-              Edit agenda topic fields below. (Next: drag reorder + add/remove.)
-            </div>
+            <div className="text-sm text-gray-600 mb-3">Edit agenda topic fields below. (Next: drag reorder + add/remove.)</div>
 
             <div className="space-y-3">
               {sortByPos(agenda).map((a) => (
@@ -940,68 +1161,188 @@ export default function MeetingDetailPage() {
             </div>
           </Modal>
 
-          {/* Recording: Floating Collapsible Panel */}
-          {recOpen && (
-            <div className="fixed bottom-4 right-4 z-50 w-[360px]">
-              <div className="rounded-2xl border bg-white shadow-lg overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 border-b">
-                  <div className="flex items-center gap-2">
-                    <Pill>{isRecording ? "Recording" : "Idle"}</Pill>
-                    <Pill>
-                      {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, "0")}
-                    </Pill>
-                  </div>
+          {/* Previous meetings modal */}
+          <Modal
+            open={prevMeetingsOpen}
+            title="Previous meetings"
+            onClose={() => setPrevMeetingsOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setPrevMeetingsOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="space-y-2">
+              {prevSessions.length === 0 ? (
+                <div className="text-sm text-gray-600">No previous sessions found.</div>
+              ) : (
+                prevSessions.map((s) => (
+                  <button
+                    key={s.id}
+                    className="w-full text-left rounded-xl border p-3 hover:bg-gray-50"
+                    onClick={() => selectPreviousSession(s.id)}
+                    type="button"
+                  >
+                    <div className="font-semibold">{prettyDate(s.started_at)}</div>
+                    <div className="text-xs text-gray-600">
+                      {s.ended_at ? `Ended ${prettyDate(s.ended_at)}` : "(In progress / not concluded)"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Link: {typeof window !== "undefined" ? `${window.location.origin}/meetings/${meetingId}?prevSessionId=${s.id}` : ""}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </Modal>
 
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      onClick={() => setRecMin((v) => !v)}
-                      title={recMin ? "Expand" : "Minimize"}
-                    >
-                      {recMin ? "Expand" : "Minimize"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => setRecOpen(false)}
-                      title="Close panel"
-                    >
-                      Close
-                    </Button>
-                  </div>
+          {/* Status manager modal */}
+          <Modal
+            open={statusMgrOpen}
+            title="Task Statuses"
+            onClose={() => setStatusMgrOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setStatusMgrOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="text-sm text-gray-600 mb-3">
+              This controls the list of Status values available for tasks in this meeting.
+            </div>
+
+            <div className="space-y-3">
+              {statusOpts.map((s) => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <Input value={s.name} onChange={(e) => updateStatus(s.id, e.target.value)} />
+                  <Button variant="ghost" onClick={() => deleteStatus(s.id)}>
+                    Delete
+                  </Button>
                 </div>
+              ))}
 
-                {!recMin && (
-                  <div className="p-3 space-y-3">
-                    <div className="text-sm text-gray-600">
-                      Records audio, uploads to Supabase Storage, then calls OpenAI to summarize into agenda notes.
-                    </div>
+              <AddStatusRow onAdd={addStatus} />
+            </div>
+          </Modal>
 
-                    <div className="flex gap-2">
-                      {!isRecording ? (
-                        <Button onClick={startRecording}>Start</Button>
-                      ) : (
-                        <Button onClick={stopRecordingAndUpload} disabled={recBusy}>
-                          {recBusy ? "Uploading..." : "Stop + Upload"}
-                        </Button>
-                      )}
-                    </div>
+          {/* Email settings modal */}
+          <Modal
+            open={emailSettingsOpen}
+            title="Email reminders"
+            onClose={() => setEmailSettingsOpen(false)}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setEmailSettingsOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveReminderSettings} disabled={busy}>
+                  Save
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <div className="text-sm text-gray-600">
+                Choose how often the system should email a reminder to attendees with a link to the meeting page.
+                (This requires Vercel Cron + SMTP, and the Supabase migration included below.)
+              </div>
 
-                    {recErr && (
-                      <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">
-                        {recErr}
-                      </div>
-                    )}
-
-                    <div className="text-xs text-gray-500">
-                      Storage bucket required: <b>recordings</b> (private). Policies handled in Supabase.
-                    </div>
-                  </div>
-                )}
+              <div>
+                <label className="text-xs text-gray-600">Reminder frequency</label>
+                <select
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  value={reminderFreq}
+                  onChange={(e) => setReminderFreq(e.target.value as any)}
+                >
+                  <option value="none">None</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
               </div>
             </div>
-          )}
+          </Modal>
+
+          {/* Recording controls modal */}
+          <Modal
+            open={recOpen}
+            title="Meeting recording"
+            onClose={() => setRecOpen(false)}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setRecOpen(false)}>
+                  Close
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-700">
+                  {currentSession ? (
+                    <>
+                      Session started: <span className="font-semibold">{prettyDate(currentSession.started_at)}</span>
+                      {currentSession.ended_at ? (
+                        <span className="ml-2 text-xs text-gray-500">(Ended)</span>
+                      ) : null}
+                    </>
+                  ) : (
+                    "No active minutes session."
+                  )}
+                </div>
+
+                <Button variant="ghost" onClick={() => setRecMin((v) => !v)}>
+                  {recMin ? "Expand" : "Collapse"}
+                </Button>
+              </div>
+
+              {recMin ? (
+                <div className="text-sm text-gray-600">Collapsed. Expand to start/stop recording.</div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-xl border p-3 bg-gray-50">
+                    <div className="text-sm">Duration: {Math.floor(recSeconds / 60)}m {recSeconds % 60}s</div>
+                    <div className="text-xs text-gray-500">Auto-stops at 2 hours.</div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    {!isRecording ? (
+                      <Button onClick={startRecording} disabled={!currentSession || !!currentSession.ended_at || recBusy}>
+                        Start recording
+                      </Button>
+                    ) : (
+                      <Button onClick={stopRecordingAndUpload} disabled={recBusy}>
+                        {recBusy ? "Uploading..." : "Stop + Upload"}
+                      </Button>
+                    )}
+                  </div>
+
+                  {recErr && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{recErr}</div>}
+                </div>
+              )}
+            </div>
+          </Modal>
         </div>
       )}
     </PageShell>
+  );
+}
+
+function AddStatusRow({ onAdd }: { onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <div className="flex items-center gap-2">
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a new status..." />
+      <Button
+        variant="ghost"
+        onClick={() => {
+          const v = name.trim();
+          if (!v) return;
+          onAdd(v);
+          setName("");
+        }}
+      >
+        Add
+      </Button>
+    </div>
   );
 }
