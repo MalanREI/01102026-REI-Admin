@@ -41,8 +41,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 
 export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" }) {
   const variant = props.variant ?? "primary";
-  const base =
-    "rounded-lg px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed";
+  const base = "rounded-lg px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed";
   const styles =
     variant === "primary"
       ? "bg-gray-900 text-white hover:bg-black"
@@ -78,20 +77,26 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={onClose}>
       <div
-        className="w-full max-w-2xl rounded-2xl bg-white border shadow-lg p-5"
+        className="w-full max-w-2xl rounded-2xl bg-white border shadow-lg overflow-hidden"
+        style={{ maxHeight: "90vh" }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="text-lg font-semibold">{title}</div>
-          <Button variant="ghost" onClick={onClose} aria-label="Close modal">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b bg-white">
+          <div className="text-base md:text-lg font-semibold text-gray-900 text-center flex-1">{title}</div>
+          <Button variant="ghost" onClick={onClose} aria-label="Close modal" className="shrink-0">
             Close
           </Button>
         </div>
-        <div className="mt-4">{children}</div>
-        {footer && <div className="mt-4 flex justify-end gap-2">{footer}</div>}
+
+        <div className="px-5 py-4 overflow-y-auto" style={{ maxHeight: "calc(90vh - 64px - 72px)" }}>
+          {children}
+        </div>
+
+        {footer && <div className="px-5 py-4 border-t bg-white flex justify-end gap-2">{footer}</div>}
       </div>
     </div>
   );
@@ -126,4 +131,3 @@ export function Tabs({
     </div>
   );
 }
-
