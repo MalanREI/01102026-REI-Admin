@@ -699,13 +699,24 @@ function profileName(userId: string | null | undefined): string {
         .single();
       if (recRow.error) throw recRow.error;
 
-      await fetch("/api/meetings/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meetingId, sessionId: currentSession!.id, recordingPath: path }),
-      }).catch(() => null);
+      // Trigger AI note generation (do not swallow errors silently)
+      try {
+        const aiRes = await fetch("/api/meetings/ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ meetingId, sessionId: currentSession!.id, recordingPath: path }),
+        });
+        if (!aiRes.ok) {
+          const aj = await aiRes.json().catch(() => ({} as any));
+          console.error("AI route failed", aj);
+          setRecErr(aj?.error || "AI processing failed");
+        }
+      } catch (err) {
+        console.error("AI route error", err);
+        setRecErr("AI processing failed");
+      }
 
-      await loadAgendaNotes(currentSession!.id, true);
+await loadAgendaNotes(currentSession!.id, true);
 
       setRecMin(true);
     } catch (e: any) {
