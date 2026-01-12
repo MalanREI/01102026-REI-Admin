@@ -34,6 +34,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
+        // Guard: only send at 9:00am America/Los_Angeles
+    const now = new Date();
+    const laHour = Number(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Los_Angeles",
+        hour: "2-digit",
+        hour12: false,
+      }).format(now)
+    );
+
+    if (laHour !== 9) {
+      return NextResponse.json({ ok: true, skipped: "Not 9am America/Los_Angeles" });
+    }
+
     const admin = supabaseAdmin();
 
     const settings = await admin
