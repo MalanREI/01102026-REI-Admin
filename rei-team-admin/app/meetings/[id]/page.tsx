@@ -124,14 +124,13 @@ export default function MeetingDetailPage() {
   const [latestEventByTask, setLatestEventByTask] = useState<LatestEventMap>({});
 
   // UI toggles
-  const [agendaCollapsed, setAgendaCollapsed] = useState(false);
   const [prevMeetingsOpen, setPrevMeetingsOpen] = useState(false);
   const [prevSessions, setPrevSessions] = useState<MinutesSession[]>([]);
   const [statusMgrOpen, setStatusMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
   const [reminderFreq, setReminderFreq] = useState<
-  "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly" >("weekly");
-
+  "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
+>("weekly");
 
   // Task modal
   const [taskOpen, setTaskOpen] = useState(false);
@@ -335,6 +334,7 @@ function profileName(userId: string | null | undefined): string {
   useEffect(() => {
     (async () => {
       try {
+        await ensureSelfProfile();
         await loadAll();
       } catch (e: any) {
         setErr(e?.message ?? "Failed to load meeting");
@@ -668,56 +668,54 @@ function profileName(userId: string | null | undefined): string {
     }
   }
 
-async function stopRecordingAndUpload() {
-  if (!mediaRecorderRef.current) return;
-  setRecBusy(true);
-  setRecErr(null);
+  async function stopRecordingAndUpload() {
+    if (!mediaRecorderRef.current) return;
+    setRecBusy(true);
+    setRecErr(null);
 
-  try {
-    const mr = mediaRecorderRef.current;
-    mr.stop();
-    mediaRecorderRef.current = null;
-    setIsRecording(false);
-    if (tickRef.current) window.clearInterval(tickRef.current);
+    try {
+      const mr = mediaRecorderRef.current;
+      mr.stop();
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+      if (tickRef.current) window.clearInterval(tickRef.current);
 
-    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 
-    const { data: userData } = await sb.auth.getUser();
-    const userId = userData?.user?.id;
-    if (!userId) throw new Error("Not logged in");
+      const { data: userData } = await sb.auth.getUser();
+      const userId = userData?.user?.id ?? "unknown";
+      const path = `meetings/${meetingId}/sessions/${currentSession!.id}/${Date.now()}_${userId}.webm`;
 
-    const fd = new FormData();
-    fd.append("meetingId", meetingId);
-    fd.append("sessionId", currentSession!.id);
-    fd.append("userId", userId);
-    fd.append("durationSeconds", String(recSeconds));
-    fd.append("file", blob, "recording.webm");
+      const up = await sb.storage.from("recordings").upload(path, blob, {
+        contentType: "audio/webm",
+        upsert: false,
+      });
+      if (up.error) throw up.error;
 
-    const upRes = await fetch("/api/meetings/upload-recording", { method: "POST", body: fd });
-    const upJson = await upRes.json().catch(() => ({} as any));
-    if (!upRes.ok) throw new Error(upJson?.error || "Upload failed");
+      const recRow = await sb
+        .from("meeting_recordings")
+        .insert({ session_id: currentSession!.id, storage_path: path, duration_seconds: recSeconds, created_by: userId })
+        .select("id")
+        .single();
+      if (recRow.error) throw recRow.error;
 
-    const recordingPath = upJson.recordingPath as string;
+      await fetch("/api/meetings/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meetingId, sessionId: currentSession!.id, recordingPath: path }),
+      }).catch(() => null);
 
-    const aiRes = await fetch("/api/meetings/ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meetingId, sessionId: currentSession!.id, recordingPath }),
-    });
-    const aiJson = await aiRes.json().catch(() => ({} as any));
-    if (!aiRes.ok) throw new Error(aiJson?.error || "AI summarization failed");
+      await loadAgendaNotes(currentSession!.id, true);
 
-    await loadAgendaNotes(currentSession!.id, true);
-    setRecMin(true);
-  } catch (e: any) {
-    setRecErr(e?.message ?? "Upload failed");
-  } finally {
-    setRecBusy(false);
+      setRecMin(true);
+    } catch (e: any) {
+      setRecErr(e?.message ?? "Upload failed");
+    } finally {
+      setRecBusy(false);
+    }
   }
-}
 
-
-async function concludeMeeting() {
+  async function concludeMeeting() {
   if (!currentSession?.id) return;
   setBusy(true);
   setErr(null);
@@ -730,14 +728,21 @@ async function concludeMeeting() {
     const j = await res.json().catch(() => ({} as any));
     if (!res.ok) throw new Error(j?.error || "Failed to conclude meeting");
 
-    // refresh previous sessions list so the PDF shows up there
-    await loadPreviousSessions();
+    const s = await sb
+      .from("meeting_minutes_sessions")
+      .select("id,started_at,ended_at,pdf_path")
+      .eq("id", currentSession.id)
+      .single();
+    if (!s.error) setCurrentSession(s.data as any);
+
+    if (j?.pdfUrl) window.open(j.pdfUrl, "_blank", "noopener,noreferrer");
   } catch (e: any) {
     setErr(e?.message ?? "Failed to conclude meeting");
   } finally {
     setBusy(false);
   }
 }
+
 
   async function loadPreviousSessions() {
     const s = await sb
@@ -749,7 +754,22 @@ async function concludeMeeting() {
     if (!s.error) setPrevSessions((s.data ?? []) as any);
   }
 
-  async function selectPreviousSession(sessionId: string) {
+    async function openSessionPdf(sessionId: string) {
+    try {
+      const res = await fetch("/api/meetings/ai/session-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(j?.error || "Failed to get PDF");
+      if (j?.url) window.open(j.url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      alert(e?.message ?? "Failed to open PDF");
+    }
+  }
+
+async function selectPreviousSession(sessionId: string) {
     const s = await sb
       .from("meeting_minutes_sessions")
       .select("id,started_at,ended_at")
@@ -876,37 +896,16 @@ setEmailSettingsOpen(false);
 
           {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
 
-                        <ResizableSidebar
-                storageKey={`meetings:${meetingId}:agenda`}
-                defaultWidth={420}
-                minWidth={300}
-                maxWidth={620}
-                collapsedWidth={56}
-                sidebar={
-                  <div className="space-y-6">
-                    {/* MOVE your existing Agenda + Minutes JSX here */}
-                  </div>
-                }
-              >
-                <div className="space-y-6">
-                  {/* MOVE your existing Tasks Board JSX here */}
-                </div>
-              </ResizableSidebar>
-
-          <div className="flex flex-col lg:flex-row gap-6">
-            <div className={["space-y-6 w-full", agendaCollapsed ? "lg:w-[72px]" : "lg:w-[420px]"].join(" ")}>
-              <Card
-                title="Agenda + Minutes"
-                right={
-                  <Button variant="ghost" onClick={() => setAgendaCollapsed((v) => !v)}>
-                    {agendaCollapsed ? "Expand" : "Collapse"}
-                  </Button>
-                }
-              >
-                {agendaCollapsed ? (
-                  <div className="text-sm text-gray-600">Collapsed. Expand to edit minutes.</div>
-                ) : (
-                  <div className="space-y-4">
+          <ResizableSidebar
+            storageKey={`meetings:${meetingId}:agenda`}
+            defaultWidth={420}
+            minWidth={300}
+            maxWidth={620}
+            collapsedWidth={56}
+            sidebar={
+              <div className="space-y-6">
+                <Card title="Agenda + Minutes">
+<div className="space-y-4">
                     {agenda.length === 0 ? (
                       <div className="text-sm text-gray-600">No agenda topics yet.</div>
                     ) : (
@@ -941,17 +940,17 @@ setEmailSettingsOpen(false);
                       ))
                     )}
                   </div>
-                )}
-              </Card>
-            </div>
-
-            <div className="flex-1 space-y-6">
-              <Card
+                </Card>
+              </div>
+            }
+          >
+            <div className="space-y-6">
+<Card
                 title="Tasks Board"
                 right={<div className="text-xs text-gray-500">Drag cards between columns • Scroll horizontally if needed</div>}
               >
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto overflow-y-hidden max-w-full">
                     <div
                       className="grid gap-4 min-w-max"
                       style={{ gridTemplateColumns: `repeat(${Math.max(cols.length, 1)}, 280px)` }}
@@ -1008,7 +1007,7 @@ setEmailSettingsOpen(false);
                 </DndContext>
               </Card>
             </div>
-          </div>
+          </ResizableSidebar>
 
           {/* Task Modal */}
           <Modal
@@ -1031,7 +1030,8 @@ setEmailSettingsOpen(false);
               </>
             }
           >
-            <div className="space-y-4">
+            <div className="max-h-[70vh] overflow-auto pr-1">
+              <div className="space-y-4">
               <div className="rounded-xl border p-3">
                 {!titleEditMode ? (
                   <div className="relative">
@@ -1183,6 +1183,8 @@ setEmailSettingsOpen(false);
                 </div>
               )}
             </div>
+              </div>
+            </div>
           </Modal>
 
           {/* Agenda Editor */}
@@ -1272,8 +1274,18 @@ setEmailSettingsOpen(false);
                     <div className="text-xs text-gray-600">
                       {s.ended_at ? `Ended ${prettyDate(s.ended_at)}` : "(In progress / not concluded)"}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Link: {typeof window !== "undefined" ? `${window.location.origin}/meetings/${meetingId}?prevSessionId=${s.id}` : ""}
+                    <div className="text-xs text-gray-500 mt-1 flex items-center justify-between">
+                      <span />
+                      <button
+                        type="button"
+                        className="text-xs underline underline-offset-2 hover:opacity-80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openSessionPdf(s.id);
+                        }}
+                      >
+                        Link
+                      </button>
                     </div>
                   </button>
                 ))
@@ -1328,7 +1340,7 @@ setEmailSettingsOpen(false);
           >
             <div className="space-y-3">
               <div className="text-sm text-gray-600">
-                Choose how often the system should email a reminder to attendees with a link to the meeting page.
+                Choose how often the system should email reminders to attendees. If a minutes PDF exists for the latest concluded session, the email can include the PDF link.
                 (This requires Vercel Cron + SMTP, and the Supabase migration included below.)
               </div>
 
@@ -1341,7 +1353,10 @@ setEmailSettingsOpen(false);
                 >
                   <option value="none">None</option>
                   <option value="daily">Daily</option>
+                  <option value="weekdays">Weekdays (Mon–Fri)</option>
                   <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 weeks</option>
+                  <option value="monthly">Monthly</option>
                 </select>
               </div>
             </div>
