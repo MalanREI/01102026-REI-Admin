@@ -803,7 +803,6 @@ async function selectPreviousSession(sessionId: string) {
     if (!meeting) return;
     setBusy(true);
     try {
-      {
   const up = await sb
     .from("meeting_email_settings")
     .upsert(
@@ -852,7 +851,6 @@ setEmailSettingsOpen(false);
     }
     await sb.from("meeting_task_statuses").delete().eq("id", id);
     setStatuses((prev) => prev.filter((s) => s.id !== id));
-  }
 
   useEffect(() => {
     void loadReminderSettings();
