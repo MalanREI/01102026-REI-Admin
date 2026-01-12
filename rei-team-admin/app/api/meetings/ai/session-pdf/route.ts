@@ -29,4 +29,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message ?? "Failed to get PDF" }, { status: 500 });
   }
 }
-
