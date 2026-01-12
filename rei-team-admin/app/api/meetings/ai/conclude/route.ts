@@ -176,7 +176,13 @@ export async function POST(req: Request) {
     if (upPdf.error) throw upPdf.error;
 
     // store path for “View Previous Meetings”
-    await admin.from("meeting_minutes_sessions").update({ pdf_path: pdfPath } as any).eq("id", sessionId);
+    const upd = await admin.from("meeting_minutes_sessions").update({ pdf_path: pdfPath } as any).eq("id", sessionId);
+    if (upd.error) throw upd.error;
+
+    // signed URL (for immediate viewing + UI)
+    const signed = await admin.storage.from(pdfBucket).createSignedUrl(pdfPath, 60 * 60 * 24 * 30);
+    if (signed.error) throw signed.error;
+    const pdfUrl = signed.data?.signedUrl ?? null;
 
     // email pdf
     if (attendees.length) {
@@ -198,7 +204,7 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json({ ok: true, pdfPath });
+    return NextResponse.json({ ok: true, pdfPath, pdfUrl });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Conclude failed" }, { status: 500 });
   }
