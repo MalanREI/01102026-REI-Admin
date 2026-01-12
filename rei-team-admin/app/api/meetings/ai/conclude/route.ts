@@ -436,7 +436,7 @@ export async function POST(req: Request) {
 
     const attendeesRes = await admin
       .from("meeting_attendees")
-      .select("email,full_name")
+      .select("email,user_id")
       .eq("meeting_id", meetingId)
       .order("created_at", { ascending: true });
     if (attendeesRes.error) throw attendeesRes.error;
