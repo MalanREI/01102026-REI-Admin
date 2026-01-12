@@ -8,22 +8,39 @@ function requireEnv(name: string): string {
   return v;
 }
 
+/**
+ * Convert ArrayBuffer to File (Node 20+ supports global File).
+ */
 function bufToFile(buf: ArrayBuffer, filename: string, mime: string) {
-  // Node 20+ supports File
   // eslint-disable-next-line no-undef
   return new File([buf], filename, { type: mime });
 }
 
+type AgendaItemRow = {
+  id: string;
+  code: string | null;
+  title: string | null;
+  description: string | null;
+  position: number | null;
+};
+
 export async function POST(req: Request) {
   try {
-    const { meetingId, sessionId, recordingPath } = (await req.json()) as {
+    const body = (await req.json()) as {
       meetingId?: string;
       sessionId?: string;
       recordingPath?: string;
     };
 
+    const meetingId = body.meetingId;
+    const sessionId = body.sessionId;
+    const recordingPath = body.recordingPath;
+
     if (!meetingId || !sessionId || !recordingPath) {
-      return NextResponse.json({ error: "meetingId + sessionId + recordingPath required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "meetingId + sessionId + recordingPath required" },
+        { status: 400 }
+      );
     }
 
     const openaiKey = requireEnv("OPENAI_API_KEY");
@@ -31,27 +48,35 @@ export async function POST(req: Request) {
 
     const admin = supabaseAdmin();
 
+    // 1) Load agenda items
     const agendaRes = await admin
       .from("meeting_agenda_items")
       .select("id,code,title,description,position")
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
+
     if (agendaRes.error) throw agendaRes.error;
 
-    const agenda = (agendaRes.data ?? []).map((a: any) => ({
+    const agendaRows = (agendaRes.data ?? []) as AgendaItemRow[];
+
+    const agenda = agendaRows.map((a) => ({
       id: String(a.id),
       code: a.code ? String(a.code) : null,
       title: String(a.title ?? ""),
       description: a.description ? String(a.description) : null,
     }));
 
-    if (!agenda.length) return NextResponse.json({ ok: true, skipped: "No agenda items" });
+    if (!agenda.length) {
+      return NextResponse.json({ ok: true, skipped: "No agenda items" });
+    }
 
+    // 2) Download recording from storage
     const dl = await admin.storage.from(recordingsBucket).download(recordingPath);
     if (dl.error) throw dl.error;
 
     const arrBuf = await dl.data.arrayBuffer();
 
+    // 3) Transcribe
     const client = new OpenAI({ apiKey: openaiKey });
 
     const transcription = await client.audio.transcriptions.create({
@@ -59,9 +84,16 @@ export async function POST(req: Request) {
       file: bufToFile(arrBuf, "recording.webm", "audio/webm"),
     });
 
-    const transcriptText = (transcription as any)?.text ? String((transcription as any).text) : "";
-    if (!transcriptText.trim()) return NextResponse.json({ ok: true, skipped: "Empty transcript" });
+    const transcriptText = (transcription as any)?.text
+      ? String((transcription as any).text)
+      : "";
 
+    if (!transcriptText.trim()) {
+      return NextResponse.json({ ok: true, skipped: "Empty transcript" });
+    }
+
+    // 4) Ask AI to bucket notes per agenda item id
+    // Using JSON Schema response_format for reliability
     const schema = {
       name: "AgendaNotes",
       schema: { type: "object", additionalProperties: { type: "string" } },
@@ -69,7 +101,12 @@ export async function POST(req: Request) {
     } as const;
 
     const agendaList = agenda
-      .map((a) => `${a.id} | ${a.code ? a.code + " - " : ""}${a.title}${a.description ? " — " + a.description : ""}`)
+      .map(
+        (a) =>
+          `${a.id} | ${a.code ? a.code + " - " : ""}${a.title}${
+            a.description ? " — " + a.description : ""
+          }`
+      )
       .join("\n");
 
     const completion = await client.chat.completions.create({
@@ -84,7 +121,10 @@ export async function POST(req: Request) {
             "Return ONLY JSON mapping agenda_item_id -> notes. Keep notes factual and action-oriented. " +
             "If an agenda item was not discussed, return an empty string for that item.",
         },
-        { role: "user", content: `Agenda items (id | label):\n${agendaList}\n\nTranscript:\n${transcriptText}` },
+        {
+          role: "user",
+          content: `Agenda items (id | label):\n${agendaList}\n\nTranscript:\n${transcriptText}`,
+        },
       ],
     });
 
@@ -97,6 +137,7 @@ export async function POST(req: Request) {
       notesObj = {};
     }
 
+    // 5) Upsert agenda notes (one row per agenda item)
     const upRows = agenda.map((a) => ({
       session_id: sessionId,
       agenda_item_id: a.id,
@@ -104,20 +145,28 @@ export async function POST(req: Request) {
       updated_at: new Date().toISOString(),
     }));
 
-    const up = await admin.from("meeting_agenda_notes").upsert(upRows, { onConflict: "session_id,agenda_item_id" });
+    const up = await admin
+      .from("meeting_agenda_notes")
+      .upsert(upRows, { onConflict: "session_id,agenda_item_id" });
+
     if (up.error) throw up.error;
 
+    // 6) Save transcript onto session (if column exists)
+    // If column doesn't exist in your DB yet, ignore.
     try {
-      await admin.from("meeting_minutes_sessions").update({ transcript: transcriptText }).eq("id", sessionId);
+      await admin
+        .from("meeting_minutes_sessions")
+        .update({ transcript: transcriptText } as any)
+        .eq("id", sessionId);
     } catch {
-      // no-op if column doesn't exist yet
+      // no-op
     }
 
     return NextResponse.json({ ok: true, agendaItemsUpdated: upRows.length });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "AI processing failed" }, { status: 500 });
-  }
-}
-
+    return NextResponse.json(
+      { error: e?.message ?? "AI processing failed" },
+      { status: 500 }
+    );
   }
 }
