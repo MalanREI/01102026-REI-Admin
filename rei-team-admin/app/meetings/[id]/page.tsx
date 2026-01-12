@@ -665,52 +665,54 @@ function profileName(userId: string | null | undefined): string {
     }
   }
 
-  async function stopRecordingAndUpload() {
-    if (!mediaRecorderRef.current) return;
-    setRecBusy(true);
-    setRecErr(null);
+async function stopRecordingAndUpload() {
+  if (!mediaRecorderRef.current) return;
+  setRecBusy(true);
+  setRecErr(null);
 
-    try {
-      const mr = mediaRecorderRef.current;
-      mr.stop();
-      mediaRecorderRef.current = null;
-      setIsRecording(false);
-      if (tickRef.current) window.clearInterval(tickRef.current);
+  try {
+    const mr = mediaRecorderRef.current;
+    mr.stop();
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+    if (tickRef.current) window.clearInterval(tickRef.current);
 
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 
-      const { data: userData } = await sb.auth.getUser();
-      const userId = userData?.user?.id ?? "unknown";
-      const path = `meetings/${meetingId}/sessions/${currentSession!.id}/${Date.now()}_${userId}.webm`;
+    const { data: userData } = await sb.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) throw new Error("Not logged in");
 
-      const up = await sb.storage.from("recordings").upload(path, blob, {
-        contentType: "audio/webm",
-        upsert: false,
-      });
-      if (up.error) throw up.error;
+    const fd = new FormData();
+    fd.append("meetingId", meetingId);
+    fd.append("sessionId", currentSession!.id);
+    fd.append("userId", userId);
+    fd.append("durationSeconds", String(recSeconds));
+    fd.append("file", blob, "recording.webm");
 
-      const recRow = await sb
-        .from("meeting_recordings")
-        .insert({ session_id: currentSession!.id, storage_path: path, duration_seconds: recSeconds, created_by: userId })
-        .select("id")
-        .single();
-      if (recRow.error) throw recRow.error;
+    const upRes = await fetch("/api/meetings/upload-recording", { method: "POST", body: fd });
+    const upJson = await upRes.json().catch(() => ({} as any));
+    if (!upRes.ok) throw new Error(upJson?.error || "Upload failed");
 
-      await fetch("/api/meetings/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meetingId, sessionId: currentSession!.id, recordingPath: path }),
-      }).catch(() => null);
+    const recordingPath = upJson.recordingPath as string;
 
-      await loadAgendaNotes(currentSession!.id, true);
+    const aiRes = await fetch("/api/meetings/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId, sessionId: currentSession!.id, recordingPath }),
+    });
+    const aiJson = await aiRes.json().catch(() => ({} as any));
+    if (!aiRes.ok) throw new Error(aiJson?.error || "AI summarization failed");
 
-      setRecMin(true);
-    } catch (e: any) {
-      setRecErr(e?.message ?? "Upload failed");
-    } finally {
-      setRecBusy(false);
-    }
+    await loadAgendaNotes(currentSession!.id, true);
+    setRecMin(true);
+  } catch (e: any) {
+    setRecErr(e?.message ?? "Upload failed");
+  } finally {
+    setRecBusy(false);
   }
+}
+
 
   async function concludeMeeting() {
   if (!currentSession?.id) return;
