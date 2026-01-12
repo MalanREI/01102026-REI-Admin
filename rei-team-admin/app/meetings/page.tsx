@@ -148,7 +148,7 @@ export default function MeetingsPage() {
       }
 
       // Send calendar invites (SMTP + ICS)
-      await fetch("/api/meetings/invite", {
+      await fetch("/api/meetings/ai/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meetingId }),
