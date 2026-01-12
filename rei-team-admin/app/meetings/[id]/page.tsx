@@ -1153,56 +1153,60 @@ setEmailSettingsOpen(false);
                 )}
               </div>
               {editingTaskId && (
-              <div>
-                <div className="text-sm font-semibold mb-2">Activity log</div>
-                <div className="max-h-56 overflow-auto rounded-xl border bg-gray-50">
-                  {tEvents.length === 0 ? (
-                    <div className="p-3 text-sm text-gray-600">No events yet.</div>
-                  ) : (
-                    <div className="divide-y">
-                      {tEvents.map((e) => (
-                        <div key={e.id} className="p-3 text-sm">
-                          <div className="flex items-center justify-between">
-                            <div className="font-medium">
-                              {e.event_type}{" "}
-                              <span className="text-xs text-gray-500 font-normal">
-                                by {profileName(e.created_by ?? null)}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-500">{prettyDate(e.created_at)}</div>
-                          </div>
-            
-                          {e.event_type === "comment" ? (
-                            <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">
-                              {e.payload?.text ?? ""}
-                            </div>
-                          ) : (
-                            <pre className="mt-2 text-xs text-gray-700 whitespace-pre-wrap">
-                              {JSON.stringify(e.payload, null, 2)}
-                            </pre>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </Modal>
+  <div>
+    <div className="text-sm font-semibold mb-2">Activity log</div>
 
-          {/* Agenda Editor */}
-          <Modal
-            open={agendaOpen}
-            title="Edit agenda topics"
-            onClose={() => setAgendaOpen(false)}
-            footer={
-              <>
-                <Button variant="ghost" onClick={() => setAgendaOpen(false)}>
-                  Close
-                </Button>
-              </>
-            }
-          >
+    <div className="max-h-56 overflow-auto rounded-xl border bg-gray-50">
+      {tEvents.length === 0 ? (
+        <div className="p-3 text-sm text-gray-600">No events yet.</div>
+      ) : (
+        <div className="divide-y">
+          {tEvents.map((e) => (
+            <div key={e.id} className="p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <div className="font-medium">
+                  {e.event_type}{" "}
+                  <span className="text-xs text-gray-500 font-normal">
+                    by {profileName(e.created_by ?? null)}
+                  </span>
+                </div>
+
+                <div className="text-xs text-gray-500">{prettyDate(e.created_at)}</div>
+              </div>
+
+              {e.event_type === "comment" ? (
+                <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">
+                  {e.payload?.text ?? ""}
+                </div>
+              ) : (
+                <pre className="mt-2 text-xs text-gray-700 whitespace-pre-wrap">
+                  {JSON.stringify(e.payload, null, 2)}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
+</Modal>
+
+{/* Agenda Editor */}
+<Modal
+  open={agendaOpen}
+  title="Edit agenda topics"
+  onClose={() => setAgendaOpen(false)}
+  footer={
+    <>
+      <Button variant="ghost" onClick={() => setAgendaOpen(false)}>
+        Close
+      </Button>
+    </>
+  }
+>
+
             <div className="text-sm text-gray-600 mb-3">Edit agenda topic fields below. (Next: drag reorder + add/remove.)</div>
 
             <div className="space-y-3">
