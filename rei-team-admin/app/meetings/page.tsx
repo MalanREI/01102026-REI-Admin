@@ -114,15 +114,19 @@ export default function MeetingsPage() {
       if (colIns.error) throw colIns.error;
 
       // Default statuses (requires the Supabase migration below; safe no-op if table missing)
-      await sb
-        .from("meeting_task_statuses")
-        .insert([
-          { meeting_id: meetingId, name: "In Progress", position: 1 },
-          { meeting_id: meetingId, name: "Needs Review", position: 2 },
-          { meeting_id: meetingId, name: "Waiting", position: 3 },
-          { meeting_id: meetingId, name: "Completed", position: 4 },
-        ])
-        .catch(() => null as any);
+      {
+  const ins = await sb.from("meeting_task_statuses").insert([
+    { meeting_id: meetingId, name: "In Progress", position: 1 },
+    { meeting_id: meetingId, name: "Needs Review", position: 2 },
+    { meeting_id: meetingId, name: "Waiting", position: 3 },
+    { meeting_id: meetingId, name: "Completed", position: 4 },
+  ]);
+
+  // Ignore errors (ex: table not migrated yet, RLS, unique constraint, etc.)
+  if (ins.error) {
+    // no-op
+  }
+}
 
       // Agenda seed
       const agendaLines = agendaSeed
