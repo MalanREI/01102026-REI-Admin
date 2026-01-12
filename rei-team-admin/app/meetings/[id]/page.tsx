@@ -813,11 +813,9 @@ async function selectPreviousSession(sessionId: string) {
   // ignore if table not migrated yet / RLS / etc.
   if (up.error) {
     // no-op
-  }
 }
 
-setEmailSettingsOpen(false);
-
+      setEmailSettingsOpen(false);
     } finally {
       setBusy(false);
     }
