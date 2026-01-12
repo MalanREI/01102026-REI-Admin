@@ -260,10 +260,10 @@ function profileName(userId: string | null | undefined): string {
       .from("meeting_task_statuses")
       .select("id,name,position")
       .eq("meeting_id", meetingId)
-      .order("position", { ascending: true })
-      .catch(() => null as any);
+      .order("position", { ascending: true });
 
-    if (again && !again.error) setStatuses((again.data ?? []) as any);
+    if (!again.error) setStatuses((again.data ?? []) as any);
+
   }
 
   async function loadAll() {
