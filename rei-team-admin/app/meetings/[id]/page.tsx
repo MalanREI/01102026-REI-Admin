@@ -672,73 +672,69 @@ function profileName(userId: string | null | undefined): string {
   }
 
   async function stopRecordingAndUpload(): Promise<{ recordingPath: string } | null> {
-  if (!mediaRecorderRef.current) return null;
-  setRecBusy(true);
-  setRecErr(null);
+    if (!mediaRecorderRef.current) return null;
+    setRecBusy(true);
+    setRecErr(null);
 
-  try {
-    const mr = mediaRecorderRef.current;
+    try {
+      const mr = mediaRecorderRef.current;
 
-    // Capture final chunks safely: dataavailable may fire after stop() is called.
-    const stopped = new Promise<void>((resolve) => {
-      const prevStop = mr.onstop;
-      mr.onstop = () => {
-        try {
-          // Ensure stream tracks are stopped
-          const stream = (mr as any).stream as MediaStream | undefined;
-          if (stream) stream.getTracks().forEach((t) => t.stop());
-          if (typeof prevStop === "function") prevStop.call(mr, undefined as any);
-        } finally {
-          resolve();
-        }
-      };
-    });
+      // Wait for the "stop" event so the last chunk flushes before we build the blob.
+      const stopped = new Promise<void>((resolve) => {
+        const prev = mr.onstop;
+        mr.onstop = (ev: any) => {
+          try {
+            if (typeof prev === "function") prev(ev);
+          } finally {
+            resolve();
+          }
+        };
+      });
 
-    mr.stop();
-    mediaRecorderRef.current = null;
-    setIsRecording(false);
-    if (tickRef.current) window.clearInterval(tickRef.current);
+      mr.stop();
+      await stopped;
 
-    await stopped;
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+      if (tickRef.current) window.clearInterval(tickRef.current);
 
-    // Small micro-wait to let the last `ondataavailable` flush in some browsers.
-    await new Promise((r) => setTimeout(r, 50));
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 
-    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-    if (!blob || blob.size === 0) throw new Error("Recording is empty. Please try again.");
+      // Upload recording through the server route (so buckets are env-configured)
+      const form = new FormData();
+      form.append("meetingId", meetingId);
+      form.append("sessionId", currentSession!.id);
+      form.append("durationSeconds", String(recSeconds));
+      // Best-effort userId (server route accepts missing userId as well).
+      try {
+        const u = await sb.auth.getUser();
+        const uid = u.data?.user?.id || "";
+        if (uid) form.append("userId", uid);
+      } catch {
+        // ignore
+      }
+      form.append("file", blob, "recording.webm");
 
-    // Identify the current user (optional but preferred for audit trail)
-    const { data: userData } = await sb.auth.getUser();
-    const userId = userData?.user?.id ?? "";
+      const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
+      const upJson = await upRes.json().catch(() => ({} as any));
+      if (!upRes.ok) throw new Error(upJson?.error || "Recording upload failed");
 
-    // Upload recording through the server route (so buckets are env-configured)
-    const form = new FormData();
-    form.append("meetingId", meetingId);
-    form.append("sessionId", currentSession!.id);
-    form.append("durationSeconds", String(recSeconds));
-    if (userId) form.append("userId", userId);
-    form.append("file", blob, "recording.webm");
+      const rp = String(upJson?.recordingPath || "");
+      if (!rp) throw new Error("Recording upload failed (no path returned)");
 
-    const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
-    const upJson = await upRes.json().catch(() => ({} as any));
-    if (!upRes.ok) throw new Error(upJson?.error || "Recording upload failed");
+      setLastRecordingPath(rp);
+      setRecMin(true);
 
-    const rp = String(upJson?.recordingPath || "");
-    if (!rp) throw new Error("Recording upload failed (no path returned)");
-
-    setLastRecordingPath(rp);
-    setRecMin(true);
-
-    return { recordingPath: rp };
-  } catch (e: any) {
-    setRecErr(e?.message ?? "Upload failed");
-    return null;
-  } finally {
-    setRecBusy(false);
+      return { recordingPath: rp };
+    } catch (e: any) {
+      setRecErr(e?.message ?? "Upload failed");
+      return null;
+    } finally {
+      setRecBusy(false);
+    }
   }
-}
 
-async function concludeMeeting() {
+  async function concludeMeeting() {
   if (!currentSession?.id) return;
   setBusy(true);
   setErr(null);
@@ -779,7 +775,51 @@ async function concludeMeeting() {
       setPrevSessions(sessions.filter((x) => !!x.ended_at));
     }
 
-    await loadAgendaNotes(currentSession.id, true);
+    // AI minutes + PDF generation runs asynchronously in Supabase.
+    // Poll until processed so the UI updates automatically.
+    const pollSessionId = currentSession.id;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    for (let i = 0; i < 30; i++) {
+      const st = await sb
+        .from("meeting_minutes_sessions")
+        .select("id,ai_status,ai_error,pdf_path")
+        .eq("id", pollSessionId)
+        .maybeSingle();
+
+      if (!st.error && st.data) {
+        const status = String((st.data as any).ai_status ?? "");
+        const pdfPath = String((st.data as any).pdf_path ?? "");
+        const aiError = String((st.data as any).ai_error ?? "");
+
+        if (status === "done") {
+          await loadAgendaNotes(pollSessionId, true);
+          // Refresh session lists to pick up pdf_path
+          const s2 = await sb
+            .from("meeting_minutes_sessions")
+            .select("id,started_at,ended_at,pdf_path")
+            .eq("meeting_id", meetingId)
+            .order("started_at", { ascending: false });
+          if (!s2.error) {
+            const sessions2 = (s2.data as any[]) ?? [];
+            const current2 = sessions2.find((x) => !x.ended_at) ?? null;
+            const prev2 = sessions2.find((x) => !!x.ended_at) ?? null;
+            setCurrentSession(current2);
+            setPrevSession(prev2);
+            setPrevSessions(sessions2.filter((x) => !!x.ended_at));
+          }
+          // If PDF is ready, stop polling.
+          if (pdfPath) break;
+        }
+
+        if (status === "error") {
+          setErr(aiError || "AI processing failed");
+          break;
+        }
+      }
+
+      await sleep(4000);
+    }
   } catch (e: any) {
     setErr(e?.message ?? "Failed to conclude meeting");
   } finally {
