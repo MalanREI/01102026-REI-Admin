@@ -14,19 +14,21 @@ export async function POST(req: Request) {
     const form = await req.formData();
     const meetingId = String(form.get("meetingId") ?? "");
     const sessionId = String(form.get("sessionId") ?? "");
-    const userId = String(form.get("userId") ?? "");
+    // userId is optional (some flows may not include it).
+    const userId = String(form.get("userId") ?? "").trim();
     const durationSeconds = Number(form.get("durationSeconds") ?? 0);
     const file = form.get("file");
 
-    // NOTE: userId is optional (created_by can be null). We still accept it when provided.
     if (!meetingId || !sessionId || !file || !(file instanceof Blob)) {
-      return NextResponse.json({ error: "meetingId, sessionId, durationSeconds, file required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "meetingId, sessionId, durationSeconds, file required" },
+        { status: 400 }
+      );
     }
 
     const recordingsBucket = requireEnv("RECORDINGS_BUCKET");
 
-    const safeUser = userId || "anon";
-    const filename = `${Date.now()}_${safeUser}.webm`;
+    const filename = `${Date.now()}${userId ? "_" + userId : ""}.webm`;
     const path = `meetings/${meetingId}/sessions/${sessionId}/${filename}`;
 
     const up = await admin.storage.from(recordingsBucket).upload(path, file, {
@@ -40,9 +42,9 @@ export async function POST(req: Request) {
       .insert({
         session_id: sessionId,
         storage_path: path,
-        duration_seconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+        duration_seconds: durationSeconds,
         created_by: userId || null,
-      } as any)
+      })
       .select("id")
       .single();
 
