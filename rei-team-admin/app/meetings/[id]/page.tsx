@@ -682,9 +682,11 @@ function profileName(userId: string | null | undefined): string {
       // Wait for the "stop" event so the last chunk flushes before we build the blob.
       const stopped = new Promise<void>((resolve) => {
         const prev = mr.onstop;
-        mr.onstop = (ev: any) => {
+        // Use a function (not an arrow) and call the previous handler with the correct `this`
+        // to satisfy TS' MediaRecorder event handler typing.
+        mr.onstop = function (ev: Event) {
           try {
-            if (typeof prev === "function") prev(ev);
+            if (typeof prev === "function") prev.call(mr, ev);
           } finally {
             resolve();
           }
