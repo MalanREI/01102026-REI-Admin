@@ -109,7 +109,25 @@ async function runAi(opts: {
 
   const schema = {
     name: "AgendaNotes",
-    schema: { type: "object", additionalProperties: { type: "string" } },
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        agenda: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              agenda_item_id: { type: "string" },
+              notes: { type: "string" },
+            },
+            required: ["agenda_item_id", "notes"],
+          },
+        },
+      },
+      required: ["agenda"],
+    },
     strict: true,
   } as const;
 
@@ -122,8 +140,11 @@ async function runAi(opts: {
         role: "system",
         content:
           "Turn a meeting transcript into concise, professional meeting minutes. " +
-          "Return ONLY JSON mapping agenda_item_id -> notes. Keep notes factual and action-oriented. " +
-          "If an agenda item was not discussed, return an empty string for that item.",
+          "Return ONLY valid JSON that matches the provided JSON schema. " +
+          "Populate the 'agenda' array with one object per agenda item. " +
+          "Each object must include: agenda_item_id and notes. " +
+          "Keep notes factual, concise, and action-oriented. " +
+          "If an agenda item was not discussed, set notes to an empty string.",
       },
       {
         role: "user",
@@ -136,7 +157,22 @@ async function runAi(opts: {
 
   let notesObj: Record<string, string> = {};
   try {
-    notesObj = JSON.parse(content);
+    const parsed: any = JSON.parse(content);
+
+    // Expected shape:
+    // { "agenda": [ { "agenda_item_id": "<id>", "notes": "<text>" }, ... ] }
+    if (parsed && Array.isArray(parsed.agenda)) {
+      for (const item of parsed.agenda) {
+        const id = String(item?.agenda_item_id ?? "").trim();
+        if (!id) continue;
+        notesObj[id] = String(item?.notes ?? "");
+      }
+    } else if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      // Backward-compatible fallback: { "<agenda_item_id>": "<notes>" }
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === "string") notesObj[String(k)] = v;
+      }
+    }
   } catch {
     notesObj = {};
   }
