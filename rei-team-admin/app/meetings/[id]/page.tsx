@@ -552,7 +552,7 @@ function profileName(userId: string | null | undefined): string {
       const userId = userData?.user?.id ?? null;
 
       const ownerIsEmail = (tOwner || "").startsWith("email:");
-      const ownerEmail = ownerIsEmail ? String(tOwner).slice("email:".length).trim() : null;
+      const ownerEmail = ownerIsEmail ? String(tOwner).slice("email:".length).trim().toLowerCase() : null;
 
       const attendeeOwner = ownerIsEmail
         ? attendees.find((a) => String(a.email || "").toLowerCase() === String(ownerEmail || "").toLowerCase())
@@ -578,13 +578,6 @@ function profileName(userId: string | null | undefined): string {
               : null;
           
           const owner_email = resolvedEmail;
-
-
-      const owner_email =
-        (ownerEmail ||
-          attendeeOwner?.email?.trim() ||
-          profileOwner?.email?.trim() ||
-          null) ?? null;
 
       if (!editingTaskId) {
         const maxPos = Math.max(0, ...tasks.filter((x) => x.column_id === tColumnId).map((x) => x.position ?? 0));
@@ -1287,7 +1280,7 @@ async function selectPreviousSession(sessionId: string) {
                       const fullName = a.full_name ? String(a.full_name) : null;
             
                       return (
-                        <option key={email} value={email}>
+                        <option key={email} value={`email:${email.toLowerCase()}`}>
                           {formatAttendeeLabel(fullName, email)}
                         </option>
                       );
