@@ -16,6 +16,59 @@ type Meeting = {
   rrule: string | null;
 };
 
+type ParsedAttendee = { email: string; full_name: string | null };
+
+// Accept formats like:
+// - "Alan M. <alan@domain.com>"
+// - "Alan M., alan@domain.com"
+// - "alan@domain.com"
+function parseAttendees(input: string): ParsedAttendee[] {
+  const lines = (input ?? "")
+    .split(/\n|;/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const out: ParsedAttendee[] = [];
+
+  for (const line of lines) {
+    // Name <email>
+    const angle = /(.*)<([^>]+)>/.exec(line);
+    if (angle) {
+      const full_name = angle[1]?.trim()?.replace(/^"|"$/g, "") || null;
+      const email = angle[2]?.trim()?.replace(/^"|"$/g, "") || "";
+      if (email) out.push({ email, full_name });
+      continue;
+    }
+
+    // Name, email
+    const commaParts = line.split(",").map((s) => s.trim()).filter(Boolean);
+    if (commaParts.length === 2 && commaParts[1].includes("@")) {
+      out.push({ email: commaParts[1], full_name: commaParts[0] || null });
+      continue;
+    }
+
+    // Maybe "Name email@domain.com" or just "email@domain.com"
+    const tokens = line.split(/\s+/g).filter(Boolean);
+    const emailToken = tokens.find((t) => t.includes("@")) ?? "";
+    if (!emailToken) continue;
+
+    const nameTokens = tokens.filter((t) => t !== emailToken);
+    const full_name = nameTokens.length ? nameTokens.join(" ") : null;
+    out.push({ email: emailToken, full_name });
+  }
+
+  // de-dupe by email (keep first name encountered)
+  const seen = new Set<string>();
+  const deduped: ParsedAttendee[] = [];
+  for (const a of out) {
+    const key = a.email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push({ email: a.email, full_name: a.full_name });
+  }
+  return deduped;
+}
+
 function rruleFromPreset(preset: string): string | null {
   switch (preset) {
     case "none":
@@ -89,14 +142,31 @@ export default function MeetingsPage() {
 
       const meetingId = created.id as string;
 
-      // Attendees
-      const emails = attendees
-        .split(/[,\\n]/g)
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // Attendees (store name + email; map to profile id if exists)
+      const parsed = parseAttendees(attendees);
+      if (parsed.length) {
+        const emails = parsed.map((a) => a.email.toLowerCase());
+        const pr = await sb.from("profiles").select("id,email").in("email", emails);
 
-      if (emails.length) {
-        const rows = emails.map((email) => ({ meeting_id: meetingId, email }));
+        const emailToUserId = new Map<string, string>();
+        if (!pr.error) {
+          for (const p of pr.data ?? []) {
+            const e = String((p as any).email ?? "").toLowerCase();
+            if (e) emailToUserId.set(e, String((p as any).id));
+          }
+        }
+
+        const rows = parsed.map((a) => {
+          const key = a.email.toLowerCase();
+          const user_id = emailToUserId.get(key) ?? null;
+          return {
+            meeting_id: meetingId,
+            email: a.email.trim(),
+            full_name: a.full_name?.trim() || null,
+            user_id,
+          };
+        });
+
         const ins = await sb.from("meeting_attendees").insert(rows);
         if (ins.error) throw ins.error;
       }
@@ -113,20 +183,19 @@ export default function MeetingsPage() {
       const colIns = await sb.from("meeting_task_columns").insert(colRows);
       if (colIns.error) throw colIns.error;
 
-      // Default statuses (requires the Supabase migration below; safe no-op if table missing)
+      // Default statuses (safe no-op if table missing)
       {
-  const ins = await sb.from("meeting_task_statuses").insert([
-    { meeting_id: meetingId, name: "In Progress", position: 1 },
-    { meeting_id: meetingId, name: "Needs Review", position: 2 },
-    { meeting_id: meetingId, name: "Waiting", position: 3 },
-    { meeting_id: meetingId, name: "Completed", position: 4 },
-  ]);
+        const ins = await sb.from("meeting_task_statuses").insert([
+          { meeting_id: meetingId, name: "In Progress", position: 1 },
+          { meeting_id: meetingId, name: "Needs Review", position: 2 },
+          { meeting_id: meetingId, name: "Waiting", position: 3 },
+          { meeting_id: meetingId, name: "Completed", position: 4 },
+        ]);
 
-  // Ignore errors (ex: table not migrated yet, RLS, unique constraint, etc.)
-  if (ins.error) {
-    // no-op
-  }
-}
+        if (ins.error) {
+          // no-op
+        }
+      }
 
       // Agenda seed
       const agendaLines = agendaSeed
@@ -254,15 +323,17 @@ export default function MeetingsPage() {
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="text-xs text-gray-600">Attendee emails (comma or new line separated)</label>
+              <label className="text-xs text-gray-600">
+                Attendees (email-only OR “Name &lt;email&gt;” OR “Name, email”)
+              </label>
               <Textarea
                 rows={3}
                 value={attendees}
                 onChange={(e) => setAttendees(e.target.value)}
-                placeholder="alan@...\nnate@..."
+                placeholder={'Alan M. <alan@...>\nNate G., nate@...\nbraden@...'}
               />
               <div className="mt-1 text-xs text-gray-500">
-                After saving, the app emails calendar invites to these addresses (requires SMTP env vars).
+                These are used for (1) sending minutes/invites and (2) task owner assignment.
               </div>
             </div>
             <div className="md:col-span-2">
@@ -270,7 +341,9 @@ export default function MeetingsPage() {
               <Textarea rows={6} value={agendaSeed} onChange={(e) => setAgendaSeed(e.target.value)} />
             </div>
           </div>
-          {err && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+          {err && (
+            <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>
+          )}
         </Modal>
       </div>
     </PageShell>
