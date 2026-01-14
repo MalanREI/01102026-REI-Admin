@@ -176,6 +176,52 @@ export default function MeetingDetailPage() {
     const p = profiles.find((x) => x.id === ownerId);
     return p?.color_hex || "#E5E7EB";
   }
+function toTitleCase(s: string) {
+  return (s || "")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+function nameFromEmail(email: string) {
+  const local = (email || "").split("@")[0] || "";
+  // alan.moore -> ["alan","moore"], alan_moore -> ["alan","moore"], alanmoore -> ["alanmoore"]
+  const parts = local
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+
+  if (!parts.length) return "Unassigned";
+
+  const first = toTitleCase(parts[0]);
+  const last = parts.length > 1 ? toTitleCase(parts[parts.length - 1]) : "";
+  const lastInit = last ? `${last[0]}.` : "";
+
+  return lastInit ? `${first} ${lastInit}` : first;
+}
+
+function formatAttendeeLabel(fullName: string | null | undefined, email: string) {
+  const raw = (fullName || "").trim();
+
+  // If they already entered "Alan M." or similar, keep it.
+  if (raw && /^[A-Za-z]+(\s+[A-Za-z]\.)$/.test(raw)) return raw;
+
+  // If we have a full name like "Alan Moore", convert to "Alan M."
+  if (raw) {
+    const parts = raw.split(/\s+/g).filter(Boolean);
+    if (parts.length === 1) return toTitleCase(parts[0]);
+
+    const first = toTitleCase(parts[0]);
+    const last = toTitleCase(parts[parts.length - 1]);
+    const lastInit = last ? `${last[0]}.` : "";
+    return lastInit ? `${first} ${lastInit}` : first;
+  }
+
+  // Fallback: derive from email
+  return nameFromEmail(email);
+}
 
 function firstNameFromFullName(fullName: string | null | undefined): string | null {
   const s = (fullName ?? "").trim();
@@ -515,12 +561,24 @@ function profileName(userId: string | null | undefined): string {
       const profileOwner = !ownerIsEmail && tOwner ? profiles.find((p) => String(p.id) === String(tOwner)) : null;
 
       const owner_id = !ownerIsEmail && tOwner ? String(tOwner) : null;
-      const owner_name =
-        (attendeeOwner?.full_name?.trim() ||
-          profileOwner?.full_name?.trim() ||
-          attendeeOwner?.email?.trim() ||
-          profileOwner?.email?.trim() ||
-          null) ?? null;
+      const rawName =
+            (attendeeOwner?.full_name?.trim() ||
+              profileOwner?.full_name?.trim() ||
+              null) ?? null;
+          
+          const resolvedEmail =
+            (ownerEmail ||
+              attendeeOwner?.email?.trim() ||
+              profileOwner?.email?.trim() ||
+              null) ?? null;
+          
+          const owner_name =
+            resolvedEmail
+              ? formatAttendeeLabel(rawName, resolvedEmail)
+              : null;
+          
+          const owner_email = resolvedEmail;
+
 
       const owner_email =
         (ownerEmail ||
@@ -1224,14 +1282,13 @@ async function selectPreviousSession(sessionId: string) {
                   <label className="text-xs text-gray-600">Owner</label>
                   <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tOwner} onChange={(e) => setTOwner(e.target.value)}>
                     <option value="">Unassigned</option>
-                    {attendees.map((a) => {
-                      const label = (a.full_name?.trim() || a.email?.trim() || "Unknown").toString();
-                      // If attendee is a real auth user (user_id exists), use that (works with existing data).
-                      // Otherwise, store as "email:<lowercase>" to keep it unique and reversible.
-                      const val = a.user_id ? a.user_id : `email:${String(a.email || "").toLowerCase()}`;
+                    {(attendees ?? []).map((a: any) => {
+                      const email = String(a.email || "").trim();
+                      const fullName = a.full_name ? String(a.full_name) : null;
+            
                       return (
-                        <option key={val} value={val}>
-                          {label}
+                        <option key={email} value={email}>
+                          {formatAttendeeLabel(fullName, email)}
                         </option>
                       );
                     })}
