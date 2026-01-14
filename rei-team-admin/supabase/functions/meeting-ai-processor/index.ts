@@ -3,6 +3,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import OpenAI from "https://esm.sh/openai@4";
 
+const DEFAULT_SUMMARY_MODEL = Deno.env.get("OPENAI_SUMMARY_MODEL") || "gpt-4o-mini";
+const DEFAULT_TRANSCRIBE_MODEL = Deno.env.get("OPENAI_TRANSCRIBE_MODEL") || "gpt-4o-mini-transcribe";
+
+// These are kept conservative to avoid token/timeout blowups on long meetings.
+// They can be overridden via env without code changes.
+const TRANSCRIPT_CHUNK_CHARS = Math.max(2000, Number(Deno.env.get("TRANSCRIPT_CHUNK_CHARS") || "12000"));
+const MAX_CHUNKS = Math.max(1, Number(Deno.env.get("TRANSCRIPT_MAX_CHUNKS") || "10"));
+
 function requireEnv(name: string): string {
   const v = Deno.env.get(name);
   if (!v) throw new Error(`Missing env: ${name}`);
@@ -34,6 +42,120 @@ async function json(req: Request) {
   }
 }
 
+function splitTranscript(text: string): string[] {
+  const t = (text || "").trim();
+  if (!t) return [];
+
+  // Prefer splitting on paragraph boundaries for cleaner chunk semantics.
+  const paras = t.replace(/\r\n/g, "\n").split("\n\n");
+  const chunks: string[] = [];
+  let cur = "";
+  for (const p of paras) {
+    const next = cur ? cur + "\n\n" + p : p;
+    if (next.length <= TRANSCRIPT_CHUNK_CHARS) {
+      cur = next;
+      continue;
+    }
+    if (cur) chunks.push(cur);
+    cur = p;
+    if (chunks.length >= MAX_CHUNKS) break;
+  }
+  if (cur && chunks.length < MAX_CHUNKS) chunks.push(cur);
+
+  // Fallback if we ended up with a single enormous paragraph.
+  if (chunks.length === 1 && chunks[0]!.length > TRANSCRIPT_CHUNK_CHARS) {
+    const s = chunks[0]!;
+    const out: string[] = [];
+    for (let i = 0; i < s.length && out.length < MAX_CHUNKS; i += TRANSCRIPT_CHUNK_CHARS) {
+      out.push(s.slice(i, i + TRANSCRIPT_CHUNK_CHARS));
+    }
+    return out;
+  }
+
+  return chunks;
+}
+
+function mergeNote(a: string, b: string): string {
+  const left = (a || "").trim();
+  const right = (b || "").trim();
+  if (!left) return right;
+  if (!right) return left;
+  if (left.includes(right)) return left;
+  if (right.includes(left)) return right;
+  return left + "\n" + right;
+}
+
+async function summarizeChunk(opts: {
+  client: OpenAI;
+  agendaList: string;
+  transcriptChunk: string;
+}) {
+  const schema = {
+    name: "AgendaNotes",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        agenda: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              agenda_item_id: { type: "string" },
+              notes: { type: "string" },
+            },
+            required: ["agenda_item_id", "notes"],
+          },
+        },
+      },
+      required: ["agenda"],
+    },
+    strict: true,
+  } as const;
+
+  const completion = await opts.client.chat.completions.create({
+    model: DEFAULT_SUMMARY_MODEL,
+    temperature: 0.2,
+    response_format: { type: "json_schema", json_schema: schema },
+    messages: [
+      {
+        role: "system",
+        content:
+          "Turn a meeting transcript chunk into concise, professional meeting minutes. " +
+          "Return ONLY valid JSON matching the schema. " +
+          "Populate the 'agenda' array with one object per agenda item. " +
+          "Each object must include: agenda_item_id and notes. " +
+          "Keep notes factual, concise, and action-oriented. " +
+          "If an agenda item was not discussed in THIS CHUNK, set notes to an empty string. " +
+          "Do not invent details. Do not include markdown.",
+      },
+      {
+        role: "user",
+        content: `Agenda items (id | label):\n${opts.agendaList}\n\nTranscript chunk:\n${opts.transcriptChunk}`,
+      },
+    ],
+  });
+
+  const content = completion.choices?.[0]?.message?.content ?? "{}";
+
+  const notesObj: Record<string, string> = {};
+  try {
+    const parsed: any = JSON.parse(content);
+    if (parsed && Array.isArray(parsed.agenda)) {
+      for (const item of parsed.agenda) {
+        const id = String(item?.agenda_item_id ?? "").trim();
+        if (!id) continue;
+        notesObj[id] = String(item?.notes ?? "");
+      }
+    }
+  } catch {
+    // ignore parse failures; caller can treat as empty
+  }
+
+  return notesObj;
+}
+
 async function runAi(opts: {
   supabaseUrl: string;
   serviceRoleKey: string;
@@ -62,18 +184,17 @@ async function runAi(opts: {
 
   const agenda = agendaRes.data ?? [];
 
-  // 2) latest recording for session
+  // 2) recordings for session (we may have multiple segments for long meetings)
   const recRes = await sb
     .from("meeting_recordings")
     .select("storage_path,created_at")
     .eq("session_id", opts.sessionId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .limit(50);
   if (recRes.error) throw recRes.error;
 
-  const recordingPath = String(recRes.data?.storage_path ?? "").trim();
-  if (!recordingPath) {
+  const recordings = (recRes.data ?? []) as Array<{ storage_path: string; created_at: string }>;
+  if (!recordings.length) {
     await sb
       .from("meeting_minutes_sessions")
       .update({ ai_status: "skipped", ai_processed_at: new Date().toISOString() } as any)
@@ -81,23 +202,27 @@ async function runAi(opts: {
     return { skipped: true };
   }
 
-  // 3) download recording
-  const dl = await sb.storage.from(opts.recordingsBucket).download(recordingPath);
-  if (dl.error) throw dl.error;
-  const arrBuf = await dl.data.arrayBuffer();
-
-  // 4) transcribe
+  // 3) transcribe each recording and concatenate
   const client = new OpenAI({ apiKey: opts.openaiKey });
+  const transcriptParts: string[] = [];
+  for (let i = 0; i < recordings.length; i++) {
+    const recordingPath = String(recordings[i]?.storage_path ?? "").trim();
+    if (!recordingPath) continue;
 
-  // Deno doesn't have global File in all runtimes, so we build a Blob + File-like.
-  const file = new File([arrBuf], "recording.webm", { type: "audio/webm" });
+    const dl = await sb.storage.from(opts.recordingsBucket).download(recordingPath);
+    if (dl.error) throw dl.error;
+    const arrBuf = await dl.data.arrayBuffer();
 
-  const transcription = await client.audio.transcriptions.create({
-    model: Deno.env.get("OPENAI_TRANSCRIBE_MODEL") || "gpt-4o-mini-transcribe",
-    file,
-  });
+    const file = new File([arrBuf], `recording-${i + 1}.webm`, { type: "audio/webm" });
+    const transcription = await client.audio.transcriptions.create({
+      model: DEFAULT_TRANSCRIBE_MODEL,
+      file,
+    });
+    const segText = (transcription as any)?.text ? String((transcription as any).text) : "";
+    if (segText.trim()) transcriptParts.push(segText.trim());
+  }
 
-  const transcriptText = (transcription as any)?.text ? String((transcription as any).text) : "";
+  const transcriptText = transcriptParts.join("\n\n");
 
   // 5) summarize into agenda mapping
   const agendaList = agenda
@@ -107,74 +232,15 @@ async function runAi(opts: {
     )
     .join("\n");
 
-  const schema = {
-    name: "AgendaNotes",
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        agenda: {
-          type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              agenda_item_id: { type: "string" },
-              notes: { type: "string" },
-            },
-            required: ["agenda_item_id", "notes"],
-          },
-        },
-      },
-      required: ["agenda"],
-    },
-    strict: true,
-  } as const;
-
-  const completion = await client.chat.completions.create({
-    model: Deno.env.get("OPENAI_SUMMARY_MODEL") || "gpt-4o-mini",
-    temperature: 0.2,
-    response_format: { type: "json_schema", json_schema: schema },
-    messages: [
-      {
-        role: "system",
-        content:
-          "Turn a meeting transcript into concise, professional meeting minutes. " +
-          "Return ONLY valid JSON that matches the provided JSON schema. " +
-          "Populate the 'agenda' array with one object per agenda item. " +
-          "Each object must include: agenda_item_id and notes. " +
-          "Keep notes factual, concise, and action-oriented. " +
-          "If an agenda item was not discussed, set notes to an empty string.",
-      },
-      {
-        role: "user",
-        content: `Agenda items (id | label):\n${agendaList}\n\nTranscript:\n${transcriptText}`,
-      },
-    ],
-  });
-
-  const content = completion.choices?.[0]?.message?.content ?? "{}";
-
-  let notesObj: Record<string, string> = {};
-  try {
-    const parsed: any = JSON.parse(content);
-
-    // Expected shape:
-    // { "agenda": [ { "agenda_item_id": "<id>", "notes": "<text>" }, ... ] }
-    if (parsed && Array.isArray(parsed.agenda)) {
-      for (const item of parsed.agenda) {
-        const id = String(item?.agenda_item_id ?? "").trim();
-        if (!id) continue;
-        notesObj[id] = String(item?.notes ?? "");
-      }
-    } else if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      // Backward-compatible fallback: { "<agenda_item_id>": "<notes>" }
-      for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v === "string") notesObj[String(k)] = v;
-      }
+  // Summarize in chunks to avoid token/time blowups on long meetings.
+  const chunks = splitTranscript(transcriptText);
+  const notesObj: Record<string, string> = {};
+  for (const chunkText of chunks) {
+    const chunkNotes = await summarizeChunk({ client, agendaList, transcriptChunk: chunkText });
+    for (const [id, note] of Object.entries(chunkNotes)) {
+      const merged = mergeNote(String(notesObj[id] ?? ""), String(note ?? ""));
+      if (merged) notesObj[id] = merged;
     }
-  } catch {
-    notesObj = {};
   }
 
   // 6) upsert notes rows
@@ -201,7 +267,9 @@ async function runAi(opts: {
     )
     .eq("id", opts.sessionId);
 
-  return { transcriptText, agendaItemsUpdated: upRows.length, recordingPath };
+  // keep last recording path for debugging/reference
+  const lastPath = String(recordings[recordings.length - 1]?.storage_path ?? "").trim();
+  return { transcriptText, agendaItemsUpdated: upRows.length, recordingPath: lastPath };
 }
 
 async function callFinalize(opts: {
