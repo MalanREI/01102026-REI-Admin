@@ -30,6 +30,8 @@ type Meeting = {
 
 type Profile = { id: string; full_name: string | null; email?: string | null; color_hex: string | null };
 
+type Attendee = { email: string; full_name: string | null; user_id: string | null };
+
 type Column = { id: string; name: string; position: number };
 
 type StatusOpt = { id: string; name: string; position: number };
@@ -41,6 +43,8 @@ type Task = {
   status: string;
   priority: string;
   owner_id: string | null;
+  owner_email?: string | null;
+  owner_name?: string | null;
   start_date: string | null;
   due_date: string | null;
   notes: string | null;
@@ -115,6 +119,7 @@ export default function MeetingDetailPage() {
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
   const [statuses, setStatuses] = useState<StatusOpt[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -286,6 +291,13 @@ function profileName(userId: string | null | undefined): string {
       .order("created_at", { ascending: true });
     if (!pr.error) setProfiles((pr.data ?? []) as any);
 
+    const at = await sb
+      .from("meeting_attendees")
+      .select("email,full_name,user_id")
+      .eq("meeting_id", meetingId)
+      .order("created_at", { ascending: true });
+    if (!at.error) setAttendees((at.data ?? []) as any);
+
     const c = await sb
       .from("meeting_task_columns")
       .select("id,name,position")
@@ -298,7 +310,7 @@ function profileName(userId: string | null | undefined): string {
 
     const t = await sb
       .from("meeting_tasks")
-      .select("id,column_id,title,status,priority,owner_id,start_date,due_date,notes,position,updated_at")
+      .select("id,column_id,title,status,priority,owner_id,owner_email,owner_name,start_date,due_date,notes,position,updated_at")
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
     if (t.error) throw t.error;
@@ -449,7 +461,7 @@ function profileName(userId: string | null | undefined): string {
     setTTitle(task.title);
     setTStatus(task.status);
     setTPriority(task.priority);
-    setTOwner(task.owner_id ?? "");
+    setTOwner(task.owner_id ?? (task.owner_email ? `email:${String(task.owner_email).toLowerCase()}` : ""));
     setTStart(toISODate(task.start_date));
     setTDue(toISODate(task.due_date));
     setTNotes(task.notes ?? "");
@@ -493,6 +505,29 @@ function profileName(userId: string | null | undefined): string {
       const { data: userData } = await sb.auth.getUser();
       const userId = userData?.user?.id ?? null;
 
+      const ownerIsEmail = (tOwner || "").startsWith("email:");
+      const ownerEmail = ownerIsEmail ? String(tOwner).slice("email:".length).trim() : null;
+
+      const attendeeOwner = ownerIsEmail
+        ? attendees.find((a) => String(a.email || "").toLowerCase() === String(ownerEmail || "").toLowerCase())
+        : attendees.find((a) => a.user_id && String(a.user_id) === String(tOwner || ""));
+
+      const profileOwner = !ownerIsEmail && tOwner ? profiles.find((p) => String(p.id) === String(tOwner)) : null;
+
+      const owner_id = !ownerIsEmail && tOwner ? String(tOwner) : null;
+      const owner_name =
+        (attendeeOwner?.full_name?.trim() ||
+          profileOwner?.full_name?.trim() ||
+          attendeeOwner?.email?.trim() ||
+          profileOwner?.email?.trim() ||
+          null) ?? null;
+
+      const owner_email =
+        (ownerEmail ||
+          attendeeOwner?.email?.trim() ||
+          profileOwner?.email?.trim() ||
+          null) ?? null;
+
       if (!editingTaskId) {
         const maxPos = Math.max(0, ...tasks.filter((x) => x.column_id === tColumnId).map((x) => x.position ?? 0));
         const created = await sb
@@ -503,14 +538,16 @@ function profileName(userId: string | null | undefined): string {
             title: tTitle.trim(),
             status: tStatus,
             priority: tPriority,
-            owner_id: tOwner || null,
+            owner_id,
+            owner_email,
+            owner_name,
             start_date: tStart || null,
             due_date: tDue || null,
             notes: tNotes || null,
             position: maxPos + 1,
             created_by: userId,
           })
-          .select("id,column_id,title,status,priority,owner_id,start_date,due_date,notes,position,updated_at")
+          .select("id,column_id,title,status,priority,owner_id,owner_email,owner_name,start_date,due_date,notes,position,updated_at")
           .single();
         if (created.error) throw created.error;
 
@@ -525,7 +562,9 @@ function profileName(userId: string | null | undefined): string {
           title: tTitle.trim(),
           status: tStatus,
           priority: tPriority,
-          owner_id: tOwner || null,
+          owner_id,
+          owner_email,
+          owner_name,
           start_date: tStart || null,
           due_date: tDue || null,
           notes: tNotes || null,
@@ -537,7 +576,7 @@ function profileName(userId: string | null | undefined): string {
           .from("meeting_tasks")
           .update(patch)
           .eq("id", editingTaskId)
-          .select("id,column_id,title,status,priority,owner_id,start_date,due_date,notes,position,updated_at")
+          .select("id,column_id,title,status,priority,owner_id,owner_email,owner_name,start_date,due_date,notes,position,updated_at")
           .single();
         if (upd.error) throw upd.error;
 
@@ -625,7 +664,7 @@ function profileName(userId: string | null | undefined): string {
       .from("meeting_tasks")
       .update(patch)
       .eq("id", activeId)
-      .select("id,column_id,title,status,priority,owner_id,start_date,due_date,notes,position,updated_at")
+      .select("id,column_id,title,status,priority,owner_id,owner_email,owner_name,start_date,due_date,notes,position,updated_at")
       .single();
 
     if (!upd.error) {
@@ -1185,11 +1224,17 @@ async function selectPreviousSession(sessionId: string) {
                   <label className="text-xs text-gray-600">Owner</label>
                   <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tOwner} onChange={(e) => setTOwner(e.target.value)}>
                     <option value="">Unassigned</option>
-                    {profiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name?.trim() || p.email?.trim() || "Unknown"}
-                      </option>
-                    ))}
+                    {attendees.map((a) => {
+                      const label = (a.full_name?.trim() || a.email?.trim() || "Unknown").toString();
+                      // If attendee is a real auth user (user_id exists), use that (works with existing data).
+                      // Otherwise, store as "email:<lowercase>" to keep it unique and reversible.
+                      const val = a.user_id ? a.user_id : `email:${String(a.email || "").toLowerCase()}`;
+                      return (
+                        <option key={val} value={val}>
+                          {label}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
