@@ -60,7 +60,14 @@ type AgendaItem = {
   position: number;
 };
 
-type MinutesSession = { id: string; started_at: string; ended_at: string | null };
+type MinutesSession = {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  pdf_path?: string | null;
+  ai_status?: string | null;
+  ai_error?: string | null;
+};
 
 type TaskEvent = {
   id: string;
@@ -155,6 +162,7 @@ export default function MeetingDetailPage() {
   const [commentText, setCommentText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   // Agenda edit
   const [agendaOpen, setAgendaOpen] = useState(false);
@@ -747,10 +755,20 @@ function profileName(userId: string | null | undefined): string {
       setIsRecording(true);
       setRecSeconds(0);
 
+      const segmentSeconds = Math.max(60, Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "900"));
       tickRef.current = window.setInterval(() => {
         setRecSeconds((s) => {
           const next = s + 1;
+
+          // Safety cap (2 hours)
           if (next >= 7200) setTimeout(() => stopRecordingAndUpload(), 0);
+
+          // Auto-segment to keep recordings small enough for transcription on long meetings.
+          // This uploads the segment and immediately starts a new one.
+          if (segmentSeconds && next > 0 && next % segmentSeconds === 0) {
+            setTimeout(() => void rotateRecordingSegment(), 0);
+          }
+
           return next;
         });
       }, 1000);
@@ -758,6 +776,16 @@ function profileName(userId: string | null | undefined): string {
       setRecMin(true);
     } catch (e: any) {
       setRecErr(e?.message ?? "Could not start recording");
+    }
+  }
+
+  async function rotateRecordingSegment() {
+    if (!mediaRecorderRef.current) return;
+    // Stop current recorder, upload, then immediately start a new recording segment.
+    const up = await stopRecordingAndUpload();
+    if (up) {
+      // Restart recording automatically (best-effort)
+      await startRecording();
     }
   }
 
@@ -830,6 +858,7 @@ function profileName(userId: string | null | undefined): string {
   if (!currentSession?.id) return;
   setBusy(true);
   setErr(null);
+  setInfo(null);
   try {
     let recordingPath: string | null = lastRecordingPath;
 
@@ -854,7 +883,7 @@ function profileName(userId: string | null | undefined): string {
 
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at,pdf_path")
+      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
       .eq("meeting_id", meetingId)
       .order("started_at", { ascending: false });
 
@@ -872,7 +901,12 @@ function profileName(userId: string | null | undefined): string {
     const pollSessionId = currentSession.id;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    for (let i = 0; i < 30; i++) {
+    const maxSeconds = Number(process.env.NEXT_PUBLIC_AI_POLL_MAX_SECONDS || "600");
+    const intervalMs = Math.max(2000, Number(process.env.NEXT_PUBLIC_AI_POLL_INTERVAL_MS || "4000"));
+    const maxIters = Math.max(1, Math.floor((maxSeconds * 1000) / intervalMs));
+
+    let reachedTerminal = false;
+    for (let i = 0; i < maxIters; i++) {
       const st = await sb
         .from("meeting_minutes_sessions")
         .select("id,ai_status,ai_error,pdf_path")
@@ -885,11 +919,12 @@ function profileName(userId: string | null | undefined): string {
         const aiError = String((st.data as any).ai_error ?? "");
 
         if (status === "done") {
+          reachedTerminal = true;
           await loadAgendaNotes(pollSessionId, true);
           // Refresh session lists to pick up pdf_path
           const s2 = await sb
             .from("meeting_minutes_sessions")
-            .select("id,started_at,ended_at,pdf_path")
+            .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
             .eq("meeting_id", meetingId)
             .order("started_at", { ascending: false });
           if (!s2.error) {
@@ -905,12 +940,22 @@ function profileName(userId: string | null | undefined): string {
         }
 
         if (status === "error") {
+          reachedTerminal = true;
           setErr(aiError || "AI processing failed");
           break;
         }
       }
 
-      await sleep(4000);
+      await sleep(intervalMs);
+    }
+
+    // If we exited the loop without a terminal status, processing is still happening server-side.
+    // Don’t show this as an error (it’s expected for long meetings).
+    if (!reachedTerminal) {
+      setInfo(
+        "AI processing is still running in the background. " +
+          "You can keep working and come back later—open ‘View Previous Meetings’ to check status and download the PDF once it’s ready."
+      );
     }
   } catch (e: any) {
     setErr(e?.message ?? "Failed to conclude meeting");
@@ -922,7 +967,7 @@ function profileName(userId: string | null | undefined): string {
   async function loadPreviousSessions() {
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at")
+      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
       .eq("meeting_id", meetingId)
       .order("started_at", { ascending: false })
       .limit(50);
@@ -947,7 +992,7 @@ function profileName(userId: string | null | undefined): string {
 async function selectPreviousSession(sessionId: string) {
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at")
+      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
       .eq("id", sessionId)
       .single();
     if (!s.error) setPrevSession(s.data as any);
@@ -1066,6 +1111,7 @@ async function selectPreviousSession(sessionId: string) {
           </div>
 
           {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+          {info && <div className="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-2">{info}</div>}
 
           <ResizableSidebar
             storageKey={`meetings:${meetingId}:agenda`}
@@ -1460,6 +1506,12 @@ async function selectPreviousSession(sessionId: string) {
                     <div className="text-xs text-gray-600">
                       {s.ended_at ? `Ended ${prettyDate(s.ended_at)}` : "(In progress / not concluded)"}
                     </div>
+                    {s.ai_status && s.ai_status !== "done" && (
+                      <div className="text-xs text-gray-600 mt-1">
+                        Status: {String(s.ai_status)}
+                        {s.ai_status === "error" && s.ai_error ? ` — ${String(s.ai_error)}` : ""}
+                      </div>
+                    )}
                     <div className="text-xs text-gray-500 mt-1 flex items-center justify-between">
                       <span />
                       <button
@@ -1469,8 +1521,9 @@ async function selectPreviousSession(sessionId: string) {
                           e.stopPropagation();
                           void openSessionPdf(s.id);
                         }}
+                        disabled={!s.pdf_path}
                       >
-                        Link
+                        {s.pdf_path ? "Link" : s.ai_status === "error" ? "No PDF" : "Processing"}
                       </button>
                     </div>
                   </button>
