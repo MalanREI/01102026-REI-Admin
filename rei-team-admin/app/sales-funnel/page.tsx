@@ -214,7 +214,10 @@ export default function SalesFunnelPage() {
             .from("leads")
             .upsert(batch as any, { onConflict: "email_lower", ignoreDuplicates: false });
           if (res.error) throw res.error;
-          inserted += (res.data?.length ?? 0);
+          // NOTE: If your Supabase client is not strongly typed for the "leads" table,
+          // Postgrest responses may type `data` as `never`, which breaks builds when
+          // accessing `res.data.length`. For our import UX, we track processed rows.
+          inserted += batch.length;
         } else {
           const res = await sb.from("leads").insert(batch as any);
           if (res.error) {
