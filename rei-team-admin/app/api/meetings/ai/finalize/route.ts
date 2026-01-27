@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
 
@@ -622,34 +621,18 @@ export async function POST(req: Request) {
       // ignore
     }
 
-    // Email w/ attachment
-    if (attendeeEmail.length > 0) {
-      const transporter = nodemailer.createTransport({
-        host: requireEnv("SMTP_HOST"),
-        port: Number(requireEnv("SMTP_PORT")),
-        secure: Number(requireEnv("SMTP_PORT")) === 465,
-        auth: { user: requireEnv("SMTP_USER"), pass: requireEnv("SMTP_PASS") },
-      });
-
-      const subject = `Minutes PDF: ${meeting.title} (${start.toLocaleDateString()})`;
-      const bodyText =
-        "Meeting minutes PDF attached.\n\n" +
-        (referenceLink ? `Reference link: ${referenceLink}\n\n` : "") +
-        (pdfUrl ? `PDF link (signed): ${pdfUrl}\n\n` : "");
-
-      await transporter.sendMail({
-        from: requireEnv("SMTP_FROM"),
-        to: attendeeEmail.join(","),
-        subject,
-        text: bodyText,
-        attachments: [
-          {
-            filename: `Minutes - ${meeting.title}.pdf`,
-            content: Buffer.from(pdfBytes),
-            contentType: "application/pdf",
-          },
-        ],
-      });
+    // Mark email as ready to send (manual send endpoint handles delivery)
+    try {
+      const mark = await admin
+        .from("meeting_minutes_sessions")
+        .update({ email_status: "ready", email_error: null } as any)
+        .eq("id", sessionId);
+      // ignore if column doesn't exist yet
+      if (mark.error && String(mark.error.message || "").includes("email_status")) {
+        // no-op
+      }
+    } catch {
+      // ignore
     }
 
     return NextResponse.json({ ok: true, pdfPath, pdfUrl });

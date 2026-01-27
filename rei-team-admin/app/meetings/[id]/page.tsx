@@ -79,6 +79,67 @@ type TaskEvent = {
 
 type LatestEventMap = Record<string, TaskEvent | undefined>;
 
+function safeStr(v: any): string {
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
+
+function shortValue(v: any): string {
+  const s = safeStr(v).trim();
+  if (!s) return "(blank)";
+  if (s.length <= 80) return s;
+  return s.slice(0, 79) + "…";
+}
+
+function humanizeField(field: string): string {
+  return field
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function eventSummaryLines(e: TaskEvent): string[] {
+  const t = (e.event_type || "").toLowerCase();
+  const p = e.payload || {};
+
+  if (t === "comment") {
+    const text = safeStr(p?.text).trim();
+    return text ? [text] : ["(empty comment)"];
+  }
+
+  if (t === "created") {
+    const title = safeStr(p?.title).trim();
+    return [title ? `Created: ${title}` : "Created task"];
+  }
+
+  if (t === "deleted") return ["Deleted task"]; 
+
+  if (t === "moved") {
+    const from = shortValue(p?.from);
+    const to = shortValue(p?.to);
+    return [`Moved: ${from} → ${to}`];
+  }
+
+  if (t === "updated") {
+    const changes = p?.changes && typeof p.changes === "object" ? p.changes : null;
+    if (!changes) return ["Updated task"]; 
+    const lines: string[] = [];
+    for (const [k, v] of Object.entries(changes)) {
+      const from = shortValue((v as any)?.from);
+      const to = shortValue((v as any)?.to);
+      lines.push(`${humanizeField(k)}: ${from} → ${to}`);
+    }
+    return lines.length ? lines : ["Updated task"]; 
+  }
+
+  // fallback
+  try {
+    const j = JSON.stringify(p, null, 2);
+    return j ? [j] : ["(no details)"];
+  } catch {
+    return ["(unreadable payload)"];
+  }
+}
+
 function sortByPos<T extends { position: number }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
@@ -137,8 +198,12 @@ export default function MeetingDetailPage() {
   const [prevAgendaNotes, setPrevAgendaNotes] = useState<Record<string, string>>({});
   const [latestEventByTask, setLatestEventByTask] = useState<LatestEventMap>({});
 
+  // Kanban filters
+  const [showCompletedTasks, setShowCompletedTasks] = useState(false);
+
   // UI toggles
   const [prevMeetingsOpen, setPrevMeetingsOpen] = useState(false);
+  const [sendNotesOpen, setSendNotesOpen] = useState(false);
   const [prevSessions, setPrevSessions] = useState<MinutesSession[]>([]);
   const [statusMgrOpen, setStatusMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
@@ -166,6 +231,9 @@ export default function MeetingDetailPage() {
 
   // Agenda edit
   const [agendaOpen, setAgendaOpen] = useState(false);
+
+  // Board filters
+  const [showCompleted, setShowCompleted] = useState(false);
 
   // Recording
   const [recOpen, setRecOpen] = useState(false);
@@ -260,6 +328,55 @@ function profileName(userId: string | null | undefined): string {
   if (fe) return fe;
 
   return "Unknown";
+}
+
+function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): string {
+  const e = opts.event;
+  const p: any = e.payload || {};
+
+  if (e.event_type === "created") {
+    const title = String(p?.title ?? "").trim();
+    return title ? `Created: ${title}` : "Created";
+  }
+
+  if (e.event_type === "deleted") return "Deleted";
+
+  if (e.event_type === "moved") {
+    const fromId = String(p?.from ?? "");
+    const toId = String(p?.to ?? "");
+    const from = opts.columns.find((c) => String(c.id) === fromId)?.name || fromId || "";
+    const to = opts.columns.find((c) => String(c.id) === toId)?.name || toId || "";
+    if (from && to) return `Moved from ${from} → ${to}`;
+    return "Moved";
+  }
+
+  if (e.event_type === "updated") {
+    const changes = p?.changes || {};
+    const keys = Object.keys(changes);
+    if (keys.length === 0) return "Updated";
+
+    const key = keys[0];
+    const ch = changes[key] || {};
+    const from = ch?.from;
+    const to = ch?.to;
+
+    const prettyKey = String(key)
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    // Make column moves readable
+    if (key === "column_id") {
+      const fromName = opts.columns.find((c) => String(c.id) === String(from))?.name || String(from ?? "");
+      const toName = opts.columns.find((c) => String(c.id) === String(to))?.name || String(to ?? "");
+      return `Column changed: ${fromName} → ${toName}`;
+    }
+
+    if (typeof from === "undefined" && typeof to === "undefined") return `Updated: ${prettyKey}`;
+    return `${prettyKey} changed: ${String(from ?? "")} → ${String(to ?? "")}`;
+  }
+
+  // Fallback (keep it readable)
+  return String(e.event_type || "event");
 }
 
 
@@ -967,11 +1084,31 @@ function profileName(userId: string | null | undefined): string {
   async function loadPreviousSessions() {
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error,email_status,email_sent_at")
       .eq("meeting_id", meetingId)
       .order("started_at", { ascending: false })
       .limit(50);
     if (!s.error) setPrevSessions((s.data ?? []) as any);
+  }
+
+  async function sendMeetingNotes(sessionId: string) {
+    try {
+      const { data: userData } = await sb.auth.getUser();
+      const sentById = userData?.user?.id ?? null;
+
+      const res = await fetch("/api/meetings/ai/send-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meetingId, sessionId, sentById }),
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(j?.error || "Failed to send");
+
+      setInfo("Meeting notes sent.");
+      await loadPreviousSessions();
+    } catch (e: any) {
+      alert(e?.message ?? "Failed to send meeting notes");
+    }
   }
 
     async function openSessionPdf(sessionId: string) {
@@ -1102,6 +1239,15 @@ async function selectPreviousSession(sessionId: string) {
                 variant="ghost"
                 onClick={async () => {
                   await loadPreviousSessions();
+                  setSendNotesOpen(true);
+                }}
+              >
+                Send meeting notes
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  await loadPreviousSessions();
                   setPrevMeetingsOpen(true);
                 }}
               >
@@ -1162,9 +1308,20 @@ async function selectPreviousSession(sessionId: string) {
             }
           >
             <div className="space-y-6">
-<Card
+              <Card
                 title="Tasks Board"
-                right={<div className="text-xs text-gray-500">Drag cards between columns • Scroll horizontally if needed</div>}
+                right={
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                      onClick={() => setShowCompletedTasks((v) => !v)}
+                    >
+                      {showCompletedTasks ? "Showing Completed" : "Hiding Completed"}
+                    </button>
+                    <div className="text-xs text-gray-500">Drag cards between columns • Scroll horizontally if needed</div>
+                  </div>
+                }
               >
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
                   <div className="overflow-x-auto overflow-y-hidden max-w-full">
@@ -1191,7 +1348,9 @@ async function selectPreviousSession(sessionId: string) {
                           </div>
 
                           <div className="space-y-2">
-                            {sortByPos(tasks.filter((t) => t.column_id === c.id)).map((t) => {
+                            {sortByPos(
+                              tasks.filter((t) => t.column_id === c.id && (showCompletedTasks || t.status !== "Completed"))
+                            ).map((t) => {
                               const le = latestEventByTask[t.id];
                               return (
                                 <DraggableTaskCard key={t.id} id={t.id}>
@@ -1403,9 +1562,22 @@ async function selectPreviousSession(sessionId: string) {
                               {e.payload?.text ?? ""}
                             </div>
                           ) : (
-                            <pre className="mt-2 text-xs text-gray-700 whitespace-pre-wrap">
-                              {JSON.stringify(e.payload, null, 2)}
-                            </pre>
+                            <div className="mt-2 text-sm text-gray-800">
+                              {e.event_type === "updated" && e.payload?.changes ? (
+                                <ul className="list-disc pl-5 space-y-1">
+                                  {Object.entries(e.payload.changes as any).map(([k, v]: any) => (
+                                    <li key={k}>
+                                      {formatTaskEventLine({
+                                        event: { ...e, event_type: "updated", payload: { changes: { [k]: v } } } as any,
+                                        columns,
+                                      })}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <div>{formatTaskEventLine({ event: e, columns })}</div>
+                              )}
+                            </div>
                           )}
                         </div>
                       ))}
@@ -1477,6 +1649,68 @@ async function selectPreviousSession(sessionId: string) {
                   </div>
                 </div>
               ))}
+            </div>
+          </Modal>
+
+          {/* Send meeting notes modal */}
+          <Modal
+            open={sendNotesOpen}
+            title="Send meeting notes"
+            onClose={() => setSendNotesOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setSendNotesOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="text-sm text-gray-600 mb-3">
+              Choose which meeting minutes session to email. (PDF must be generated first.)
+            </div>
+
+            <div className="space-y-2">
+              {prevSessions.length === 0 && !currentSession ? (
+                <div className="text-sm text-gray-600">No sessions found.</div>
+              ) : (
+                [
+                  ...(currentSession ? [currentSession] : []),
+                  ...prevSessions,
+                ].map((s) => (
+                  <div key={s.id} className="rounded-xl border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">{prettyDate(s.started_at)}</div>
+                        <div className="text-xs text-gray-600">
+                          {s.ended_at ? `Ended ${prettyDate(s.ended_at)}` : "(In progress / not concluded)"}
+                        </div>
+                        {s.ai_status && s.ai_status !== "done" && (
+                          <div className="text-xs text-gray-600 mt-1">
+                            Status: {String(s.ai_status)}
+                            {s.ai_status === "error" && s.ai_error ? ` — ${String(s.ai_error)}` : ""}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2">
+                        <Button
+                          variant="ghost"
+                          onClick={() => sendMeetingNotes(s.id)}
+                          disabled={!s.pdf_path}
+                        >
+                          Send
+                        </Button>
+                        <button
+                          type="button"
+                          className="text-xs underline underline-offset-2 hover:opacity-80"
+                          onClick={() => void openSessionPdf(s.id)}
+                          disabled={!s.pdf_path}
+                        >
+                          {s.pdf_path ? "View PDF" : s.ai_status === "error" ? "No PDF" : "Processing"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </Modal>
 
