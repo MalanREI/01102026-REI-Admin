@@ -14,6 +14,7 @@ type Meeting = {
   start_at: string;
   duration_minutes: number;
   rrule: string | null;
+  archived: boolean;
 };
 
 type ParsedAttendee = { email: string; full_name: string | null };
