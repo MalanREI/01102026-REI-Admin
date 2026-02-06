@@ -872,7 +872,10 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       setIsRecording(true);
       setRecSeconds(0);
 
-      const segmentSeconds = Math.max(60, Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "900"));
+      // IMPORTANT: Vercel serverless requests have a practical payload limit.
+      // Keep segments small so uploads don't silently fail on longer meetings.
+      // Can be overridden in Vercel with NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS.
+      const segmentSeconds = Math.max(60, Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "240"));
       tickRef.current = window.setInterval(() => {
         setRecSeconds((s) => {
           const next = s + 1;
