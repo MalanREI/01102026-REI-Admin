@@ -2016,7 +2016,12 @@ async function selectPreviousSession(sessionId: string) {
 
                   <div className="flex gap-2">
                     {!isRecording ? (
-                      <Button onClick={startRecording} disabled={!currentSession || !!currentSession.ended_at || recBusy}>
+	                      <Button
+	                        // startRecording accepts an optional options object; wrap it so React doesn't
+	                        // pass a MouseEvent as the first argument (which breaks strict TS builds).
+	                        onClick={() => startRecording()}
+	                        disabled={!currentSession || !!currentSession.ended_at || recBusy}
+	                      >
                         Start recording
                       </Button>
                     ) : (
