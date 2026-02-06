@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { randomUUID } from "crypto";
 
 /**
  * Max upload size (bytes)
  * Default: 4MB
  * Can be overridden with env var
  */
-const MAX_UPLOAD_BYTES = Number(
-  process.env.MAX_RECORDING_UPLOAD_BYTES || 4_000_000
-);
+const MAX_UPLOAD_BYTES = Number(process.env.MAX_RECORDING_UPLOAD_BYTES || 4_000_000);
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,16 +21,13 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
 
-    const meetingId = formData.get("meetingId") as string | null;
-    const chunkIndex = formData.get("chunkIndex") as string | null;
-    const totalChunks = formData.get("totalChunks") as string | null;
-    const file = formData.get("file") as File | null;
+    const meetingId = (formData.get("meetingId") as string | null) ?? null;
+    const chunkIndex = (formData.get("chunkIndex") as string | null) ?? null;
+    const totalChunks = (formData.get("totalChunks") as string | null) ?? null;
+    const file = (formData.get("file") as File | null) ?? null;
 
     if (!meetingId || !file) {
-      return NextResponse.json(
-        { error: "Missing meetingId or file" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing meetingId or file" }, { status: 400 });
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -49,9 +44,7 @@ export async function POST(req: NextRequest) {
     fs.mkdirSync(tmpDir, { recursive: true });
 
     const chunkName =
-      chunkIndex !== null
-        ? `chunk_${chunkIndex}.webm`
-        : `${uuidv4()}.webm`;
+      chunkIndex !== null ? `chunk_${chunkIndex}.webm` : `${randomUUID()}.webm`;
 
     const chunkPath = path.join(tmpDir, chunkName);
 
@@ -62,11 +55,10 @@ export async function POST(req: NextRequest) {
     // If all chunks uploaded, assemble final file
     let finalPath: string | null = null;
 
-    if (
-      chunkIndex !== null &&
-      totalChunks !== null &&
-      Number(chunkIndex) === Number(totalChunks) - 1
-    ) {
+    const isChunkedUpload =
+      chunkIndex !== null && totalChunks !== null && !Number.isNaN(Number(chunkIndex)) && !Number.isNaN(Number(totalChunks));
+
+    if (isChunkedUpload && Number(chunkIndex) === Number(totalChunks) - 1) {
       const finalName = `meeting_${meetingId}.webm`;
       finalPath = path.join(tmpDir, finalName);
 
@@ -74,13 +66,20 @@ export async function POST(req: NextRequest) {
 
       for (let i = 0; i < Number(totalChunks); i++) {
         const partPath = path.join(tmpDir, `chunk_${i}.webm`);
+        if (!fs.existsSync(partPath)) {
+          writeStream.end();
+          return NextResponse.json(
+            { error: `Missing chunk file: chunk_${i}.webm` },
+            { status: 400 }
+          );
+        }
         const partBuffer = fs.readFileSync(partPath);
         writeStream.write(partBuffer);
       }
 
       writeStream.end();
 
-      // Save final recording path in DB
+      // Save final recording path in DB and mark queued
       const { error } = await supabase
         .from("meetings")
         .update({
@@ -91,10 +90,7 @@ export async function POST(req: NextRequest) {
 
       if (error) {
         console.error("Failed to update meeting recording_path", error);
-        return NextResponse.json(
-          { error: "Failed to save recording path" },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: "Failed to save recording path" }, { status: 500 });
       }
     }
 
