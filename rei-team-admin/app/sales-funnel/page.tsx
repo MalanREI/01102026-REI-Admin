@@ -313,7 +313,7 @@ export default function SalesFunnelPage() {
       const row: any = compRes.data;
       const mcArr = Array.isArray(row?.main_contact) ? row.main_contact : [];
       const mc = mcArr.length ? (mcArr[0] as ContactLite) : null;
-      
+
       const normalizedCompany: Company = {
         id: String(row.id),
         name: String(row.name ?? ""),
@@ -328,9 +328,8 @@ export default function SalesFunnelPage() {
         updated_at: String(row.updated_at),
         main_contact: mc,
       };
-      
-      setCompanyDetail(normalizedCompany);
 
+      setCompanyDetail(normalizedCompany);
       setCompanyContacts((contactsRes.data ?? []) as Contact[]);
       // Supabase returns created_by_profile relation as an array. Normalize to single object.
       const actsRaw: any[] = (actsRes.data ?? []) as any[];
