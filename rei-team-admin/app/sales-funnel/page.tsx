@@ -21,7 +21,9 @@ type Company = {
   last_activity_at: string | null;
   created_at: string;
   updated_at: string;
-  main_contact?: ContactLite | null;
+  // Joined from crm_contacts via crm_companies.main_contact_id FK.
+  // Supabase returns this join as an array; we normalize it to a single object in loadBoard().
+  main_contact: ContactLite | null;
 };
 
 type ContactLite = {
@@ -176,7 +178,29 @@ export default function SalesFunnelPage() {
       if (companiesRes.error) throw companiesRes.error;
 
       setStages((stagesRes.data ?? []) as Stage[]);
-      setCompanies((companiesRes.data ?? []) as Company[]);
+
+      // Supabase returns the joined main_contact relation as an array.
+      // Normalize it into a single object so the UI + types stay clean.
+      const normalized: Company[] = (companiesRes.data ?? []).map((row: any) => {
+        const mcArr = Array.isArray(row?.main_contact) ? row.main_contact : [];
+        const mc = mcArr.length ? (mcArr[0] as ContactLite) : null;
+        return {
+          id: String(row.id),
+          name: String(row.name ?? ""),
+          stage_id: row.stage_id ? String(row.stage_id) : null,
+          website: row.website ?? null,
+          phone: row.phone ?? null,
+          email: row.email ?? null,
+          notes: row.notes ?? null,
+          main_contact_id: row.main_contact_id ? String(row.main_contact_id) : null,
+          last_activity_at: row.last_activity_at ?? null,
+          created_at: String(row.created_at),
+          updated_at: String(row.updated_at),
+          main_contact: mc,
+        };
+      });
+
+      setCompanies(normalized);
     } catch (e: any) {
       console.error(e);
       alert(e?.message ?? "Failed to load CRM board.");
