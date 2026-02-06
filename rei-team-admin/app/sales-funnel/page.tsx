@@ -308,30 +308,28 @@ export default function SalesFunnelPage() {
         .limit(200);
       if (actsRes.error) throw actsRes.error;
 
-      // Supabase returns the joined main_contact relation as an array.
-      // Normalize it into a single object to satisfy our Company type.
-      const row: any = compRes.data;
-      const mcArr = Array.isArray(row?.main_contact) ? row.main_contact : [];
-      const mc = mcArr.length ? (mcArr[0] as ContactLite) : null;
-      const normalizedCompany: Company = {
-        id: String(row.id),
-        name: String(row.name ?? ""),
-        stage_id: row.stage_id ? String(row.stage_id) : null,
-        website: row.website ?? null,
-        phone: row.phone ?? null,
-        email: row.email ?? null,
-        notes: row.notes ?? null,
-        main_contact_id: row.main_contact_id ? String(row.main_contact_id) : null,
-        last_activity_at: row.last_activity_at ?? null,
-        created_at: String(row.created_at),
-        updated_at: String(row.updated_at),
-        main_contact: mc,
-      };
-
-      setCompanyDetail(normalizedCompany);
+      setCompanyDetail(compRes.data as Company);
       setCompanyContacts((contactsRes.data ?? []) as Contact[]);
-      setActivities((actsRes.data ?? []) as Activity[]);
-      // select main contact if present
+      // Supabase returns created_by_profile relation as an array. Normalize to single object.
+      const actsRaw: any[] = (actsRes.data ?? []) as any[];
+      const normalizedActs: Activity[] = actsRaw.map((a: any) => {
+        const profArr = Array.isArray(a?.created_by_profile) ? a.created_by_profile : [];
+        const prof = profArr.length ? { id: String(profArr[0].id), full_name: (profArr[0].full_name ?? null) } : null;
+
+        return {
+          id: String(a.id),
+          company_id: String(a.company_id),
+          contact_id: a.contact_id ? String(a.contact_id) : null,
+          kind: String(a.kind),
+          summary: String(a.summary ?? ""),
+          created_by: a.created_by ? String(a.created_by) : null,
+          created_at: String(a.created_at),
+          created_by_profile: prof,
+        };
+      });
+
+      setActivities(normalizedActs);
+// select main contact if present
       const mainId = (compRes.data as any)?.main_contact_id as string | null;
       if (mainId) setSelectedContactId(mainId);
       else if (contactsRes.data?.[0]?.id) setSelectedContactId(contactsRes.data[0].id);
