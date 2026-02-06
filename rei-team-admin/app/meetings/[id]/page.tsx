@@ -187,8 +187,6 @@ export default function MeetingDetailPage() {
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [currentUserLabel, setCurrentUserLabel] = useState<string>("You");
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
   const [statuses, setStatuses] = useState<StatusOpt[]>([]);
@@ -243,30 +241,11 @@ export default function MeetingDetailPage() {
   const [recBusy, setRecBusy] = useState(false);
   const [recErr, setRecErr] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-
-  // Total elapsed seconds for the meeting recording (does NOT reset between segments).
-  const [totalRecSeconds, setTotalRecSeconds] = useState(0);
-  const totalRecSecondsRef = useRef(0);
-
-  // Segment elapsed seconds (resets after each upload rotation).
-  const segmentRecSecondsRef = useRef(0);
-
-  // Path of the latest uploaded segment for this session (debug/UI).
+  const [recSeconds, setRecSeconds] = useState(0);
   const [lastRecordingPath, setLastRecordingPath] = useState<string | null>(null);
-
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const tickRef = useRef<number | null>(null);
-
-  // If we are uploading a segment, keep a handle so we can await it before concluding.
-  const pendingUploadRef = useRef<Promise<any> | null>(null);
-
-  // Segment size (defaults to 2 hours unless overridden via env).
-  const recordingSegmentSeconds = Math.max(
-    60,
-    Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "7200")
-  );
-
 
   function ownerColor(ownerId: string | null): string {
     if (!ownerId) return "#E5E7EB";
@@ -338,50 +317,15 @@ function firstNameFromEmail(email: string | null | undefined): string | null {
   return guess.charAt(0).toUpperCase() + guess.slice(1);
 }
 
-function formatShortName(opts: { fullName?: string | null; email?: string | null }): string | null {
-  const full = (opts.fullName ?? "").trim();
-  if (full) {
-    const parts = full.split(/\s+/).filter(Boolean);
-    const first = parts[0] ?? "";
-    const last = parts.length > 1 ? parts[parts.length - 1] : "";
-    if (first && last) return `${first} ${last.charAt(0).toUpperCase()}.`;
-    if (first) return first;
-  }
-
-  const email = (opts.email ?? "").trim();
-  if (email && email.includes("@")) {
-    const local = email.split("@")[0] ?? "";
-    const parts = local
-      .replace(/[._-]+/g, " ")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-
-    const firstRaw = parts[0] ?? "";
-    const lastRaw = parts.length > 1 ? parts[parts.length - 1] : "";
-
-    const first = firstRaw ? firstRaw.charAt(0).toUpperCase() + firstRaw.slice(1) : "";
-    const lastInitial = lastRaw ? lastRaw.charAt(0).toUpperCase() : "";
-
-    if (first && lastInitial) return `${first} ${lastInitial}.`;
-    if (first) return first;
-  }
-
-  return null;
-}
-
 function profileName(userId: string | null | undefined): string {
   if (!userId) return "Unknown";
   const p = profiles.find((x) => x.id === userId);
 
-  // If the user's profile record is missing (common early-on), still show a friendly label.
-  if (!p && currentUserId && userId === currentUserId) return currentUserLabel;
+  const fn = firstNameFromFullName(p?.full_name);
+  if (fn) return fn;
 
-  const label = formatShortName({ fullName: p?.full_name, email: p?.email });
-  if (label) return label;
-
-  // As a final fallback, show "You" if this is the active user.
-  if (currentUserId && userId === currentUserId) return currentUserLabel;
+  const fe = firstNameFromEmail(p?.email);
+  if (fe) return fe;
 
   return "Unknown";
 }
@@ -517,20 +461,6 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .select("id,full_name,email,color_hex")
       .order("created_at", { ascending: true });
     if (!pr.error) setProfiles((pr.data ?? []) as any);
-
-    // Cache current user label for activity logs (first name + last initial).
-    try {
-      const { data: u } = await sb.auth.getUser();
-      const uid = u?.user?.id ?? null;
-      const email = u?.user?.email ?? null;
-      setCurrentUserId(uid);
-
-      const prof = uid ? (pr.data ?? []).find((x: any) => String(x.id) === String(uid)) : null;
-      const label = formatShortName({ fullName: (prof as any)?.full_name ?? null, email: (prof as any)?.email ?? email });
-      setCurrentUserLabel(label || "You");
-    } catch {
-      // ignore
-    }
 
     const at = await sb
       .from("meeting_attendees")
@@ -720,26 +650,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   }
 
   async function writeTaskEvent(taskId: string, type: string, payload: any) {
-    try {
-      const { data: userData } = await sb.auth.getUser();
-      const userId = userData?.user?.id ?? null;
-
-      // Best-effort write with a small retry to reduce "missing log entries".
-      const attempt = async () =>
-        await sb.from("meeting_task_events").insert({ task_id: taskId, event_type: type, payload, created_by: userId });
-
-      const r1 = await attempt();
-      if (r1.error) {
-        // short delay, then one retry
-        await new Promise((res) => setTimeout(res, 250));
-        const r2 = await attempt();
-        if (r2.error) {
-          console.warn("Failed to write task event", r2.error);
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to write task event", e);
-    }
+    const { data: userData } = await sb.auth.getUser();
+    const userId = userData?.user?.id ?? null;
+    await sb.from("meeting_task_events").insert({ task_id: taskId, event_type: type, payload, created_by: userId });
   }
 
   async function refreshLatestForTask(taskId: string) {
@@ -937,13 +850,10 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     }
   }
 
-  async function startRecording(opts?: { resume?: boolean }) {
+  async function startRecording() {
     setRecErr(null);
     try {
       if (!currentSession?.id) throw new Error("Start meeting minutes first.");
-
-      // Keep total timer continuous across segment rotations.
-      const isResume = !!opts?.resume;
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
@@ -956,45 +866,29 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
         stream.getTracks().forEach((t) => t.stop());
       };
 
-      // Keep chunking frequent so we don't risk huge memory spikes in the browser.
       mr.start(1000);
       mediaRecorderRef.current = mr;
 
-      // Only reset timers on a true "start" (not on a segment resume).
-      if (!isResume) {
-        totalRecSecondsRef.current = 0;
-        segmentRecSecondsRef.current = 0;
-        setTotalRecSeconds(0);
-      } else {
-        segmentRecSecondsRef.current = 0;
-      }
-
       setIsRecording(true);
+      setRecSeconds(0);
 
-      // Start the 1s timer once.
-      if (!tickRef.current) {
-        tickRef.current = window.setInterval(() => {
-          // Update refs first (source of truth), then state.
-          totalRecSecondsRef.current = totalRecSecondsRef.current + 1;
-          segmentRecSecondsRef.current = segmentRecSecondsRef.current + 1;
-
-          const totalNext = totalRecSecondsRef.current;
-          const segNext = segmentRecSecondsRef.current;
-
-          setTotalRecSeconds(totalNext);
+      const segmentSeconds = Math.max(60, Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "900"));
+      tickRef.current = window.setInterval(() => {
+        setRecSeconds((s) => {
+          const next = s + 1;
 
           // Safety cap (2 hours)
-          if (totalNext >= 7200) {
-            setTimeout(() => void stopRecordingAndUpload({ finalize: true }), 0);
-            return;
-          }
+          if (next >= 7200) setTimeout(() => stopRecordingAndUpload(), 0);
 
-          // Auto-segment to keep uploads/transcription smaller (optional via env).
-          if (recordingSegmentSeconds && segNext > 0 && segNext % recordingSegmentSeconds === 0) {
+          // Auto-segment to keep recordings small enough for transcription on long meetings.
+          // This uploads the segment and immediately starts a new one.
+          if (segmentSeconds && next > 0 && next % segmentSeconds === 0) {
             setTimeout(() => void rotateRecordingSegment(), 0);
           }
-        }, 1000);
-      }
+
+          return next;
+        });
+      }, 1000);
 
       setRecMin(true);
     } catch (e: any) {
@@ -1004,30 +898,21 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
   async function rotateRecordingSegment() {
     if (!mediaRecorderRef.current) return;
-
-    // Stop current recorder, upload segment, then immediately start a new segment.
-    const upPromise = stopRecordingAndUpload({ finalize: false });
-    pendingUploadRef.current = upPromise;
-
-    const up = await upPromise;
-    pendingUploadRef.current = null;
-
+    // Stop current recorder, upload, then immediately start a new recording segment.
+    const up = await stopRecordingAndUpload();
     if (up) {
-      // Restart recording automatically (best-effort) without resetting total timer.
-      await startRecording({ resume: true });
+      // Restart recording automatically (best-effort)
+      await startRecording();
     }
   }
 
-  async function stopRecordingAndUpload(opts?: { finalize?: boolean }): Promise<{ recordingPath: string } | null> {
+  async function stopRecordingAndUpload(): Promise<{ recordingPath: string } | null> {
     if (!mediaRecorderRef.current) return null;
     setRecBusy(true);
     setRecErr(null);
 
     try {
       const mr = mediaRecorderRef.current;
-
-      // Snapshot the segment duration BEFORE we reset it.
-      const segmentDurationSeconds = segmentRecSecondsRef.current;
 
       // Wait for the "stop" event so the last chunk flushes before we build the blob.
       const stopped = new Promise<void>((resolve) => {
@@ -1047,16 +932,8 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       await stopped;
 
       mediaRecorderRef.current = null;
-
-      // If we're finalizing (user clicked Stop/Conclude), stop the timer and flip UI state.
-      // If we're rotating a segment, keep the UI in "recording" mode and keep the timer running.
-      if (opts?.finalize) {
-        setIsRecording(false);
-        if (tickRef.current) {
-          window.clearInterval(tickRef.current);
-          tickRef.current = null;
-        }
-      }
+      setIsRecording(false);
+      if (tickRef.current) window.clearInterval(tickRef.current);
 
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 
@@ -1064,8 +941,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       const form = new FormData();
       form.append("meetingId", meetingId);
       form.append("sessionId", currentSession!.id);
-      form.append("durationSeconds", String(segmentDurationSeconds));
-
+      form.append("durationSeconds", String(recSeconds));
       // Best-effort userId (server route accepts missing userId as well).
       try {
         const u = await sb.auth.getUser();
@@ -1074,7 +950,6 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       } catch {
         // ignore
       }
-
       form.append("file", blob, "recording.webm");
 
       const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
@@ -1086,9 +961,6 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
       setLastRecordingPath(rp);
       setRecMin(true);
-
-      // Reset segment timer for the next segment.
-      segmentRecSecondsRef.current = 0;
 
       return { recordingPath: rp };
     } catch (e: any) {
@@ -1108,16 +980,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     let recordingPath: string | null = lastRecordingPath;
 
     if (isRecording) {
-      // If a segment upload is in-flight, wait for it so the processor sees all segments.
-      if (pendingUploadRef.current) {
-        try {
-          await pendingUploadRef.current;
-        } catch {
-          // ignore
-        }
-      }
-
-      const up = await stopRecordingAndUpload({ finalize: true });
+      const up = await stopRecordingAndUpload();
       recordingPath = up?.recordingPath ?? null;
     }
 
@@ -2010,22 +1873,17 @@ async function selectPreviousSession(sessionId: string) {
               ) : (
                 <div className="space-y-3">
                   <div className="rounded-xl border p-3 bg-gray-50">
-                    <div className="text-sm">Duration: {Math.floor(totalRecSeconds / 60)}m {totalRecSeconds % 60}s</div>
+                    <div className="text-sm">Duration: {Math.floor(recSeconds / 60)}m {recSeconds % 60}s</div>
                     <div className="text-xs text-gray-500">Auto-stops at 2 hours.</div>
                   </div>
 
                   <div className="flex gap-2">
                     {!isRecording ? (
-	                      <Button
-	                        // startRecording accepts an optional options object; wrap it so React doesn't
-	                        // pass a MouseEvent as the first argument (which breaks strict TS builds).
-	                        onClick={() => startRecording()}
-	                        disabled={!currentSession || !!currentSession.ended_at || recBusy}
-	                      >
+                      <Button onClick={() => void startRecording()} disabled={!currentSession || !!currentSession.ended_at || recBusy}>
                         Start recording
                       </Button>
                     ) : (
-                      <Button onClick={stopRecordingAndUpload} disabled={recBusy}>
+                      <Button onClick={() => void stopRecordingAndUpload()} disabled={recBusy}>
                         {recBusy ? "Uploading..." : "Stop + Upload"}
                       </Button>
                     )}
