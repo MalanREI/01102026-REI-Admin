@@ -430,7 +430,35 @@ export default function SalesFunnelPage() {
 
       if (insertRes.error) throw insertRes.error;
 
-      setActivities((prev) => [insertRes.data as Activity, ...prev]);
+      // Supabase returns created_by_profile relation as an array. Normalize it to a single object,
+      // and validate kind into our ActivityKind union to satisfy TypeScript.
+      const d: any = insertRes.data;
+      const profArr = Array.isArray(d?.created_by_profile) ? d.created_by_profile : [];
+      const prof =
+        profArr.length
+          ? {
+              id: String(profArr[0].id),
+              full_name: profArr[0].full_name != null ? String(profArr[0].full_name) : null,
+            }
+          : null;
+
+      const kRaw = String(d?.kind ?? "Note");
+      const k = (["Call", "Voicemail", "Text", "Email", "Note"] as const).includes(kRaw as any)
+        ? (kRaw as ActivityKind)
+        : "Note";
+
+      const insertedAct: Activity = {
+        id: String(d.id),
+        company_id: String(d.company_id),
+        contact_id: d.contact_id ? String(d.contact_id) : null,
+        kind: k,
+        summary: String(d.summary ?? ""),
+        created_by: d.created_by ? String(d.created_by) : null,
+        created_at: String(d.created_at),
+        created_by_profile: prof,
+      };
+
+      setActivities((prev) => [insertedAct, ...prev]);
       setActivityText("");
 
       // refresh board ordering/last activity
