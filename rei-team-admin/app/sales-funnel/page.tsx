@@ -59,6 +59,39 @@ type Activity = {
 
 type ImportRow = Record<string, any>;
 
+
+const ACTIVITY_KIND_VALUES = ["Call", "Voicemail", "Text", "Email", "Note"] as const;
+
+function coerceActivityKind(v: any): ActivityKind {
+  const s = String(v ?? "Note");
+  return (ACTIVITY_KIND_VALUES as readonly string[]).includes(s) ? (s as ActivityKind) : "Note";
+}
+
+function normalizeProfileJoin(v: any): { id: string; full_name: string | null } | null {
+  // Supabase join returns an array: [{ id, full_name }]
+  const arr = Array.isArray(v) ? v : [];
+  if (!arr.length) return null;
+  const r = arr[0] ?? {};
+  return {
+    id: String(r.id),
+    full_name: r.full_name != null ? String(r.full_name) : null,
+  };
+}
+
+function normalizeActivityRow(a: any): Activity {
+  return {
+    id: String(a.id),
+    company_id: String(a.company_id),
+    contact_id: a.contact_id ? String(a.contact_id) : null,
+    kind: coerceActivityKind(a.kind),
+    summary: String(a.summary ?? ""),
+    created_by: a.created_by ? String(a.created_by) : null,
+    created_at: String(a.created_at),
+    created_by_profile: normalizeProfileJoin(a.created_by_profile),
+  };
+}
+
+
 function cleanStr(v: any) {
   const s = String(v ?? "").trim();
   return s.length ? s : "";
@@ -331,32 +364,9 @@ export default function SalesFunnelPage() {
 
       setCompanyDetail(normalizedCompany);
       setCompanyContacts((contactsRes.data ?? []) as Contact[]);
-      // Supabase returns created_by_profile relation as an array. Normalize to single object.
+      // Normalize activity rows (joins come back as arrays)
       const actsRaw: any[] = (actsRes.data ?? []) as any[];
-
-      const toActivityKind = (v: any): ActivityKind => {
-        const s = String(v ?? "Note");
-        return (["Call", "Voicemail", "Text", "Email", "Note"] as const).includes(s as any) ? (s as ActivityKind) : "Note";
-      };
-
-      const normalizedActs: Activity[] = actsRaw.map((a: any) => {
-        const profArr = Array.isArray(a?.created_by_profile) ? a.created_by_profile : [];
-        const prof = profArr.length
-          ? { id: String(profArr[0].id), full_name: profArr[0].full_name != null ? String(profArr[0].full_name) : null }
-          : null;
-
-        return {
-          id: String(a.id),
-          company_id: String(a.company_id),
-          contact_id: a.contact_id ? String(a.contact_id) : null,
-          kind: toActivityKind(a.kind),
-          summary: String(a.summary ?? ""),
-          created_by: a.created_by ? String(a.created_by) : null,
-          created_at: String(a.created_at),
-          created_by_profile: prof,
-        };
-      });
-
+      const normalizedActs: Activity[] = actsRaw.map(normalizeActivityRow);
       setActivities(normalizedActs);
 // select main contact if present
       const mainId = (compRes.data as any)?.main_contact_id as string | null;
@@ -430,7 +440,8 @@ export default function SalesFunnelPage() {
 
       if (insertRes.error) throw insertRes.error;
 
-      setActivities((prev) => [insertRes.data as Activity, ...prev]);
+      const inserted = normalizeActivityRow(insertRes.data);
+      setActivities((prev) => [inserted, ...prev]);
       setActivityText("");
 
       // refresh board ordering/last activity
