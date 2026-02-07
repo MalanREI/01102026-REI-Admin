@@ -333,15 +333,23 @@ export default function SalesFunnelPage() {
       setCompanyContacts((contactsRes.data ?? []) as Contact[]);
       // Supabase returns created_by_profile relation as an array. Normalize to single object.
       const actsRaw: any[] = (actsRes.data ?? []) as any[];
+
+      const toActivityKind = (v: any): ActivityKind => {
+        const s = String(v ?? "Note");
+        return (["Call", "Voicemail", "Text", "Email", "Note"] as const).includes(s as any) ? (s as ActivityKind) : "Note";
+      };
+
       const normalizedActs: Activity[] = actsRaw.map((a: any) => {
         const profArr = Array.isArray(a?.created_by_profile) ? a.created_by_profile : [];
-        const prof = profArr.length ? { id: String(profArr[0].id), full_name: (profArr[0].full_name ?? null) } : null;
+        const prof = profArr.length
+          ? { id: String(profArr[0].id), full_name: profArr[0].full_name != null ? String(profArr[0].full_name) : null }
+          : null;
 
         return {
           id: String(a.id),
           company_id: String(a.company_id),
           contact_id: a.contact_id ? String(a.contact_id) : null,
-          kind: String(a.kind),
+          kind: toActivityKind(a.kind),
           summary: String(a.summary ?? ""),
           created_by: a.created_by ? String(a.created_by) : null,
           created_at: String(a.created_at),
