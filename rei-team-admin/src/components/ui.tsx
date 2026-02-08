@@ -59,12 +59,15 @@ export function Modal({
   children,
   onClose,
   footer,
+  maxWidthClass,
 }: {
   open: boolean;
   title?: string;
   children: ReactNode;
   onClose: () => void;
   footer?: ReactNode;
+  /** Optional Tailwind max-width class for the dialog container (e.g. "max-w-5xl"). */
+  maxWidthClass?: string;
 }) {
   // ESC to close
   useEffect(() => {
@@ -81,7 +84,11 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={onClose}>
       <div
-        className="w-full max-w-2xl rounded-2xl bg-white border shadow-lg overflow-hidden"
+        className={[
+          "w-full",
+          maxWidthClass ?? "max-w-2xl",
+          "rounded-2xl bg-white border shadow-lg overflow-hidden",
+        ].join(" ")}
         style={{ maxHeight: "90vh" }}
         onMouseDown={(e) => e.stopPropagation()}
       >

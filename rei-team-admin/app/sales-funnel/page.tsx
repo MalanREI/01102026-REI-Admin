@@ -1148,7 +1148,7 @@ export default function SalesFunnelPage() {
           setActivityKind("Note");
         }}
         title={companyDetail ? `Company: ${companyDetail.name}` : "Company"}
-        maxWidth="max-w-5xl"
+        maxWidthClass="max-w-5xl"
       >
         {!companyDetail ? (
           <div className="text-sm text-gray-600">Loading...</div>
