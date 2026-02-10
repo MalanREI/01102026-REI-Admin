@@ -161,6 +161,21 @@ export default function SalesFunnelPage() {
   const supabase = useMemo(() => supabaseBrowser(), []);
   const [loading, setLoading] = useState(true);
 
+  // Toolbar menus
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
+
+  // Top-level modals
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false);
+  const [addContactOpen, setAddContactOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [stagesOpen, setStagesOpen] = useState(false);
+
+  // Modal layout toggles
+  const [showCompanyPane, setShowCompanyPane] = useState(true);
+  const [showContactsPane, setShowContactsPane] = useState(true);
+  const [showActivityPane, setShowActivityPane] = useState(true);
+
   const [stages, setStages] = useState<Stage[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [search, setSearch] = useState("");
@@ -180,6 +195,17 @@ export default function SalesFunnelPage() {
   // Add company (MVP)
   const [newCompany, setNewCompany] = useState({ name: "", website: "", notes: "" });
   const [newMainContact, setNewMainContact] = useState({ full_name: "", phone: "", email: "" });
+
+  // Add contact (from toolbar)
+  const [newContact, setNewContact] = useState({
+    company_id: "",
+    full_name: "",
+    title: "",
+    phone: "",
+    email: "",
+    notes: "",
+    is_main: false,
+  });
 
   // Stage management
   const [newStageName, setNewStageName] = useState("");
@@ -453,14 +479,18 @@ export default function SalesFunnelPage() {
   }
 
   function handleActivityHotkeys(e: React.KeyboardEvent) {
-    // only when focused in textarea
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Only fire when the user is explicitly using a modifier.
+    // This prevents normal typing like "Now" from switching the activity kind.
+    if (!e.ctrlKey && !e.metaKey) return;
     const k = e.key.toLowerCase();
-    if (k === "v") setActivityKind("Voicemail");
-    if (k === "c") setActivityKind("Call");
-    if (k === "t") setActivityKind("Text");
-    if (k === "e") setActivityKind("Email");
-    if (k === "n") setActivityKind("Note");
+    if (["v", "c", "t", "e", "n"].includes(k)) {
+      e.preventDefault();
+      if (k === "v") setActivityKind("Voicemail");
+      if (k === "c") setActivityKind("Call");
+      if (k === "t") setActivityKind("Text");
+      if (k === "e") setActivityKind("Email");
+      if (k === "n") setActivityKind("Note");
+    }
   }
 
   async function addStage() {
@@ -587,6 +617,49 @@ export default function SalesFunnelPage() {
     } catch (e: any) {
       console.error(e);
       alert(e?.message ?? "Failed to create company.");
+    }
+  }
+
+  async function createContactFromToolbar() {
+    const company_id = cleanStr(newContact.company_id);
+    const full_name = cleanStr(newContact.full_name);
+    if (!company_id) {
+      alert("Please select a company.");
+      return;
+    }
+    if (!full_name && !cleanStr(newContact.email) && !cleanStr(newContact.phone)) {
+      alert("Please provide at least a name, email, or phone for the contact.");
+      return;
+    }
+
+    try {
+      const res = await supabase
+        .from("crm_contacts")
+        .insert({
+          company_id,
+          full_name: full_name || null,
+          title: cleanStr(newContact.title) || null,
+          phone: cleanStr(newContact.phone) || null,
+          email: cleanStr(newContact.email) || null,
+          notes: cleanStr(newContact.notes) || null,
+          is_main: !!newContact.is_main,
+        })
+        .select("id")
+        .single();
+      if (res.error) throw res.error;
+
+      if (newContact.is_main) {
+        const setRes = await supabase.rpc("crm_set_main_contact", { p_company_id: company_id, p_contact_id: res.data.id });
+        if (setRes.error) throw setRes.error;
+      }
+
+      setAddContactOpen(false);
+      setNewContact({ company_id: "", full_name: "", title: "", phone: "", email: "", notes: "", is_main: false });
+      await loadBoard();
+      await openCompany(company_id);
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to create contact.");
     }
   }
 
@@ -863,9 +936,79 @@ export default function SalesFunnelPage() {
         <div className="w-full max-w-xl">
           <Input placeholder="Search companies / contacts..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <Button onClick={loadBoard} variant="ghost">
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setAddMenuOpen((v) => !v);
+                setEditMenuOpen(false);
+              }}
+            >
+              Add ▾
+            </Button>
+            {addMenuOpen ? (
+              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-white shadow-lg p-2 z-50">
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    setAddCompanyOpen(true);
+                  }}
+                >
+                  Add Company
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    setAddContactOpen(true);
+                  }}
+                >
+                  Add Contact
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    setImportOpen(true);
+                  }}
+                >
+                  Import CSV / XLSX
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="relative">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEditMenuOpen((v) => !v);
+                setAddMenuOpen(false);
+              }}
+            >
+              Edit ▾
+            </Button>
+            {editMenuOpen ? (
+              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-white shadow-lg p-2 z-50">
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  onClick={() => {
+                    setEditMenuOpen(false);
+                    setStagesOpen(true);
+                  }}
+                >
+                  Edit Stages
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <Button onClick={loadBoard} variant="ghost">
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Board */}
@@ -943,197 +1086,267 @@ export default function SalesFunnelPage() {
         )}
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        {/* Add company */}
-        <Card title="Add Company" right={<Pill>MVP</Pill>}>
+      {/* Add / Edit actions moved to the toolbar */}
+
+      {/* Add Company modal */}
+      <Modal
+        open={addCompanyOpen}
+        onClose={() => setAddCompanyOpen(false)}
+        title="Add Company"
+        maxWidthClass="max-w-2xl"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs text-gray-600 mb-1">Company name</div>
+            <Input value={newCompany.name} onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })} />
+          </div>
+          <div>
+            <div className="text-xs text-gray-600 mb-1">Website (optional)</div>
+            <Input value={newCompany.website} onChange={(e) => setNewCompany({ ...newCompany, website: e.target.value })} />
+          </div>
+          <div className="md:col-span-2">
+            <div className="text-xs text-gray-600 mb-1">Company notes (optional)</div>
+            <Textarea value={newCompany.notes} onChange={(e) => setNewCompany({ ...newCompany, notes: e.target.value })} />
+          </div>
+
+          <div className="md:col-span-2 mt-1">
+            <div className="text-xs font-semibold text-gray-700 mb-2">Main contact (shows on Kanban card)</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <div className="text-xs text-gray-600 mb-1">Full name</div>
+                <Input value={newMainContact.full_name} onChange={(e) => setNewMainContact({ ...newMainContact, full_name: e.target.value })} />
+              </div>
+              <div>
+                <div className="text-xs text-gray-600 mb-1">Phone</div>
+                <Input value={newMainContact.phone} onChange={(e) => setNewMainContact({ ...newMainContact, phone: e.target.value })} />
+              </div>
+              <div>
+                <div className="text-xs text-gray-600 mb-1">Email</div>
+                <Input value={newMainContact.email} onChange={(e) => setNewMainContact({ ...newMainContact, email: e.target.value })} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
+          <Button onClick={createCompany}>Create Company</Button>
+          <Button variant="ghost" onClick={() => setAddCompanyOpen(false)}>
+            Close
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Add Contact modal */}
+      <Modal
+        open={addContactOpen}
+        onClose={() => setAddContactOpen(false)}
+        title="Add Contact"
+        maxWidthClass="max-w-2xl"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="md:col-span-2">
+            <div className="text-xs text-gray-600 mb-1">Company</div>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+              value={newContact.company_id}
+              onChange={(e) => setNewContact({ ...newContact, company_id: e.target.value })}
+            >
+              <option value="">Select a company...</option>
+              {companies
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
+            <div className="text-xs text-gray-600 mb-1">Full name</div>
+            <Input value={newContact.full_name} onChange={(e) => setNewContact({ ...newContact, full_name: e.target.value })} />
+          </div>
+          <div>
+            <div className="text-xs text-gray-600 mb-1">Title (optional)</div>
+            <Input value={newContact.title} onChange={(e) => setNewContact({ ...newContact, title: e.target.value })} />
+          </div>
+          <div>
+            <div className="text-xs text-gray-600 mb-1">Phone</div>
+            <Input value={newContact.phone} onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })} />
+          </div>
+          <div>
+            <div className="text-xs text-gray-600 mb-1">Email</div>
+            <Input value={newContact.email} onChange={(e) => setNewContact({ ...newContact, email: e.target.value })} />
+          </div>
+          <div className="md:col-span-2">
+            <div className="text-xs text-gray-600 mb-1">Notes (optional)</div>
+            <Textarea value={newContact.notes} onChange={(e) => setNewContact({ ...newContact, notes: e.target.value })} />
+          </div>
+          <div className="md:col-span-2 flex items-center gap-2">
+            <input
+              id="contact_is_main"
+              type="checkbox"
+              checked={newContact.is_main}
+              onChange={(e) => setNewContact({ ...newContact, is_main: e.target.checked })}
+            />
+            <label htmlFor="contact_is_main" className="text-sm">
+              Set as company main contact
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
+          <Button onClick={createContactFromToolbar}>Create Contact</Button>
+          <Button variant="ghost" onClick={() => setAddContactOpen(false)}>
+            Close
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Import modal */}
+      <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Import Contacts (CSV / XLSX)" maxWidthClass="max-w-4xl">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) parseFile(file);
+              }}
+            />
+            {importFileName ? <Pill>{importFileName}</Pill> : null}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <div className="text-xs text-gray-600 mb-1">Company name</div>
-              <Input value={newCompany.name} onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })} />
+              <div className="text-xs text-gray-600 mb-1">Duplicate handling</div>
+              <select
+                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                value={importDupMode}
+                onChange={(e) => setImportDupMode(e.target.value as any)}
+              >
+                <option value="upsert">Upsert (recommended)</option>
+                <option value="skip">Skip / best effort</option>
+              </select>
             </div>
-            <div>
-              <div className="text-xs text-gray-600 mb-1">Website (optional)</div>
-              <Input value={newCompany.website} onChange={(e) => setNewCompany({ ...newCompany, website: e.target.value })} />
-            </div>
-            <div className="md:col-span-2">
-              <div className="text-xs text-gray-600 mb-1">Company notes (optional)</div>
-              <Textarea value={newCompany.notes} onChange={(e) => setNewCompany({ ...newCompany, notes: e.target.value })} />
-            </div>
-
-            <div className="md:col-span-2 mt-1">
-              <div className="text-xs font-semibold text-gray-700 mb-2">Main contact (shows on Kanban card)</div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <div className="text-xs text-gray-600 mb-1">Full name</div>
-                  <Input
-                    value={newMainContact.full_name}
-                    onChange={(e) => setNewMainContact({ ...newMainContact, full_name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-600 mb-1">Phone</div>
-                  <Input value={newMainContact.phone} onChange={(e) => setNewMainContact({ ...newMainContact, phone: e.target.value })} />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-600 mb-1">Email</div>
-                  <Input value={newMainContact.email} onChange={(e) => setNewMainContact({ ...newMainContact, email: e.target.value })} />
-                </div>
-              </div>
+            <div className="flex items-end">
+              <Button onClick={runImport} disabled={!importRows.length || importBusy}>
+                {importBusy ? "Importing..." : `Import ${importRows.length ? `(${importRows.length})` : ""}`}
+              </Button>
             </div>
           </div>
 
-          <div className="mt-3">
-            <Button onClick={createCompany}>Create Company</Button>
-          </div>
-        </Card>
+          {importError ? <div className="text-sm text-red-600">{importError}</div> : null}
 
-        {/* Import */}
-        <Card title="Import Contacts (CSV / XLSX)" right={<Pill>Must-have</Pill>}>
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3">
-              <input
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) parseFile(file);
-                }}
-              />
-              {importFileName ? <Pill>{importFileName}</Pill> : null}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <div className="text-xs text-gray-600 mb-1">Duplicate handling</div>
-                <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                  value={importDupMode}
-                  onChange={(e) => setImportDupMode(e.target.value as any)}
-                >
-                  <option value="upsert">Upsert (recommended)</option>
-                  <option value="skip">Skip / best effort</option>
-                </select>
-              </div>
-              <div className="flex items-end">
-                <Button onClick={runImport} disabled={!importRows.length || importBusy}>
-                  {importBusy ? "Importing..." : `Import ${importRows.length ? `(${importRows.length})` : ""}`}
-                </Button>
-              </div>
-            </div>
-
-            {importError ? <div className="text-sm text-red-600">{importError}</div> : null}
-
-            {importRows.length ? (
-              <div className="text-sm text-gray-700">
-                <div className="font-semibold mb-1">Preview (first 5 rows)</div>
-                <div className="overflow-auto rounded-lg border">
-                  <table className="min-w-full text-xs">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        {Object.keys(preview[0] ?? {}).slice(0, 8).map((h) => (
-                          <th key={h} className="text-left px-2 py-2 border-b">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.map((r, i) => (
-                        <tr key={i} className="odd:bg-white even:bg-gray-50">
-                          {Object.keys(preview[0] ?? {})
-                            .slice(0, 8)
-                            .map((h) => (
-                              <td key={h} className="px-2 py-2 border-b align-top">
-                                {cleanStr(r[h])}
-                              </td>
-                            ))}
-                        </tr>
+          {importRows.length ? (
+            <div className="text-sm text-gray-700">
+              <div className="font-semibold mb-1">Preview (first 5 rows)</div>
+              <div className="overflow-auto rounded-lg border">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {Object.keys(preview[0] ?? {}).slice(0, 8).map((h) => (
+                        <th key={h} className="text-left px-2 py-2 border-b">
+                          {h}
+                        </th>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="text-xs text-gray-500 mt-2">
-                  Expected headers include: Company, First Name, Last Name, Phone, Email, Notes. Optional: Website, Main/Primary, Stage.
-                </div>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((r, i) => (
+                      <tr key={i} className="odd:bg-white even:bg-gray-50">
+                        {Object.keys(preview[0] ?? {})
+                          .slice(0, 8)
+                          .map((h) => (
+                            <td key={h} className="px-2 py-2 border-b align-top">
+                              {cleanStr(r[h])}
+                            </td>
+                          ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ) : (
-              <div className="text-xs text-gray-500">
-                Each row should be a contact. Company is required. If you include a column like <b>Main</b> or <b>Primary</b> with yes/true/1, that
-                contact becomes the company’s main contact shown on the Kanban card.
+              <div className="text-xs text-gray-500 mt-2">
+                Expected headers include: Company, First Name, Last Name, Phone, Email, Notes. Optional: Website, Main/Primary, Stage.
               </div>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* Stage management */}
-      <div className="mt-4">
-        <Card title="Stages / Status Options" right={<Pill>Editable</Pill>}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-            <div>
-              <div className="text-xs text-gray-600 mb-1">New stage name</div>
-              <Input value={newStageName} onChange={(e) => setNewStageName(e.target.value)} />
             </div>
-            <div>
-              <Button onClick={addStage}>Add Stage</Button>
+          ) : (
+            <div className="text-xs text-gray-500">
+              Each row should be a contact. Company is required. If you include a column like <b>Main</b> or <b>Primary</b> with yes/true/1, that
+              contact becomes the company’s main contact shown on the Kanban card.
             </div>
-          </div>
+          )}
+        </div>
+      </Modal>
 
-          <div className="mt-3 overflow-auto rounded-lg border">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-left px-3 py-2 border-b">Stage</th>
-                  <th className="text-left px-3 py-2 border-b">Order</th>
-                  <th className="text-left px-3 py-2 border-b">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stages.map((s) => (
-                  <tr key={s.id} className="odd:bg-white even:bg-gray-50">
-                    <td className="px-3 py-2 border-b">
-                      <Input
-                        defaultValue={s.name}
-                        onBlur={(e) => {
-                          const val = cleanStr(e.target.value);
-                          if (val && val !== s.name) renameStage(s.id, val);
-                        }}
-                      />
-                    </td>
-                    <td className="px-3 py-2 border-b">
-                      <div className="flex items-center gap-2">
-                        <Pill>{s.position}</Pill>
-                        <Button variant="ghost" onClick={() => moveStage(s.id, "up")} disabled={stages[0]?.id === s.id}>
-                          ↑
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() => moveStage(s.id, "down")}
-                          disabled={stages[stages.length - 1]?.id === s.id}
-                        >
-                          ↓
-                        </Button>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 border-b">
-                      <Button variant="ghost" onClick={() => deleteStage(s.id)}>
-                        Delete
+      {/* Stages modal */}
+      <Modal open={stagesOpen} onClose={() => setStagesOpen(false)} title="Edit Stages" maxWidthClass="max-w-4xl">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+          <div>
+            <div className="text-xs text-gray-600 mb-1">New stage name</div>
+            <Input value={newStageName} onChange={(e) => setNewStageName(e.target.value)} />
+          </div>
+          <div>
+            <Button onClick={addStage}>Add Stage</Button>
+          </div>
+        </div>
+
+        <div className="mt-3 overflow-auto rounded-lg border">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left px-3 py-2 border-b">Stage</th>
+                <th className="text-left px-3 py-2 border-b">Order</th>
+                <th className="text-left px-3 py-2 border-b">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stages.map((s) => (
+                <tr key={s.id} className="odd:bg-white even:bg-gray-50">
+                  <td className="px-3 py-2 border-b">
+                    <Input
+                      defaultValue={s.name}
+                      onBlur={(e) => {
+                        const val = cleanStr(e.target.value);
+                        if (val && val !== s.name) renameStage(s.id, val);
+                      }}
+                    />
+                  </td>
+                  <td className="px-3 py-2 border-b">
+                    <div className="flex items-center gap-2">
+                      <Pill>{s.position}</Pill>
+                      <Button variant="ghost" onClick={() => moveStage(s.id, "up")} disabled={stages[0]?.id === s.id}>
+                        ↑
                       </Button>
-                    </td>
-                  </tr>
-                ))}
-                {stages.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-3 text-gray-600" colSpan={3}>
-                      No stages found.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
+                      <Button
+                        variant="ghost"
+                        onClick={() => moveStage(s.id, "down")}
+                        disabled={stages[stages.length - 1]?.id === s.id}
+                      >
+                        ↓
+                      </Button>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 border-b">
+                    <Button variant="ghost" onClick={() => deleteStage(s.id)}>
+                      Delete
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {stages.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-600" colSpan={3}>
+                    No stages found.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
       {/* Company modal */}
       <Modal
@@ -1153,9 +1366,42 @@ export default function SalesFunnelPage() {
         {!companyDetail ? (
           <div className="text-sm text-gray-600">Loading...</div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Left: company info */}
-            <div className="lg:col-span-1 space-y-3">
+          <>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <div className="text-xs text-gray-600 mr-2">Panels:</div>
+              <Button
+                variant="ghost"
+                onClick={() => setShowCompanyPane((v) => !v)}
+              >
+                {showCompanyPane ? "Hide" : "Show"} Company
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setShowContactsPane((v) => !v)}
+              >
+                {showContactsPane ? "Hide" : "Show"} Contacts
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setShowActivityPane((v) => !v)}
+              >
+                {showActivityPane ? "Hide" : "Show"} Activity
+              </Button>
+            </div>
+
+            <div
+              className={[
+                "grid grid-cols-1 gap-4",
+                [showCompanyPane, showContactsPane, showActivityPane].filter(Boolean).length === 1
+                  ? "lg:grid-cols-1"
+                  : [showCompanyPane, showContactsPane, showActivityPane].filter(Boolean).length === 2
+                    ? "lg:grid-cols-2"
+                    : "lg:grid-cols-3",
+              ].join(" ")}
+            >
+              {/* Left: company info */}
+              {showCompanyPane ? (
+                <div className="space-y-3">
               <div>
                 <div className="text-xs text-gray-600 mb-1">Company name</div>
                 <Input value={companyDetail.name} onChange={(e) => setCompanyDetail({ ...companyDetail, name: e.target.value })} />
@@ -1230,10 +1476,12 @@ export default function SalesFunnelPage() {
                 Updated: {fmtDT(companyDetail.updated_at)} <br />
                 Last touch: {companyDetail.last_activity_at ? fmtDT(companyDetail.last_activity_at) : "—"}
               </div>
-            </div>
+                </div>
+              ) : null}
 
-            {/* Middle: contacts */}
-            <div className="lg:col-span-1 space-y-3">
+              {/* Middle: contacts */}
+              {showContactsPane ? (
+                <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="font-semibold">Contacts</div>
                 <Button
@@ -1329,15 +1577,17 @@ export default function SalesFunnelPage() {
 
                 {companyContacts.length === 0 ? <div className="text-sm text-gray-600">No contacts yet.</div> : null}
               </div>
-            </div>
+                </div>
+              ) : null}
 
-            {/* Right: activity log */}
-            <div className="lg:col-span-1 space-y-3">
+              {/* Right: activity log */}
+              {showActivityPane ? (
+                <div className="space-y-3">
               <div className="font-semibold">Activity Log</div>
 
               <div className="rounded-xl border p-3 bg-gray-50">
                 <div className="text-xs text-gray-600 mb-2">
-                  Hotkeys while typing: <b>V</b>=VM, <b>C</b>=Call, <b>T</b>=Text, <b>E</b>=Email, <b>N</b>=Note
+                  Hotkeys: <b>Ctrl/⌘ + V</b>=VM, <b>Ctrl/⌘ + C</b>=Call, <b>Ctrl/⌘ + T</b>=Text, <b>Ctrl/⌘ + E</b>=Email, <b>Ctrl/⌘ + N</b>=Note
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -1439,8 +1689,10 @@ export default function SalesFunnelPage() {
                   {activities.length === 0 ? <div className="text-sm text-gray-600">No activity yet.</div> : null}
                 </div>
               </div>
+                </div>
+              ) : null}
             </div>
-          </div>
+          </>
         )}
       </Modal>
     </PageShell>
