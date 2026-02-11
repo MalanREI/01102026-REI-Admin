@@ -1738,7 +1738,7 @@ const companiesByStage = useMemo(() => {
                             </div>
                           </div>
                         );
-                      })
+                      })}
                       {list.length === 0 ? <div className="text-xs text-gray-500">Drop companies here</div> : null}
                     </div>
                   </div>
