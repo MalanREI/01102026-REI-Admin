@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { PageShell } from "@/src/components/PageShell";
 import { Button, Card, Input, Modal, Textarea, Pill } from "@/src/components/ui";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
@@ -58,6 +58,30 @@ type Activity = {
 };
 
 type ImportRow = Record<string, any>;
+
+type CRMViewType = "company" | "contact" | "project";
+
+type CompanyLite = { id: string; name: string };
+
+type Project = {
+  id: string;
+  company_id: string | null;
+  name: string;
+  stage_id: string | null;
+  website: string | null;
+  notes: string | null;
+  last_activity_at: string | null;
+  created_at: string;
+  updated_at: string;
+  company: CompanyLite | null;
+};
+
+type ContactBoard = Contact & {
+  stage_id: string | null;
+  company: CompanyLite | null;
+};
+
+type ProjectBoard = Project;
 
 
 const ACTIVITY_KIND_VALUES = ["Call", "Voicemail", "Text", "Email", "Note"] as const;
@@ -161,6 +185,10 @@ export default function SalesFunnelPage() {
   const supabase = useMemo(() => supabaseBrowser(), []);
   const [loading, setLoading] = useState(true);
 
+  // Board view: Company | Contact | Project
+  const [viewType, setViewType] = useState<CRMViewType>("company");
+  const [viewFilter, setViewFilter] = useState<string>("all");
+
   // Toolbar menus
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [editMenuOpen, setEditMenuOpen] = useState(false);
@@ -170,6 +198,8 @@ export default function SalesFunnelPage() {
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [stagesOpen, setStagesOpen] = useState(false);
+  const [addProjectOpen, setAddProjectOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
 
   // Modal layout toggles
   const [showCompanyPane, setShowCompanyPane] = useState(true);
@@ -178,10 +208,12 @@ export default function SalesFunnelPage() {
 
   const [stages, setStages] = useState<Stage[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [contactsBoard, setContactsBoard] = useState<ContactBoard[]>([]);
+  const [projectsBoard, setProjectsBoard] = useState<ProjectBoard[]>([]);
   const [search, setSearch] = useState("");
 
   // Drag state
-  const dragCompanyIdRef = useRef<string | null>(null);
+  const dragEntityIdRef = useRef<string | null>(null);
 
   // Company modal state
   const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
@@ -191,6 +223,22 @@ export default function SalesFunnelPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activityText, setActivityText] = useState("");
   const [activityKind, setActivityKind] = useState<ActivityKind>("Note");
+
+  // Contact modal state
+  const [openContactId, setOpenContactId] = useState<string | null>(null);
+  const [contactDetail, setContactDetail] = useState<ContactBoard | null>(null);
+  const [contactProjects, setContactProjects] = useState<Project[]>([]);
+  const [contactActivities, setContactActivities] = useState<Activity[]>([]);
+  const [contactActivityText, setContactActivityText] = useState("");
+  const [contactActivityKind, setContactActivityKind] = useState<ActivityKind>("Note");
+
+  // Project modal state
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  const [projectDetail, setProjectDetail] = useState<ProjectBoard | null>(null);
+  const [projectContacts, setProjectContacts] = useState<Contact[]>([]);
+  const [projectActivities, setProjectActivities] = useState<Activity[]>([]);
+  const [projectActivityText, setProjectActivityText] = useState("");
+  const [projectActivityKind, setProjectActivityKind] = useState<ActivityKind>("Note");
 
   // Add company (MVP)
   const [newCompany, setNewCompany] = useState({ name: "", website: "", notes: "" });
@@ -205,6 +253,14 @@ export default function SalesFunnelPage() {
     email: "",
     notes: "",
     is_main: false,
+  });
+
+// Add project (from toolbar)
+  const [newProject, setNewProject] = useState({
+    company_id: "",
+    name: "",
+    website: "",
+    notes: "",
   });
 
   // Stage management
@@ -223,43 +279,116 @@ export default function SalesFunnelPage() {
       const stagesRes = await supabase
         .from("crm_stages")
         .select("id,name,position")
+        .eq("view_type", viewType)
         .order("position", { ascending: true });
       if (stagesRes.error) throw stagesRes.error;
 
-      const companiesRes = await supabase
-        .from("crm_companies")
-        .select(
-          "id,name,stage_id,website,phone,email,notes,main_contact_id,last_activity_at,created_at,updated_at,main_contact:crm_contacts!crm_companies_main_contact_fk(id,full_name,first_name,last_name,phone,email,is_main)"
-        )
-        .order("last_activity_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false });
+      // Load entities for the active board view
+      if (viewType === "company") {
+        const companiesRes = await supabase
+          .from("crm_companies")
+          .select(
+            "id,name,stage_id,website,phone,email,notes,main_contact_id,last_activity_at,created_at,updated_at,main_contact:crm_contacts!crm_companies_main_contact_fk(id,full_name,first_name,last_name,phone,email,is_main)"
+          )
+          .order("last_activity_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
 
-      if (companiesRes.error) throw companiesRes.error;
+        if (companiesRes.error) throw companiesRes.error;
 
-      setStages((stagesRes.data ?? []) as Stage[]);
+        // Supabase returns the joined main_contact relation as an array.
+        // Normalize it into a single object so the UI + types stay clean.
+        const normalized: Company[] = (companiesRes.data ?? []).map((row: any) => {
+          const mcArr = Array.isArray(row?.main_contact) ? row.main_contact : [];
+          const mc = mcArr.length ? (mcArr[0] as ContactLite) : null;
+          return {
+            id: String(row.id),
+            name: String(row.name ?? ""),
+            stage_id: row.stage_id ? String(row.stage_id) : null,
+            website: row.website ?? null,
+            phone: row.phone ?? null,
+            email: row.email ?? null,
+            notes: row.notes ?? null,
+            main_contact_id: row.main_contact_id ? String(row.main_contact_id) : null,
+            last_activity_at: row.last_activity_at ?? null,
+            created_at: String(row.created_at),
+            updated_at: String(row.updated_at),
+            main_contact: mc,
+          };
+        });
 
-      // Supabase returns the joined main_contact relation as an array.
-      // Normalize it into a single object so the UI + types stay clean.
-      const normalized: Company[] = (companiesRes.data ?? []).map((row: any) => {
-        const mcArr = Array.isArray(row?.main_contact) ? row.main_contact : [];
-        const mc = mcArr.length ? (mcArr[0] as ContactLite) : null;
-        return {
-          id: String(row.id),
-          name: String(row.name ?? ""),
-          stage_id: row.stage_id ? String(row.stage_id) : null,
-          website: row.website ?? null,
-          phone: row.phone ?? null,
-          email: row.email ?? null,
-          notes: row.notes ?? null,
-          main_contact_id: row.main_contact_id ? String(row.main_contact_id) : null,
-          last_activity_at: row.last_activity_at ?? null,
-          created_at: String(row.created_at),
-          updated_at: String(row.updated_at),
-          main_contact: mc,
-        };
-      });
+        setCompanies(normalized);
+        setContactsBoard([]);
+        setProjectsBoard([]);
+      }
 
-      setCompanies(normalized);
+      if (viewType === "contact") {
+        const contactsRes = await supabase
+          .from("crm_contacts")
+          .select(
+            "id,company_id,stage_id,first_name,last_name,full_name,title,phone,email,notes,is_main,last_activity_at,created_at,company:crm_companies(id,name)"
+          )
+          .order("last_activity_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
+
+        if (contactsRes.error) throw contactsRes.error;
+
+        const normalized: ContactBoard[] = (contactsRes.data ?? []).map((r: any) => {
+          const cArr = Array.isArray(r?.company) ? r.company : [];
+          const c = cArr.length ? { id: String(cArr[0].id), name: String(cArr[0].name ?? "") } : null;
+          return {
+            id: String(r.id),
+            company_id: String(r.company_id),
+            stage_id: r.stage_id ? String(r.stage_id) : null,
+            first_name: r.first_name ?? null,
+            last_name: r.last_name ?? null,
+            full_name: r.full_name ?? null,
+            title: r.title ?? null,
+            phone: r.phone ?? null,
+            email: r.email ?? null,
+            notes: r.notes ?? null,
+            is_main: !!r.is_main,
+            last_activity_at: r.last_activity_at ?? null,
+            created_at: String(r.created_at),
+            company: c,
+          };
+        });
+
+        setContactsBoard(normalized);
+        // keep companies cache for dropdowns
+        setProjectsBoard([]);
+      }
+
+      if (viewType === "project") {
+        const projectsRes = await supabase
+          .from("crm_projects")
+          .select("id,company_id,name,stage_id,website,notes,last_activity_at,created_at,updated_at,company:crm_companies(id,name)")
+          .order("last_activity_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
+
+        if (projectsRes.error) throw projectsRes.error;
+
+        const normalized: ProjectBoard[] = (projectsRes.data ?? []).map((r: any) => {
+          const cArr = Array.isArray(r?.company) ? r.company : [];
+          const c = cArr.length ? { id: String(cArr[0].id), name: String(cArr[0].name ?? "") } : null;
+          return {
+            id: String(r.id),
+            company_id: r.company_id ? String(r.company_id) : null,
+            name: String(r.name ?? ""),
+            stage_id: r.stage_id ? String(r.stage_id) : null,
+            website: r.website ?? null,
+            notes: r.notes ?? null,
+            last_activity_at: r.last_activity_at ?? null,
+            created_at: String(r.created_at),
+            updated_at: String(r.updated_at),
+            company: c,
+          };
+        });
+
+        setProjectsBoard(normalized);
+        // keep companies cache for dropdowns
+        setContactsBoard([]);
+      }
+
     } catch (e: any) {
       console.error(e);
       alert(e?.message ?? "Failed to load CRM board.");
@@ -271,12 +400,16 @@ export default function SalesFunnelPage() {
   useEffect(() => {
     loadBoard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [viewType]);
 
-  const filteredCompanies = useMemo(() => {
+    const filteredCompanies = useMemo(() => {
     const q = cleanStr(search).toLowerCase();
-    if (!q) return companies;
     return companies.filter((c) => {
+      if (viewFilter === "has_main" && !c.main_contact_id) return false;
+      if (viewFilter === "no_main" && c.main_contact_id) return false;
+
+      if (!q) return true;
+
       const mc = c.main_contact;
       const blob = [
         c.name,
@@ -292,9 +425,48 @@ export default function SalesFunnelPage() {
         .toLowerCase();
       return blob.includes(q);
     });
-  }, [companies, search]);
+  }, [companies, search, viewFilter]);
 
-  const companiesByStage = useMemo(() => {
+  const filteredContacts = useMemo(() => {
+    const q = cleanStr(search).toLowerCase();
+    return contactsBoard.filter((c) => {
+      if (viewFilter === "has_email" && !cleanStr(c.email)) return false;
+      if (viewFilter === "no_email" && cleanStr(c.email)) return false;
+      if (viewFilter === "has_phone" && !cleanStr(c.phone)) return false;
+      if (viewFilter === "no_phone" && cleanStr(c.phone)) return false;
+
+      if (!q) return true;
+
+      const blob = [
+        c.full_name ?? "",
+        c.first_name ?? "",
+        c.last_name ?? "",
+        c.title ?? "",
+        c.phone ?? "",
+        c.email ?? "",
+        c.notes ?? "",
+        c.company?.name ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [contactsBoard, search, viewFilter]);
+
+  const filteredProjects = useMemo(() => {
+    const q = cleanStr(search).toLowerCase();
+    return projectsBoard.filter((p) => {
+      if (viewFilter === "with_company" && !p.company_id) return false;
+      if (viewFilter === "no_company" && p.company_id) return false;
+
+      if (!q) return true;
+
+      const blob = [p.name, p.website ?? "", p.notes ?? "", p.company?.name ?? ""].join(" ").toLowerCase();
+      return blob.includes(q);
+    });
+  }, [projectsBoard, search, viewFilter]);
+
+const companiesByStage = useMemo(() => {
     const map = new Map<string, Company[]>();
     for (const s of stages) map.set(s.id, []);
     for (const c of filteredCompanies) {
@@ -317,17 +489,76 @@ export default function SalesFunnelPage() {
       map.set(k, arr);
     }
     return map;
+  const contactsByStage = useMemo(() => {
+    const map = new Map<string, ContactBoard[]>();
+    for (const s of stages) map.set(s.id, []);
+    for (const c of filteredContacts) {
+      const sid = c.stage_id ?? "";
+      if (sid && map.has(sid)) map.get(sid)!.push(c);
+      else {
+        const first = stages[0]?.id;
+        if (first) map.get(first)!.push(c);
+      }
+    }
+    for (const [k, arr] of map.entries()) {
+      arr.sort((a, b) => {
+        const la = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
+        const lb = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
+        if (la !== lb) return lb - la;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      map.set(k, arr);
+    }
+    return map;
+  }, [filteredContacts, stages]);
+
+  const projectsByStage = useMemo(() => {
+    const map = new Map<string, ProjectBoard[]>();
+    for (const s of stages) map.set(s.id, []);
+    for (const p of filteredProjects) {
+      const sid = p.stage_id ?? "";
+      if (sid && map.has(sid)) map.get(sid)!.push(p);
+      else {
+        const first = stages[0]?.id;
+        if (first) map.get(first)!.push(p);
+      }
+    }
+    for (const [k, arr] of map.entries()) {
+      arr.sort((a, b) => {
+        const la = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
+        const lb = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
+        if (la !== lb) return lb - la;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      map.set(k, arr);
+    }
+    return map;
+  }, [filteredProjects, stages]);
+
   }, [filteredCompanies, stages]);
 
-  async function moveCompanyToStage(companyId: string, stageId: string) {
+  async function moveCardToStage(entityId: string, stageId: string) {
     try {
-      const res = await supabase.from("crm_companies").update({ stage_id: stageId }).eq("id", companyId);
-      if (res.error) throw res.error;
-      // optimistic update
-      setCompanies((prev) => prev.map((c) => (c.id === companyId ? { ...c, stage_id: stageId } : c)));
+      if (viewType === "company") {
+        const res = await supabase.from("crm_companies").update({ stage_id: stageId }).eq("id", entityId);
+        if (res.error) throw res.error;
+        setCompanies((prev) => prev.map((c) => (c.id === entityId ? { ...c, stage_id: stageId } : c)));
+      }
+
+      if (viewType === "contact") {
+        const res = await supabase.from("crm_contacts").update({ stage_id: stageId }).eq("id", entityId);
+        if (res.error) throw res.error;
+        setContactsBoard((prev) => prev.map((c) => (c.id === entityId ? { ...c, stage_id: stageId } : c)));
+      }
+
+      if (viewType === "project") {
+        const res = await supabase.from("crm_projects").update({ stage_id: stageId }).eq("id", entityId);
+        if (res.error) throw res.error;
+        setProjectsBoard((prev) => prev.map((p) => (p.id === entityId ? { ...p, stage_id: stageId } : p)));
+      }
     } catch (e: any) {
       console.error(e);
-      alert(e?.message ?? "Failed to move company.");
+      alert(e?.message ?? "Failed to move card.");
     }
   }
 
@@ -404,6 +635,172 @@ export default function SalesFunnelPage() {
       setOpenCompanyId(null);
     }
   }
+  async function openContact(contactId: string) {
+    setOpenContactId(contactId);
+    setContactDetail(null);
+    setContactProjects([]);
+    setContactActivities([]);
+    setContactActivityText("");
+    setContactActivityKind("Note");
+
+    try {
+      const cRes = await supabase
+        .from("crm_contacts")
+        .select(
+          "id,company_id,stage_id,first_name,last_name,full_name,title,phone,email,notes,is_main,last_activity_at,created_at,company:crm_companies(id,name)"
+        )
+        .eq("id", contactId)
+        .single();
+      if (cRes.error) throw cRes.error;
+
+      const pjRes = await supabase
+        .from("crm_project_contacts")
+        .select("project:crm_projects(id,company_id,name,stage_id,website,notes,last_activity_at,created_at,updated_at,company:crm_companies(id,name))")
+        .eq("contact_id", contactId)
+        .order("created_at", { ascending: false });
+      if (pjRes.error) throw pjRes.error;
+
+      const actsRes = await supabase
+        .from("crm_contact_activities")
+        .select("id,company_id,contact_id,project_id,kind,summary,created_by,created_at,created_by_profile:profiles(id,full_name)")
+        .eq("contact_id", contactId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (actsRes.error) throw actsRes.error;
+
+      const row: any = cRes.data;
+      const compArr = Array.isArray(row?.company) ? row.company : [];
+      const comp = compArr.length ? { id: String(compArr[0].id), name: String(compArr[0].name ?? "") } : null;
+
+      const normalizedContact: ContactBoard = {
+        id: String(row.id),
+        company_id: String(row.company_id),
+        stage_id: row.stage_id ? String(row.stage_id) : null,
+        first_name: row.first_name ?? null,
+        last_name: row.last_name ?? null,
+        full_name: row.full_name ?? null,
+        title: row.title ?? null,
+        phone: row.phone ?? null,
+        email: row.email ?? null,
+        notes: row.notes ?? null,
+        is_main: !!row.is_main,
+        last_activity_at: row.last_activity_at ?? null,
+        created_at: String(row.created_at),
+        company: comp,
+      };
+
+      const normalizedProjects: Project[] = (pjRes.data ?? []).map((r: any) => {
+        const pArr = Array.isArray(r?.project) ? r.project : [];
+        const p = pArr.length ? pArr[0] : null;
+        if (!p) return null;
+        const cArr = Array.isArray(p?.company) ? p.company : [];
+        const c = cArr.length ? { id: String(cArr[0].id), name: String(cArr[0].name ?? "") } : null;
+        return {
+          id: String(p.id),
+          company_id: p.company_id ? String(p.company_id) : null,
+          name: String(p.name ?? ""),
+          stage_id: p.stage_id ? String(p.stage_id) : null,
+          website: p.website ?? null,
+          notes: p.notes ?? null,
+          last_activity_at: p.last_activity_at ?? null,
+          created_at: String(p.created_at),
+          updated_at: String(p.updated_at),
+          company: c,
+        } as Project;
+      }).filter(Boolean) as Project[];
+
+      setContactDetail(normalizedContact);
+      setContactProjects(normalizedProjects);
+
+      const actsRaw: any[] = (actsRes.data ?? []) as any[];
+      setContactActivities(actsRaw.map(normalizeActivityRow));
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to load contact details.");
+      setOpenContactId(null);
+    }
+  }
+
+  async function openProject(projectId: string) {
+    setOpenProjectId(projectId);
+    setProjectDetail(null);
+    setProjectContacts([]);
+    setProjectActivities([]);
+    setProjectActivityText("");
+    setProjectActivityKind("Note");
+
+    try {
+      const pRes = await supabase
+        .from("crm_projects")
+        .select("id,company_id,name,stage_id,website,notes,last_activity_at,created_at,updated_at,company:crm_companies(id,name)")
+        .eq("id", projectId)
+        .single();
+      if (pRes.error) throw pRes.error;
+
+      const contactsRes = await supabase
+        .from("crm_project_contacts")
+        .select("contact:crm_contacts(id,company_id,first_name,last_name,full_name,title,phone,email,notes,is_main,last_activity_at,created_at)")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false });
+      if (contactsRes.error) throw contactsRes.error;
+
+      const actsRes = await supabase
+        .from("crm_contact_activities")
+        .select("id,company_id,contact_id,project_id,kind,summary,created_by,created_at,created_by_profile:profiles(id,full_name)")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (actsRes.error) throw actsRes.error;
+
+      const row: any = pRes.data;
+      const compArr = Array.isArray(row?.company) ? row.company : [];
+      const comp = compArr.length ? { id: String(compArr[0].id), name: String(compArr[0].name ?? "") } : null;
+
+      const normalizedProject: ProjectBoard = {
+        id: String(row.id),
+        company_id: row.company_id ? String(row.company_id) : null,
+        name: String(row.name ?? ""),
+        stage_id: row.stage_id ? String(row.stage_id) : null,
+        website: row.website ?? null,
+        notes: row.notes ?? null,
+        last_activity_at: row.last_activity_at ?? null,
+        created_at: String(row.created_at),
+        updated_at: String(row.updated_at),
+        company: comp,
+      };
+
+      const normalizedContacts: Contact[] = (contactsRes.data ?? []).map((r: any) => {
+        const cArr = Array.isArray(r?.contact) ? r.contact : [];
+        const c = cArr.length ? cArr[0] : null;
+        if (!c) return null;
+        return {
+          id: String(c.id),
+          company_id: String(c.company_id),
+          first_name: c.first_name ?? null,
+          last_name: c.last_name ?? null,
+          full_name: c.full_name ?? null,
+          title: c.title ?? null,
+          phone: c.phone ?? null,
+          email: c.email ?? null,
+          notes: c.notes ?? null,
+          is_main: !!c.is_main,
+          last_activity_at: c.last_activity_at ?? null,
+          created_at: String(c.created_at),
+        } as Contact;
+      }).filter(Boolean) as Contact[];
+
+      setProjectDetail(normalizedProject);
+      setProjectContacts(normalizedContacts);
+
+      const actsRaw: any[] = (actsRes.data ?? []) as any[];
+      setProjectActivities(actsRaw.map(normalizeActivityRow));
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to load project details.");
+      setOpenProjectId(null);
+    }
+  }
+
 
   async function saveCompanyDetail() {
     if (!companyDetail) return;
@@ -477,8 +874,101 @@ export default function SalesFunnelPage() {
       alert(e?.message ?? "Failed to add activity.");
     }
   }
+  async function addContactActivity() {
+    if (!contactDetail) return;
+    const summary = cleanStr(contactActivityText);
+    if (!summary) return;
 
-  function handleActivityHotkeys(e: React.KeyboardEvent) {
+    try {
+      const userRes = await supabase.auth.getUser();
+      const userId = userRes.data?.user?.id ?? null;
+
+      const insertRes = await supabase
+        .from("crm_contact_activities")
+        .insert({
+          company_id: contactDetail.company_id,
+          contact_id: contactDetail.id,
+          kind: contactActivityKind,
+          summary,
+          created_by: userId,
+        })
+        .select("id,company_id,contact_id,project_id,kind,summary,created_by,created_at,created_by_profile:profiles(id,full_name)")
+        .single();
+      if (insertRes.error) throw insertRes.error;
+
+      const inserted = normalizeActivityRow(insertRes.data);
+      setContactActivities((prev) => [inserted, ...prev]);
+      setContactActivityText("");
+
+      await loadBoard();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to add activity.");
+    }
+  }
+
+  async function addProjectActivity() {
+    if (!projectDetail) return;
+    const summary = cleanStr(projectActivityText);
+    if (!summary) return;
+
+    try {
+      const userRes = await supabase.auth.getUser();
+      const userId = userRes.data?.user?.id ?? null;
+
+      const insertRes = await supabase
+        .from("crm_contact_activities")
+        .insert({
+          company_id: projectDetail.company_id,
+          project_id: projectDetail.id,
+          kind: projectActivityKind,
+          summary,
+          created_by: userId,
+        })
+        .select("id,company_id,contact_id,project_id,kind,summary,created_by,created_at,created_by_profile:profiles(id,full_name)")
+        .single();
+      if (insertRes.error) throw insertRes.error;
+
+      const inserted = normalizeActivityRow(insertRes.data);
+      setProjectActivities((prev) => [inserted, ...prev]);
+      setProjectActivityText("");
+
+      await loadBoard();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to add activity.");
+    }
+  }
+
+  function handleContactActivityHotkeys(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    const k = e.key.toLowerCase();
+    if (["v", "c", "t", "e", "n"].includes(k)) {
+      e.preventDefault();
+      if (k === "v") setContactActivityKind("Voicemail");
+      if (k === "c") setContactActivityKind("Call");
+      if (k === "t") setContactActivityKind("Text");
+      if (k === "e") setContactActivityKind("Email");
+      if (k === "n") setContactActivityKind("Note");
+    }
+  }
+
+  function handleProjectActivityHotkeys(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    const k = e.key.toLowerCase();
+    if (["v", "c", "t", "e", "n"].includes(k)) {
+      e.preventDefault();
+      if (k === "v") setProjectActivityKind("Voicemail");
+      if (k === "c") setProjectActivityKind("Call");
+      if (k === "t") setProjectActivityKind("Text");
+      if (k === "e") setProjectActivityKind("Email");
+      if (k === "n") setProjectActivityKind("Note");
+    }
+  }
+
+
+
+  function handleActivityHotkeys(e: KeyboardEvent<HTMLTextAreaElement>) {
     // Only fire when the user is explicitly using a modifier.
     // This prevents normal typing like "Now" from switching the activity kind.
     if (!e.ctrlKey && !e.metaKey) return;
@@ -499,7 +989,7 @@ export default function SalesFunnelPage() {
 
     try {
       const maxPos = stages.reduce((m, s) => Math.max(m, s.position ?? 0), 0);
-      const res = await supabase.from("crm_stages").insert({ name, position: maxPos + 10 });
+      const res = await supabase.from("crm_stages").insert({ name, position: maxPos + 10, view_type: viewType });
       if (res.error) throw res.error;
 
       setNewStageName("");
@@ -662,6 +1152,38 @@ export default function SalesFunnelPage() {
       alert(e?.message ?? "Failed to create contact.");
     }
   }
+  async function createProjectFromToolbar() {
+    const name = cleanStr(newProject.name);
+    if (!name) return;
+
+    try {
+      const firstStageId = stages[0]?.id ?? null;
+
+      const insertRes = await supabase
+        .from("crm_projects")
+        .insert({
+          company_id: cleanStr(newProject.company_id) || null,
+          name,
+          website: cleanStr(newProject.website) || null,
+          notes: cleanStr(newProject.notes) || null,
+          stage_id: firstStageId,
+        })
+        .select("id,company_id,name,stage_id,website,notes,last_activity_at,created_at,updated_at")
+        .single();
+
+      if (insertRes.error) throw insertRes.error;
+
+      setNewProject({ company_id: "", name: "", website: "", notes: "" });
+      setAddProjectOpen(false);
+      await loadBoard();
+      await openProject(String((insertRes.data as any).id));
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to create project.");
+    }
+  }
+
+
 
   function parseFile(file: File) {
     setImportError("");
@@ -933,8 +1455,80 @@ export default function SalesFunnelPage() {
         </p>
       </div>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="w-full max-w-xl">
-          <Input placeholder="Search companies / contacts..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="flex w-full items-center gap-3">
+          <div className="flex items-center gap-1 rounded-2xl border bg-white p-1">
+            <button
+              className={`px-3 py-2 rounded-xl text-sm ${viewType === "company" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              onClick={() => {
+                setViewType("company");
+                setViewFilter("all");
+              }}
+            >
+              Company
+            </button>
+            <button
+              className={`px-3 py-2 rounded-xl text-sm ${viewType === "contact" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              onClick={() => {
+                setViewType("contact");
+                setViewFilter("all");
+              }}
+            >
+              Contact
+            </button>
+            <button
+              className={`px-3 py-2 rounded-xl text-sm ${viewType === "project" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              onClick={() => {
+                setViewType("project");
+                setViewFilter("all");
+              }}
+            >
+              Project
+            </button>
+          </div>
+
+          <div className="w-full max-w-xl">
+            <Input
+              placeholder={
+                viewType === "company"
+                  ? "Search companies / contacts..."
+                  : viewType === "contact"
+                  ? "Search contacts / companies..."
+                  : "Search projects / companies..."
+              }
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="min-w-[190px]">
+            <select
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              value={viewFilter}
+              onChange={(e) => setViewFilter(e.target.value)}
+            >
+              <option value="all">All</option>
+              {viewType === "company" ? (
+                <>
+                  <option value="has_main">Has main contact</option>
+                  <option value="no_main">No main contact</option>
+                </>
+              ) : null}
+              {viewType === "contact" ? (
+                <>
+                  <option value="has_email">Has email</option>
+                  <option value="no_email">No email</option>
+                  <option value="has_phone">Has phone</option>
+                  <option value="no_phone">No phone</option>
+                </>
+              ) : null}
+              {viewType === "project" ? (
+                <>
+                  <option value="with_company">With company</option>
+                  <option value="no_company">No company</option>
+                </>
+              ) : null}
+            </select>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -971,6 +1565,15 @@ export default function SalesFunnelPage() {
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
                   onClick={() => {
                     setAddMenuOpen(false);
+                    setAddProjectOpen(true);
+                  }}
+                >
+                  Add Project
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  onClick={() => {
+                    setAddMenuOpen(false);
                     setImportOpen(true);
                   }}
                 >
@@ -1001,6 +1604,15 @@ export default function SalesFunnelPage() {
                 >
                   Edit Stages
                 </button>
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  onClick={() => {
+                    setEditMenuOpen(false);
+                    setProjectsOpen(true);
+                  }}
+                >
+                  Edit Projects
+                </button>
               </div>
             ) : null}
           </div>
@@ -1027,7 +1639,7 @@ export default function SalesFunnelPage() {
           <div className="overflow-x-auto">
             <div className="flex gap-3 min-w-[900px]">
               {stages.map((stage) => {
-                const list = companiesByStage.get(stage.id) ?? [];
+                const list = viewType === "company" ? (companiesByStage.get(stage.id) ?? []) : viewType === "contact" ? (contactsByStage.get(stage.id) ?? []) : (projectsByStage.get(stage.id) ?? []);
                 return (
                   <div
                     key={stage.id}
@@ -1037,9 +1649,9 @@ export default function SalesFunnelPage() {
                     }}
                     onDrop={(e) => {
                       e.preventDefault();
-                      const cid = dragCompanyIdRef.current ?? e.dataTransfer.getData("text/plain");
-                      if (cid) moveCompanyToStage(cid, stage.id);
-                      dragCompanyIdRef.current = null;
+                      const cid = dragEntityIdRef.current ?? e.dataTransfer.getData("text/plain");
+                      if (cid) moveCardToStage(cid, stage.id);
+                      dragEntityIdRef.current = null;
                     }}
                   >
                     <div className="mb-2 flex items-center justify-between">
@@ -1048,34 +1660,85 @@ export default function SalesFunnelPage() {
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      {list.map((c) => {
-                        const mc = c.main_contact;
-                        const mcName =
-                          cleanStr(mc?.full_name) ||
-                          cleanStr([mc?.first_name, mc?.last_name].filter(Boolean).join(" ")) ||
-                          "";
-                        const sub = cleanStr(mcName) || cleanStr(c.website) || cleanStr(c.email) || cleanStr(c.phone) || "";
+                      {list.map((item) => {
+                        if (viewType === "company") {
+                          const c = item as any as Company;
+                          const mc = c.main_contact;
+                          const mcName =
+                            cleanStr(mc?.full_name) ||
+                            cleanStr([mc?.first_name ?? "", mc?.last_name ?? ""].filter(Boolean).join(" ")) ||
+                            cleanStr(mc?.email) ||
+                            "";
+                          return (
+                            <div
+                              key={c.id}
+                              className="rounded-2xl border bg-white p-3 shadow-sm hover:shadow transition cursor-pointer"
+                              draggable
+                              onDragStart={(e) => {
+                                dragEntityIdRef.current = c.id;
+                                e.dataTransfer.setData("text/plain", c.id);
+                              }}
+                              onClick={() => openCompany(c.id)}
+                            >
+                              <div className="font-medium">{c.name}</div>
+                              <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                                {c.website ? <div>🌐 {c.website}</div> : null}
+                                {c.phone ? <div>📞 {c.phone}</div> : null}
+                                {c.email ? <div>✉️ {c.email}</div> : null}
+                                {mcName ? <div>👤 {mcName}</div> : null}
+                                {c.last_activity_at ? <div>🕒 {fmtDT(c.last_activity_at)}</div> : null}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (viewType === "contact") {
+                          const c = item as any as ContactBoard;
+                          const displayName = cleanStr(c.full_name) || cleanStr([c.first_name ?? "", c.last_name ?? ""].join(" "));
+                          return (
+                            <div
+                              key={c.id}
+                              className="rounded-2xl border bg-white p-3 shadow-sm hover:shadow transition cursor-pointer"
+                              draggable
+                              onDragStart={(e) => {
+                                dragEntityIdRef.current = c.id;
+                                e.dataTransfer.setData("text/plain", c.id);
+                              }}
+                              onClick={() => openContact(c.id)}
+                            >
+                              <div className="font-medium">{displayName || "(Unnamed contact)"}</div>
+                              <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                                {c.title ? <div>🏷️ {c.title}</div> : null}
+                                {c.company?.name ? <div>🏢 {c.company.name}</div> : null}
+                                {c.phone ? <div>📞 {c.phone}</div> : null}
+                                {c.email ? <div>✉️ {c.email}</div> : null}
+                                {c.last_activity_at ? <div>🕒 {fmtDT(c.last_activity_at)}</div> : null}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        const p = item as any as ProjectBoard;
                         return (
-                          <button
-                            key={c.id}
-                            className="text-left rounded-xl border bg-white p-3 shadow-sm hover:shadow transition"
+                          <div
+                            key={p.id}
+                            className="rounded-2xl border bg-white p-3 shadow-sm hover:shadow transition cursor-pointer"
                             draggable
                             onDragStart={(e) => {
-                              dragCompanyIdRef.current = c.id;
-                              e.dataTransfer.setData("text/plain", c.id);
+                              dragEntityIdRef.current = p.id;
+                              e.dataTransfer.setData("text/plain", p.id);
                             }}
-                            onClick={() => openCompany(c.id)}
+                            onClick={() => openProject(p.id)}
                           >
-                            <div className="font-semibold">{c.name}</div>
-                            {sub ? <div className="text-xs text-gray-600 mt-1">{sub}</div> : null}
-                            {c.last_activity_at ? (
-                              <div className="text-[11px] text-gray-500 mt-2">Last touch: {fmtDT(c.last_activity_at)}</div>
-                            ) : (
-                              <div className="text-[11px] text-gray-400 mt-2">No activity yet</div>
-                            )}
-                          </button>
+                            <div className="font-medium">{p.name}</div>
+                            <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                              {p.company?.name ? <div>🏢 {p.company.name}</div> : null}
+                              {p.website ? <div>🌐 {p.website}</div> : null}
+                              {p.last_activity_at ? <div>🕒 {fmtDT(p.last_activity_at)}</div> : null}
+                            </div>
+                          </div>
                         );
-                      })}
+                      })
                       {list.length === 0 ? <div className="text-xs text-gray-500">Drop companies here</div> : null}
                     </div>
                   </div>
@@ -1203,7 +1866,64 @@ export default function SalesFunnelPage() {
         </div>
       </Modal>
 
-      {/* Import modal */}
+      
+      {/* Add Project modal */}
+      <Modal
+        open={addProjectOpen}
+        onClose={() => setAddProjectOpen(false)}
+        title="Add Project"
+        maxWidthClass="max-w-2xl"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="md:col-span-2">
+            <div className="text-xs text-gray-600 mb-1">Company (optional)</div>
+            <select
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              value={newProject.company_id}
+              onChange={(e) => setNewProject((p) => ({ ...p, company_id: e.target.value }))}
+            >
+              <option value="">— None —</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-2">
+            <div className="text-xs text-gray-600 mb-1">Project Name</div>
+            <Input value={newProject.name} onChange={(e) => setNewProject((p) => ({ ...p, name: e.target.value }))} />
+          </div>
+
+          <div className="md:col-span-2">
+            <div className="text-xs text-gray-600 mb-1">Website</div>
+            <Input
+              value={newProject.website}
+              onChange={(e) => setNewProject((p) => ({ ...p, website: e.target.value }))}
+              placeholder="https://..."
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <div className="text-xs text-gray-600 mb-1">Notes</div>
+            <Textarea
+              rows={4}
+              value={newProject.notes}
+              onChange={(e) => setNewProject((p) => ({ ...p, notes: e.target.value }))}
+            />
+          </div>
+
+          <div className="md:col-span-2 flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setAddProjectOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={createProjectFromToolbar}>Create Project</Button>
+          </div>
+        </div>
+      </Modal>
+
+{/* Import modal */}
       <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Import Contacts (CSV / XLSX)" maxWidthClass="max-w-4xl">
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
@@ -1347,6 +2067,68 @@ export default function SalesFunnelPage() {
           </table>
         </div>
       </Modal>
+
+      {/* Edit Projects modal */}
+      <Modal open={projectsOpen} onClose={() => setProjectsOpen(false)} title="Edit Projects" maxWidthClass="max-w-4xl">
+        <div className="text-sm text-gray-600 mb-3">
+          Manage projects (rename / delete). Project↔contact linking can be done inside a Project card.
+        </div>
+
+        <div className="space-y-2">
+          {projectsBoard.length === 0 ? (
+            <div className="text-sm text-gray-600">No projects loaded. Switch to Project view, then click Refresh.</div>
+          ) : (
+            projectsBoard.map((p) => (
+              <div key={p.id} className="rounded-xl border bg-white p-3 flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{p.name}</div>
+                  <div className="text-xs text-gray-600 truncate">
+                    {p.company?.name ? `Company: ${p.company.name}` : "No company"}
+                  </div>
+                </div>
+
+                <Button variant="ghost" onClick={() => openProject(p.id)}>
+                  Open
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    const name = prompt("Rename project", p.name);
+                    if (!name) return;
+                    const val = cleanStr(name);
+                    if (!val) return;
+                    const res = await supabase.from("crm_projects").update({ name: val }).eq("id", p.id);
+                    if (res.error) {
+                      alert(res.error.message);
+                      return;
+                    }
+                    await loadBoard();
+                  }}
+                >
+                  Rename
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    const ok = confirm(`Delete project "${p.name}"? This cannot be undone.`);
+                    if (!ok) return;
+                    const res = await supabase.from("crm_projects").delete().eq("id", p.id);
+                    if (res.error) {
+                      alert(res.error.message);
+                      return;
+                    }
+                    await loadBoard();
+                  }}
+                >
+                  Delete
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
+
+
 
       {/* Company modal */}
       <Modal
@@ -1695,6 +2477,256 @@ export default function SalesFunnelPage() {
           </>
         )}
       </Modal>
+
+      {/* Contact modal */}
+      <Modal
+        open={!!openContactId}
+        onClose={() => {
+          setOpenContactId(null);
+          setContactDetail(null);
+          setContactProjects([]);
+          setContactActivities([]);
+          setContactActivityText("");
+          setContactActivityKind("Note");
+        }}
+        title="Contact"
+        maxWidthClass="max-w-6xl"
+      >
+        {!contactDetail ? (
+          <div className="text-sm text-gray-600">Loading...</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="rounded-2xl border bg-white p-4">
+              <div className="font-semibold text-lg">{cleanStr(contactDetail.full_name) || "Contact"}</div>
+              <div className="text-sm text-gray-600 mt-1 space-y-1">
+                {contactDetail.title ? <div>🏷️ {contactDetail.title}</div> : null}
+                {contactDetail.phone ? <div>📞 {contactDetail.phone}</div> : null}
+                {contactDetail.email ? <div>✉️ {contactDetail.email}</div> : null}
+                {contactDetail.company?.name ? (
+                  <button className="text-left underline" onClick={() => openCompany(contactDetail.company!.id)}>
+                    🏢 {contactDetail.company!.name}
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs text-gray-600 mb-1">Notes</div>
+                <Textarea
+                  rows={6}
+                  value={contactDetail.notes ?? ""}
+                  onChange={(e) => setContactDetail((p) => (p ? { ...p, notes: e.target.value } : p))}
+                />
+              </div>
+
+              <div className="mt-3 flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    const res = await supabase.from("crm_contacts").update({ notes: cleanStr(contactDetail.notes) || null }).eq("id", contactDetail.id);
+                    if (res.error) {
+                      alert(res.error.message);
+                      return;
+                    }
+                    await loadBoard();
+                    alert("Saved.");
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-4">
+              <div className="font-semibold">Projects</div>
+              <div className="text-sm text-gray-600 mb-2">Projects associated with this contact.</div>
+              <div className="space-y-2">
+                {contactProjects.length ? (
+                  contactProjects.map((p) => (
+                    <button key={p.id} className="w-full text-left rounded-xl border px-3 py-2 hover:bg-gray-50" onClick={() => openProject(p.id)}>
+                      <div className="font-medium">{p.name}</div>
+                      <div className="text-xs text-gray-600">{p.company?.name ? `Company: ${p.company.name}` : "No company"}</div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-600">No projects linked yet.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-4">
+              <div className="font-semibold mb-2">Activity</div>
+              <div className="flex items-center gap-2 mb-2">
+                <select
+                  className="rounded-xl border px-3 py-2 text-sm bg-white"
+                  value={contactActivityKind}
+                  onChange={(e) => setContactActivityKind(e.target.value as any)}
+                >
+                  <option>Call</option>
+                  <option>Voicemail</option>
+                  <option>Text</option>
+                  <option>Email</option>
+                  <option>Note</option>
+                </select>
+                <div className="text-xs text-gray-600">Hotkeys: Ctrl/Cmd+C/V/T/E/N</div>
+              </div>
+
+              <Textarea
+                rows={3}
+                value={contactActivityText}
+                onChange={(e) => setContactActivityText(e.target.value)}
+                onKeyDown={handleContactActivityHotkeys}
+                placeholder="Add activity note..."
+              />
+              <div className="flex justify-end mt-2">
+                <Button onClick={addContactActivity}>Add</Button>
+              </div>
+
+              <div className="mt-4 space-y-2 max-h-[520px] overflow-auto pr-1">
+                {contactActivities.length ? (
+                  contactActivities.map((a) => (
+                    <div key={a.id} className="rounded-xl border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs text-gray-600">
+                          <span className="font-medium">{a.kind}</span> · {fmtDT(a.created_at)}
+                          {a.created_by_profile?.full_name ? ` · ${a.created_by_profile.full_name}` : ""}
+                        </div>
+                      </div>
+                      <div className="text-sm mt-1 whitespace-pre-wrap">{a.summary}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-600">No activity yet.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Project modal */}
+      <Modal
+        open={!!openProjectId}
+        onClose={() => {
+          setOpenProjectId(null);
+          setProjectDetail(null);
+          setProjectContacts([]);
+          setProjectActivities([]);
+          setProjectActivityText("");
+          setProjectActivityKind("Note");
+        }}
+        title="Project"
+        maxWidthClass="max-w-6xl"
+      >
+        {!projectDetail ? (
+          <div className="text-sm text-gray-600">Loading...</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="rounded-2xl border bg-white p-4">
+              <div className="font-semibold text-lg">{projectDetail.name}</div>
+              <div className="text-sm text-gray-600 mt-1 space-y-1">
+                {projectDetail.company?.name ? (
+                  <button className="text-left underline" onClick={() => openCompany(projectDetail.company!.id)}>
+                    🏢 {projectDetail.company!.name}
+                  </button>
+                ) : null}
+                {projectDetail.website ? <div>🌐 {projectDetail.website}</div> : null}
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs text-gray-600 mb-1">Notes</div>
+                <Textarea
+                  rows={6}
+                  value={projectDetail.notes ?? ""}
+                  onChange={(e) => setProjectDetail((p) => (p ? { ...p, notes: e.target.value } : p))}
+                />
+              </div>
+
+              <div className="mt-3 flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    const res = await supabase.from("crm_projects").update({ notes: cleanStr(projectDetail.notes) || null }).eq("id", projectDetail.id);
+                    if (res.error) {
+                      alert(res.error.message);
+                      return;
+                    }
+                    await loadBoard();
+                    alert("Saved.");
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-4">
+              <div className="font-semibold">Contacts</div>
+              <div className="text-sm text-gray-600 mb-2">Contacts associated with this project.</div>
+              <div className="space-y-2">
+                {projectContacts.length ? (
+                  projectContacts.map((c) => (
+                    <button key={c.id} className="w-full text-left rounded-xl border px-3 py-2 hover:bg-gray-50" onClick={() => openContact(c.id)}>
+                      <div className="font-medium">{cleanStr(c.full_name) || "Contact"}</div>
+                      <div className="text-xs text-gray-600">{c.phone ? c.phone : ""} {c.email ? `· ${c.email}` : ""}</div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-600">No contacts linked yet.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-4">
+              <div className="font-semibold mb-2">Activity</div>
+              <div className="flex items-center gap-2 mb-2">
+                <select
+                  className="rounded-xl border px-3 py-2 text-sm bg-white"
+                  value={projectActivityKind}
+                  onChange={(e) => setProjectActivityKind(e.target.value as any)}
+                >
+                  <option>Call</option>
+                  <option>Voicemail</option>
+                  <option>Text</option>
+                  <option>Email</option>
+                  <option>Note</option>
+                </select>
+                <div className="text-xs text-gray-600">Hotkeys: Ctrl/Cmd+C/V/T/E/N</div>
+              </div>
+
+              <Textarea
+                rows={3}
+                value={projectActivityText}
+                onChange={(e) => setProjectActivityText(e.target.value)}
+                onKeyDown={handleProjectActivityHotkeys}
+                placeholder="Add activity note..."
+              />
+              <div className="flex justify-end mt-2">
+                <Button onClick={addProjectActivity}>Add</Button>
+              </div>
+
+              <div className="mt-4 space-y-2 max-h-[520px] overflow-auto pr-1">
+                {projectActivities.length ? (
+                  projectActivities.map((a) => (
+                    <div key={a.id} className="rounded-xl border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs text-gray-600">
+                          <span className="font-medium">{a.kind}</span> · {fmtDT(a.created_at)}
+                          {a.created_by_profile?.full_name ? ` · ${a.created_by_profile.full_name}` : ""}
+                        </div>
+                      </div>
+                      <div className="text-sm mt-1 whitespace-pre-wrap">{a.summary}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-600">No activity yet.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+
     </PageShell>
   );
 }
