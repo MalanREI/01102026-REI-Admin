@@ -562,6 +562,21 @@ export default function SalesFunnelPage() {
     }
   }
 
+  // Explicit company stage mover used from the Company Detail drawer.
+  // This should not depend on the current `viewType`.
+  async function moveCompanyToStage(companyId: string, stageId: string) {
+    try {
+      const res = await supabase.from("crm_companies").update({ stage_id: stageId }).eq("id", companyId);
+      if (res.error) throw res.error;
+
+      setCompanies((prev) => prev.map((c) => (c.id === companyId ? { ...c, stage_id: stageId } : c)));
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Failed to move company.");
+    }
+  }
+
+
   async function openCompany(companyId: string) {
     setOpenCompanyId(companyId);
     setCompanyDetail(null);
