@@ -466,7 +466,7 @@ export default function SalesFunnelPage() {
     });
   }, [projectsBoard, search, viewFilter]);
 
-const companiesByStage = useMemo(() => {
+  const companiesByStage = useMemo(() => {
     const map = new Map<string, Company[]>();
     for (const s of stages) map.set(s.id, []);
     for (const c of filteredCompanies) {
@@ -489,6 +489,8 @@ const companiesByStage = useMemo(() => {
       map.set(k, arr);
     }
     return map;
+  }, [filteredCompanies, stages]);
+
   const contactsByStage = useMemo(() => {
     const map = new Map<string, ContactBoard[]>();
     for (const s of stages) map.set(s.id, []);
@@ -534,8 +536,6 @@ const companiesByStage = useMemo(() => {
     }
     return map;
   }, [filteredProjects, stages]);
-
-  }, [filteredCompanies, stages]);
 
   async function moveCardToStage(entityId: string, stageId: string) {
     try {
