@@ -283,6 +283,9 @@ export default function SalesFunnelPage() {
         .order("position", { ascending: true });
       if (stagesRes.error) throw stagesRes.error;
 
+      // Without this, the Kanban renders as if there are no stages.
+      setStages((stagesRes.data ?? []) as Stage[]);
+
       // Load entities for the active board view
       if (viewType === "company") {
         const companiesRes = await supabase
@@ -325,7 +328,7 @@ export default function SalesFunnelPage() {
         const contactsRes = await supabase
           .from("crm_contacts")
           .select(
-            "id,company_id,stage_id,first_name,last_name,full_name,title,phone,email,notes,is_main,last_activity_at,created_at,company:crm_companies(id,name)"
+            "id,company_id,stage_id,first_name,last_name,full_name,title,phone,email,notes,is_main,last_activity_at,created_at,company:crm_companies!crm_contacts_company_id_fkey(id,name)"
           )
           .order("last_activity_at", { ascending: false, nullsFirst: false })
           .order("created_at", { ascending: false });
@@ -361,7 +364,7 @@ export default function SalesFunnelPage() {
       if (viewType === "project") {
         const projectsRes = await supabase
           .from("crm_projects")
-          .select("id,company_id,name,stage_id,website,notes,last_activity_at,created_at,updated_at,company:crm_companies(id,name)")
+          .select("id,company_id,name,stage_id,website,notes,last_activity_at,created_at,updated_at,company:crm_companies!crm_projects_company_id_fkey(id,name)")
           .order("last_activity_at", { ascending: false, nullsFirst: false })
           .order("created_at", { ascending: false });
 
@@ -662,7 +665,7 @@ export default function SalesFunnelPage() {
       const cRes = await supabase
         .from("crm_contacts")
         .select(
-          "id,company_id,stage_id,first_name,last_name,full_name,title,phone,email,notes,is_main,last_activity_at,created_at,company:crm_companies(id,name)"
+          "id,company_id,stage_id,first_name,last_name,full_name,title,phone,email,notes,is_main,last_activity_at,created_at,company:crm_companies!crm_contacts_company_id_fkey(id,name)"
         )
         .eq("id", contactId)
         .single();
@@ -2323,7 +2326,10 @@ export default function SalesFunnelPage() {
                         "text-left rounded-xl border bg-white p-3 shadow-sm hover:shadow transition",
                         isSelected ? "ring-2 ring-gray-300" : "",
                       ].join(" ")}
-                      onClick={() => setSelectedContactId(ct.id)}
+                      onClick={() => {
+                        setSelectedContactId(ct.id);
+                        openContact(ct.id);
+                      }}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="font-semibold">{displayName}</div>
