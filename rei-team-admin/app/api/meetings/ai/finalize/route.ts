@@ -134,7 +134,7 @@ async function buildPdf(opts: {
   };
 
   // ===== HEADER (centered) =====
-  const headerTitle = "OPERATIONS WEEKLY MEETING";
+  const headerTitle = opts.meetingTitle;
   const headerDate = opts.meetingDateLabel;
 
   const titleSize = 16;
