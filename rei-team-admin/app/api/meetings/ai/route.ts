@@ -9,6 +9,46 @@ function requireEnv(name: string): string {
 }
 
 /**
+ * Retry a function with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  initialDelay = 1000
+): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      if (attempt < maxRetries) {
+        // Check if it's a retryable error
+        const isRetryable = 
+          error?.status === 429 || // Rate limit
+          error?.status === 503 || // Service unavailable
+          error?.status === 500 || // Internal server error
+          error?.code === 'ECONNRESET' || // Connection reset
+          error?.code === 'ETIMEDOUT'; // Timeout
+        
+        if (!isRetryable) {
+          // Don't retry on non-retryable errors (e.g., 400 Bad Request)
+          throw error;
+        }
+        
+        const delay = initialDelay * Math.pow(2, attempt);
+        console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms for error:`, error?.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
+/**
  * Convert ArrayBuffer to File (Node 20+ supports global File).
  */
 function bufToFile(buf: ArrayBuffer, filename: string, mime: string) {
@@ -28,6 +68,7 @@ export async function POST(req: Request) {
   const admin = supabaseAdmin();
   let sessionId: string | undefined;
   let tasksCreated = 0;
+  let meetingId: string | undefined;
   
   try {
     const body = (await req.json()) as {
@@ -36,7 +77,7 @@ export async function POST(req: Request) {
       recordingPath?: string;
     };
 
-    const meetingId = body.meetingId;
+    meetingId = body.meetingId;
     sessionId = body.sessionId;
     const recordingPath = body.recordingPath;
 
@@ -91,13 +132,15 @@ export async function POST(req: Request) {
 
     const arrBuf = await dl.data.arrayBuffer();
 
-    // 3) Transcribe
+    // 3) Transcribe with retry logic
     const client = new OpenAI({ apiKey: openaiKey });
 
-    const transcription = await client.audio.transcriptions.create({
-      model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe",
-      file: bufToFile(arrBuf, "recording.webm", "audio/webm"),
-    });
+    const transcription = await retryWithBackoff(async () => {
+      return await client.audio.transcriptions.create({
+        model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe",
+        file: bufToFile(arrBuf, "recording.webm", "audio/webm"),
+      });
+    }, 3, 2000); // 3 retries, starting with 2 second delay
 
     const transcriptText = (transcription as any)?.text
       ? String((transcription as any).text)
@@ -131,24 +174,26 @@ export async function POST(req: Request) {
       )
       .join("\n");
 
-    const completion = await client.chat.completions.create({
-      model: process.env.OPENAI_SUMMARY_MODEL || "gpt-4o-mini",
-      temperature: 0.2,
-      response_format: { type: "json_schema", json_schema: schema },
-      messages: [
-        {
-          role: "system",
-          content:
-            "Turn a meeting transcript into concise, professional meeting minutes. " +
-            "Return ONLY JSON mapping agenda_item_id -> notes. Keep notes factual and action-oriented. " +
-            "If an agenda item was not discussed, return an empty string for that item.",
-        },
-        {
-          role: "user",
-          content: `Agenda items (id | label):\n${agendaList}\n\nTranscript:\n${transcriptText}`,
-        },
-      ],
-    });
+    const completion = await retryWithBackoff(async () => {
+      return await client.chat.completions.create({
+        model: process.env.OPENAI_SUMMARY_MODEL || "gpt-4o-mini",
+        temperature: 0.2,
+        response_format: { type: "json_schema", json_schema: schema },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Turn a meeting transcript into concise, professional meeting minutes. " +
+              "Return ONLY JSON mapping agenda_item_id -> notes. Keep notes factual and action-oriented. " +
+              "If an agenda item was not discussed, return an empty string for that item.",
+          },
+          {
+            role: "user",
+            content: `Agenda items (id | label):\n${agendaList}\n\nTranscript:\n${transcriptText}`,
+          },
+        ],
+      });
+    }, 3, 2000);
 
     const content = completion.choices?.[0]?.message?.content ?? "{}";
 
@@ -201,24 +246,26 @@ export async function POST(req: Request) {
         strict: true,
       } as const;
 
-      const actionCompletion = await client.chat.completions.create({
-        model: process.env.OPENAI_SUMMARY_MODEL || "gpt-4o-mini",
-        temperature: 0.2,
-        response_format: { type: "json_schema", json_schema: actionItemSchema },
-        messages: [
-          {
-            role: "system",
-            content:
-              "Extract action items from a meeting transcript. An action item is a task assigned to someone with a deadline. " +
-              "Return JSON with an array of items, each having: title (the task), owner (person responsible), dueDate (if mentioned, format YYYY-MM-DD or empty string), " +
-              "and priority (High/Normal/Low based on urgency, default to Normal). Only include clear action items, not general discussion points.",
-          },
-          {
-            role: "user",
-            content: `Transcript:\n${transcriptText}`,
-          },
-        ],
-      });
+      const actionCompletion = await retryWithBackoff(async () => {
+        return await client.chat.completions.create({
+          model: process.env.OPENAI_SUMMARY_MODEL || "gpt-4o-mini",
+          temperature: 0.2,
+          response_format: { type: "json_schema", json_schema: actionItemSchema },
+          messages: [
+            {
+              role: "system",
+              content:
+                "Extract action items from a meeting transcript. An action item is a task assigned to someone with a deadline. " +
+                "Return JSON with an array of items, each having: title (the task), owner (person responsible), dueDate (if mentioned, format YYYY-MM-DD or empty string), " +
+                "and priority (High/Normal/Low based on urgency, default to Normal). Only include clear action items, not general discussion points.",
+            },
+            {
+              role: "user",
+              content: `Transcript:\n${transcriptText}`,
+            },
+          ],
+        });
+      }, 3, 2000);
 
       const actionContent = actionCompletion.choices?.[0]?.message?.content ?? "{}";
       let actionItems: Array<{ title: string; owner: string; dueDate: string; priority: string }> = [];
@@ -318,19 +365,42 @@ export async function POST(req: Request) {
       tasksCreated,
     });
   } catch (e: any) {
-    // Mark as error
+    // Mark as error with detailed context
+    const errorMessage = e?.message ?? "AI processing failed";
+    const errorType = e?.constructor?.name ?? "Error";
+    const errorDetails = {
+      message: errorMessage,
+      type: errorType,
+      timestamp: new Date().toISOString(),
+      stack: e?.stack?.split('\n').slice(0, 5).join('\n'), // First 5 lines of stack
+    };
+    
+    console.error("AI processing error:", {
+      sessionId,
+      meetingId,
+      error: errorDetails,
+    });
+    
     if (sessionId) {
-      await admin
-        .from("meeting_minutes_sessions")
-        .update({ 
-          ai_status: "error",
-          ai_error: e?.message ?? "AI processing failed",
-        } as any)
-        .eq("id", sessionId);
+      try {
+        await admin
+          .from("meeting_minutes_sessions")
+          .update({ 
+            ai_status: "error",
+            ai_error: `${errorType}: ${errorMessage}`,
+          } as any)
+          .eq("id", sessionId);
+      } catch (updateError) {
+        console.error("Failed to update error status:", updateError);
+      }
     }
     
     return NextResponse.json(
-      { error: e?.message ?? "AI processing failed" },
+      { 
+        error: errorMessage,
+        type: errorType,
+        details: "Check server logs for more information"
+      },
       { status: 500 }
     );
   }
