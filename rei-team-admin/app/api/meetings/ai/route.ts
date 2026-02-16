@@ -25,6 +25,9 @@ type AgendaItemRow = {
 };
 
 export async function POST(req: Request) {
+  const admin = supabaseAdmin();
+  let sessionId: string | undefined;
+  
   try {
     const body = (await req.json()) as {
       meetingId?: string;
@@ -33,7 +36,7 @@ export async function POST(req: Request) {
     };
 
     const meetingId = body.meetingId;
-    const sessionId = body.sessionId;
+    sessionId = body.sessionId;
     const recordingPath = body.recordingPath;
 
     if (!meetingId || !sessionId || !recordingPath) {
@@ -45,8 +48,6 @@ export async function POST(req: Request) {
 
     const openaiKey = requireEnv("OPENAI_API_KEY");
     const recordingsBucket = requireEnv("RECORDINGS_BUCKET");
-
-    const admin = supabaseAdmin();
 
     // Mark as processing
     await admin
@@ -193,9 +194,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, agendaItemsUpdated: upRows.length });
   } catch (e: any) {
     // Mark as error
-    const sessionId = (await req.json().catch(() => ({})))?.sessionId;
     if (sessionId) {
-      const admin = supabaseAdmin();
       await admin
         .from("meeting_minutes_sessions")
         .update({ 
