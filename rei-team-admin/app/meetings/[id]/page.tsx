@@ -1048,6 +1048,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       const pollSessionId = prevSession.id;
       const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+      // NOTE: Using client-side polling as an interim solution.
+      // For production with many concurrent long recordings, consider:
+      // - Supabase Realtime subscriptions
+      // - Server-sent events (SSE)
+      // - Webhooks to update status externally
       const maxSeconds = Number(process.env.NEXT_PUBLIC_AI_POLL_MAX_SECONDS || "1800");
       const intervalMs = Math.max(2000, Number(process.env.NEXT_PUBLIC_AI_POLL_INTERVAL_MS || "4000"));
       const maxIters = Math.max(1, Math.floor((maxSeconds * 1000) / intervalMs));

@@ -49,16 +49,25 @@ export async function POST(req: Request) {
     if (upd.error) throw upd.error;
 
     // Call AI route asynchronously (don't await)
-    const aiUrl = process.env.NEXT_PUBLIC_SITE_URL 
-      ? `${process.env.NEXT_PUBLIC_SITE_URL}/api/meetings/ai`
-      : "/api/meetings/ai";
+    // Use internal URL or VERCEL_URL for server-to-server communication
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.SITE_URL || "http://localhost:3000";
     
-    fetch(aiUrl, {
+    fetch(`${baseUrl}/api/meetings/ai`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ meetingId, sessionId, recordingPath }),
-    }).catch((err) => {
+    }).catch(async (err) => {
       console.error("Failed to trigger AI processing:", err);
+      // Update session status to error if fetch fails
+      await admin
+        .from("meeting_minutes_sessions")
+        .update({
+          ai_status: "error",
+          ai_error: "Failed to start AI processing: " + (err?.message || "Unknown error"),
+        } as any)
+        .eq("id", sessionId);
     });
 
     return NextResponse.json({ ok: true, queued: true });
