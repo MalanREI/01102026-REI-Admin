@@ -322,6 +322,14 @@ export default function MeetingDetailPage() {
     if (s.includes("wait")) return "#CA8A04"; // yellow
     return "#6B7280"; // gray
   }
+
+  // Helper function to format owner for form display
+  function formatOwnerForForm(ownerId: string | null | undefined, ownerEmail: string | null | undefined): string {
+    if (ownerId) return ownerId;
+    if (ownerEmail) return `email:${ownerEmail.toLowerCase()}`;
+    return "";
+  }
+
 function toTitleCase(s: string) {
   return (s || "")
     .toLowerCase()
@@ -718,7 +726,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setTTitle(task.title);
     setTStatus(task.status);
     setTPriority(task.priority);
-    setTOwner(task.owner_id ?? (task.owner_email ? `email:${String(task.owner_email).toLowerCase()}` : ""));
+    setTOwner(formatOwnerForForm(task.owner_id, task.owner_email));
     setTStart(toISODate(task.start_date));
     setTDue(toISODate(task.due_date));
     setTNotes(task.notes ?? "");
@@ -974,7 +982,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setMTargetDate(toISODate(milestone.target_date));
     setMStatus(milestone.status);
     setMPriority(milestone.priority);
-    setMOwner(milestone.owner_id ?? (milestone.owner_email ? `email:${String(milestone.owner_email).toLowerCase()}` : ""));
+    setMOwner(formatOwnerForForm(milestone.owner_id, milestone.owner_email));
     setMilestoneOpen(true);
   }
 
@@ -1571,9 +1579,13 @@ async function selectPreviousSession(sessionId: string) {
     } 
   useEffect(() => {
     void loadReminderSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingId]);
+
+  useEffect(() => {
     void loadMyProfileColor();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetingId, profiles]);
+  }, [profiles.length]); // Only trigger when profiles count changes, not on every profile mutation
 
   return (
     <PageShell>
