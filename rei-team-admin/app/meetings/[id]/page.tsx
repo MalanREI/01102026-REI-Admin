@@ -30,7 +30,7 @@ type Meeting = {
 
 type Profile = { id: string; full_name: string | null; email?: string | null; color_hex: string | null };
 
-type Attendee = { email: string; full_name: string | null; user_id: string | null };
+type Attendee = { email: string; full_name: string | null; user_id: string | null; color_hex?: string | null };
 
 type Column = { id: string; name: string; position: number };
 
@@ -592,7 +592,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
     const at = await sb
       .from("meeting_attendees")
-      .select("email,full_name,user_id")
+      .select("email,full_name,user_id,color_hex")
       .eq("meeting_id", meetingId)
       .order("created_at", { ascending: true });
     if (!at.error) setAttendees((at.data ?? []) as any);
