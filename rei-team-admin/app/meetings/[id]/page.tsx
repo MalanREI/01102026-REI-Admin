@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
-import { Button, Card, Input, Modal, Pill, Textarea } from "@/src/components/ui";
+import { Button, Card, Input, Modal, Pill, Textarea, Dropdown } from "@/src/components/ui";
 import { prettyDate } from "@/src/lib/format";
 import { PageShell } from "@/src/components/PageShell";
 import ResizableSidebar from "@/src/components/ResizableSidebar";
@@ -75,6 +75,29 @@ type TaskEvent = {
   payload: any;
   created_at: string;
   created_by?: string | null;
+};
+
+type Milestone = {
+  id: string;
+  title: string;
+  description: string | null;
+  target_date: string | null;
+  status: string;
+  priority: string;
+  owner_id: string | null;
+  owner_email?: string | null;
+  owner_name?: string | null;
+  position: number;
+  updated_at: string;
+};
+
+type OngoingNote = {
+  id: string;
+  title: string;
+  content: string | null;
+  category: string | null;
+  position: number;
+  updated_at: string;
 };
 
 type LatestEventMap = Record<string, TaskEvent | undefined>;
@@ -191,6 +214,8 @@ export default function MeetingDetailPage() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [statuses, setStatuses] = useState<StatusOpt[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [ongoingNotes, setOngoingNotes] = useState<OngoingNote[]>([]);
   const [agenda, setAgenda] = useState<AgendaItem[]>([]);
   const [currentSession, setCurrentSession] = useState<MinutesSession | null>(null);
   const [prevSession, setPrevSession] = useState<MinutesSession | null>(null);
@@ -200,6 +225,9 @@ export default function MeetingDetailPage() {
 
   // Kanban filters
   const [showCompletedTasks, setShowCompletedTasks] = useState(false);
+  const [tasksCollapsed, setTasksCollapsed] = useState(false);
+  const [milestonesCollapsed, setMilestonesCollapsed] = useState(false);
+  const [notesCollapsed, setNotesCollapsed] = useState(false);
 
   // UI toggles
   const [prevMeetingsOpen, setPrevMeetingsOpen] = useState(false);
@@ -207,6 +235,8 @@ export default function MeetingDetailPage() {
   const [prevSessions, setPrevSessions] = useState<MinutesSession[]>([]);
   const [statusMgrOpen, setStatusMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
+  const [profileColorOpen, setProfileColorOpen] = useState(false);
+  const [myProfileColor, setMyProfileColor] = useState("#6B7280");
   const [reminderFreq, setReminderFreq] = useState<
   "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
 >("weekly");
@@ -228,6 +258,23 @@ export default function MeetingDetailPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  // Milestone modal
+  const [milestoneOpen, setMilestoneOpen] = useState(false);
+  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
+  const [mTitle, setMTitle] = useState("");
+  const [mDescription, setMDescription] = useState("");
+  const [mTargetDate, setMTargetDate] = useState("");
+  const [mStatus, setMStatus] = useState("Pending");
+  const [mPriority, setMPriority] = useState("Normal");
+  const [mOwner, setMOwner] = useState<string | "">("");
+
+  // Ongoing Note modal
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [nTitle, setNTitle] = useState("");
+  const [nContent, setNContent] = useState("");
+  const [nCategory, setNCategory] = useState("");
 
   // Agenda edit
   const [agendaOpen, setAgendaOpen] = useState(false);
@@ -275,6 +322,14 @@ export default function MeetingDetailPage() {
     if (s.includes("wait")) return "#CA8A04"; // yellow
     return "#6B7280"; // gray
   }
+
+  // Helper function to format owner for form display
+  function formatOwnerForForm(ownerId: string | null | undefined, ownerEmail: string | null | undefined): string {
+    if (ownerId) return ownerId;
+    if (ownerEmail) return `email:${ownerEmail.toLowerCase()}`;
+    return "";
+  }
+
 function toTitleCase(s: string) {
   return (s || "")
     .toLowerCase()
@@ -512,6 +567,22 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setTasks(taskRows);
     await loadLatestEvents(taskRows.map((x) => x.id));
 
+    // Load milestones
+    const mil = await sb
+      .from("meeting_milestones")
+      .select("id,title,description,target_date,status,priority,owner_id,owner_email,owner_name,position,updated_at")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true });
+    if (!mil.error) setMilestones((mil.data ?? []) as any);
+
+    // Load ongoing notes
+    const notes = await sb
+      .from("meeting_ongoing_notes")
+      .select("id,title,content,category,position,updated_at")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true });
+    if (!notes.error) setOngoingNotes((notes.data ?? []) as any);
+
     const a = await sb
       .from("meeting_agenda_items")
       .select("id,code,title,description,position")
@@ -655,7 +726,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setTTitle(task.title);
     setTStatus(task.status);
     setTPriority(task.priority);
-    setTOwner(task.owner_id ?? (task.owner_email ? `email:${String(task.owner_email).toLowerCase()}` : ""));
+    setTOwner(formatOwnerForForm(task.owner_id, task.owner_email));
     setTStart(toISODate(task.start_date));
     setTDue(toISODate(task.due_date));
     setTNotes(task.notes ?? "");
@@ -669,7 +740,24 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("task_id", taskId)
       .order("created_at", { ascending: false })
       .limit(50);
-    if (!ev.error) setTEvents((ev.data ?? []) as any);
+    if (!ev.error) {
+      setTEvents((ev.data ?? []) as any);
+      
+      // Load profiles for event creators if not already loaded
+      const eventUserIds = (ev.data ?? [])
+        .map((e: any) => e.created_by)
+        .filter((id: any) => id && !profiles.find((p) => p.id === id));
+      
+      if (eventUserIds.length > 0) {
+        const pr = await sb
+          .from("profiles")
+          .select("id,full_name,email,color_hex")
+          .in("id", eventUserIds);
+        if (!pr.error && pr.data) {
+          setProfiles((prev) => [...prev, ...(pr.data as any)]);
+        }
+      }
+    }
   }
 
   async function writeTaskEvent(taskId: string, type: string, payload: any) {
@@ -870,6 +958,214 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       setTasks((prev) => prev.map((x) => (x.id === activeId ? (upd.data as any) : x)));
       await writeTaskEvent(activeId, "moved", { from: task.column_id, to: overId });
       await refreshLatestForTask(activeId);
+    }
+  }
+
+  // Milestone functions
+  function openNewMilestone() {
+    setEditingMilestoneId(null);
+    setMTitle("");
+    setMDescription("");
+    setMTargetDate("");
+    setMStatus("Pending");
+    setMPriority("Normal");
+    setMOwner("");
+    setMilestoneOpen(true);
+  }
+
+  async function openEditMilestone(milestoneId: string) {
+    const milestone = milestones.find((m) => m.id === milestoneId);
+    if (!milestone) return;
+    setEditingMilestoneId(milestoneId);
+    setMTitle(milestone.title);
+    setMDescription(milestone.description ?? "");
+    setMTargetDate(toISODate(milestone.target_date));
+    setMStatus(milestone.status);
+    setMPriority(milestone.priority);
+    setMOwner(formatOwnerForForm(milestone.owner_id, milestone.owner_email));
+    setMilestoneOpen(true);
+  }
+
+  async function saveMilestone() {
+    setBusy(true);
+    try {
+      const trimTitle = mTitle.trim();
+      if (!trimTitle) throw new Error("Title is required");
+
+      const { data: userData } = await sb.auth.getUser();
+      const userId = userData?.user?.id ?? null;
+
+      const ownerIsEmail = mOwner.startsWith("email:");
+      let owner_id: string | null = null;
+      let owner_email: string | null = null;
+      let owner_name: string | null = null;
+
+      if (mOwner && !ownerIsEmail) {
+        owner_id = mOwner;
+      } else if (ownerIsEmail) {
+        owner_email = mOwner.replace("email:", "");
+        const attendee = attendees.find((a) => String(a.email).toLowerCase() === owner_email);
+        if (attendee) {
+          owner_name = attendee.full_name;
+          owner_id = attendee.user_id || null;
+        }
+      }
+
+      if (!editingMilestoneId) {
+        const maxPos = Math.max(0, ...milestones.map((m) => m.position ?? 0));
+        const ins = await sb
+          .from("meeting_milestones")
+          .insert({
+            meeting_id: meetingId,
+            title: trimTitle,
+            description: mDescription || null,
+            target_date: mTargetDate || null,
+            status: mStatus,
+            priority: mPriority,
+            owner_id,
+            owner_email,
+            owner_name,
+            position: maxPos + 1,
+            created_by: userId,
+          })
+          .select("id,title,description,target_date,status,priority,owner_id,owner_email,owner_name,position,updated_at")
+          .single();
+        if (ins.error) throw ins.error;
+        setMilestones((prev) => [...prev, ins.data as any]);
+      } else {
+        const patch = {
+          title: trimTitle,
+          description: mDescription || null,
+          target_date: mTargetDate || null,
+          status: mStatus,
+          priority: mPriority,
+          owner_id,
+          owner_email,
+          owner_name,
+          updated_at: new Date().toISOString(),
+        };
+
+        const upd = await sb
+          .from("meeting_milestones")
+          .update(patch)
+          .eq("id", editingMilestoneId)
+          .select("id,title,description,target_date,status,priority,owner_id,owner_email,owner_name,position,updated_at")
+          .single();
+        if (upd.error) throw upd.error;
+
+        const after = upd.data as any as Milestone;
+        setMilestones((prev) => prev.map((m) => (m.id === after.id ? after : m)));
+      }
+
+      setMilestoneOpen(false);
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to save milestone");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteMilestone() {
+    if (!editingMilestoneId) return;
+    setBusy(true);
+    try {
+      const del = await sb.from("meeting_milestones").delete().eq("id", editingMilestoneId);
+      if (del.error) throw del.error;
+
+      setMilestones((prev) => prev.filter((m) => m.id !== editingMilestoneId));
+      setMilestoneOpen(false);
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to delete milestone");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Ongoing Note functions
+  function openNewNote() {
+    setEditingNoteId(null);
+    setNTitle("");
+    setNContent("");
+    setNCategory("");
+    setNoteOpen(true);
+  }
+
+  async function openEditNote(noteId: string) {
+    const note = ongoingNotes.find((n) => n.id === noteId);
+    if (!note) return;
+    setEditingNoteId(noteId);
+    setNTitle(note.title);
+    setNContent(note.content ?? "");
+    setNCategory(note.category ?? "");
+    setNoteOpen(true);
+  }
+
+  async function saveNote() {
+    setBusy(true);
+    try {
+      const trimTitle = nTitle.trim();
+      if (!trimTitle) throw new Error("Title is required");
+
+      const { data: userData } = await sb.auth.getUser();
+      const userId = userData?.user?.id ?? null;
+
+      if (!editingNoteId) {
+        const maxPos = Math.max(0, ...ongoingNotes.map((n) => n.position ?? 0));
+        const ins = await sb
+          .from("meeting_ongoing_notes")
+          .insert({
+            meeting_id: meetingId,
+            title: trimTitle,
+            content: nContent || null,
+            category: nCategory || null,
+            position: maxPos + 1,
+            created_by: userId,
+          })
+          .select("id,title,content,category,position,updated_at")
+          .single();
+        if (ins.error) throw ins.error;
+        setOngoingNotes((prev) => [...prev, ins.data as any]);
+      } else {
+        const patch = {
+          title: trimTitle,
+          content: nContent || null,
+          category: nCategory || null,
+          updated_at: new Date().toISOString(),
+        };
+
+        const upd = await sb
+          .from("meeting_ongoing_notes")
+          .update(patch)
+          .eq("id", editingNoteId)
+          .select("id,title,content,category,position,updated_at")
+          .single();
+        if (upd.error) throw upd.error;
+
+        const after = upd.data as any as OngoingNote;
+        setOngoingNotes((prev) => prev.map((n) => (n.id === after.id ? after : n)));
+      }
+
+      setNoteOpen(false);
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to save note");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteNote() {
+    if (!editingNoteId) return;
+    setBusy(true);
+    try {
+      const del = await sb.from("meeting_ongoing_notes").delete().eq("id", editingNoteId);
+      if (del.error) throw del.error;
+
+      setOngoingNotes((prev) => prev.filter((n) => n.id !== editingNoteId));
+      setNoteOpen(false);
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to delete note");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1219,6 +1515,39 @@ async function selectPreviousSession(sessionId: string) {
     if (!r.error && (r.data as any)?.reminder_frequency) setReminderFreq(((r.data as any).reminder_frequency as any) ?? "weekly");
   }
 
+  async function loadMyProfileColor() {
+    const { data: userData } = await sb.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return;
+    
+    const profile = profiles.find((p) => p.id === userId);
+    if (profile?.color_hex) {
+      setMyProfileColor(profile.color_hex);
+    }
+  }
+
+  async function saveMyProfileColor() {
+    setBusy(true);
+    try {
+      const { data: userData } = await sb.auth.getUser();
+      const userId = userData?.user?.id;
+      if (!userId) throw new Error("Not authenticated");
+
+      await sb.from("profiles").update({ color_hex: myProfileColor }).eq("id", userId);
+      
+      // Update local profiles state
+      setProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, color_hex: myProfileColor } : p)));
+      
+      setProfileColorOpen(false);
+      setInfo("Profile color saved!");
+      setTimeout(() => setInfo(null), 3000);
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to save profile color");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function addStatus(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -1253,6 +1582,11 @@ async function selectPreviousSession(sessionId: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
 
+  useEffect(() => {
+    void loadMyProfileColor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profiles.length]); // Only trigger when profiles count changes, not on every profile mutation
+
   return (
     <PageShell>
       {!meeting ? (
@@ -1280,44 +1614,56 @@ async function selectPreviousSession(sessionId: string) {
             </div>
 
             <div className="flex flex-wrap gap-2 justify-end">
-              <Button variant="ghost" onClick={() => setAgendaOpen(true)}>
-                Edit agenda
-              </Button>
-              <Button variant="ghost" onClick={() => { setStatusMgrOpen(true); }}>
-                Statuses
-              </Button>
-              <Button variant="ghost" onClick={() => setEmailSettingsOpen(true)}>
-                Email settings
-              </Button>
-              <Button onClick={onNewMinutes} disabled={busy}>
-                New meeting minutes
-              </Button>
-              <Button variant="ghost" onClick={concludeMeeting} disabled={busy}>
-                Conclude meeting
-              </Button>
-              {prevSession && prevSession.ai_status === "ready" && (
-                <Button variant="ghost" onClick={processRecording} disabled={busy}>
-                  Process Recording
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                onClick={async () => {
-                  await loadPreviousSessions();
-                  setSendNotesOpen(true);
-                }}
-              >
-                Send meeting notes
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={async () => {
-                  await loadPreviousSessions();
-                  setPrevMeetingsOpen(true);
-                }}
-              >
-                View Previous Meetings
-              </Button>
+              {/* Edit dropdown */}
+              <Dropdown
+                trigger={<Button variant="ghost">Edit ▾</Button>}
+                items={[
+                  { label: "Edit agenda", onClick: () => setAgendaOpen(true) },
+                  { label: "Task statuses", onClick: () => setStatusMgrOpen(true) },
+                  { label: "Email settings", onClick: () => setEmailSettingsOpen(true) },
+                  { 
+                    label: "My profile color", 
+                    onClick: async () => {
+                      await loadMyProfileColor();
+                      setProfileColorOpen(true);
+                    } 
+                  },
+                ]}
+              />
+              
+              {/* Meeting dropdown */}
+              <Dropdown
+                trigger={<Button>Meeting ▾</Button>}
+                items={[
+                  { label: "New meeting minutes", onClick: onNewMinutes, disabled: busy },
+                  { label: "Conclude meeting", onClick: concludeMeeting, disabled: busy },
+                  ...(prevSession && prevSession.ai_status === "ready" 
+                    ? [{ label: "Process Recording", onClick: processRecording, disabled: busy }]
+                    : []
+                  ),
+                ]}
+              />
+              
+              {/* View dropdown */}
+              <Dropdown
+                trigger={<Button variant="ghost">View ▾</Button>}
+                items={[
+                  { 
+                    label: "Send meeting notes", 
+                    onClick: async () => {
+                      await loadPreviousSessions();
+                      setSendNotesOpen(true);
+                    }
+                  },
+                  { 
+                    label: "View Previous Meetings", 
+                    onClick: async () => {
+                      await loadPreviousSessions();
+                      setPrevMeetingsOpen(true);
+                    }
+                  },
+                ]}
+              />
             </div>
           </div>
 
@@ -1380,6 +1726,13 @@ async function selectPreviousSession(sessionId: string) {
                     <button
                       type="button"
                       className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                      onClick={() => setTasksCollapsed((v) => !v)}
+                    >
+                      {tasksCollapsed ? "Show" : "Hide"}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
                       onClick={() => setShowCompletedTasks((v) => !v)}
                     >
                       {showCompletedTasks ? "Showing Completed" : "Hiding Completed"}
@@ -1388,6 +1741,7 @@ async function selectPreviousSession(sessionId: string) {
                   </div>
                 }
               >
+                {!tasksCollapsed && (
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
                   <div className="overflow-x-auto overflow-y-hidden max-w-full">
                     <div
@@ -1456,6 +1810,101 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
                   </div>
                 </DndContext>
+                )}
+              </Card>
+
+              {/* Milestones Section */}
+              <Card
+                title="Milestones"
+                right={
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                      onClick={() => setMilestonesCollapsed((v) => !v)}
+                    >
+                      {milestonesCollapsed ? "Show" : "Hide"}
+                    </button>
+                    <Button variant="ghost" onClick={openNewMilestone}>
+                      + New Milestone
+                    </Button>
+                  </div>
+                }
+              >
+                {!milestonesCollapsed && (
+                  <div className="space-y-3">
+                    {milestones.length === 0 ? (
+                      <div className="text-sm text-gray-600">No milestones yet.</div>
+                    ) : (
+                      sortByPos(milestones).map((m) => (
+                        <div
+                          key={m.id}
+                          className="rounded-xl border bg-white p-3 cursor-pointer"
+                          style={{ borderLeft: `6px solid ${ownerColor(m.owner_id)}` }}
+                          onClick={() => openEditMilestone(m.id)}
+                        >
+                          <div className="text-sm font-semibold">{m.title}</div>
+                          {m.description && <div className="text-xs text-gray-600 mt-1">{m.description}</div>}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span 
+                              className="rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                              style={{ backgroundColor: priorityColor(m.priority) }}
+                            >
+                              {m.priority}
+                            </span>
+                            <Pill>{m.status}</Pill>
+                            {m.target_date && <Pill>Target: {m.target_date}</Pill>}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </Card>
+
+              {/* Ongoing Notes Section */}
+              <Card
+                title="Ongoing Notes"
+                right={
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                      onClick={() => setNotesCollapsed((v) => !v)}
+                    >
+                      {notesCollapsed ? "Show" : "Hide"}
+                    </button>
+                    <Button variant="ghost" onClick={openNewNote}>
+                      + New Note
+                    </Button>
+                  </div>
+                }
+              >
+                {!notesCollapsed && (
+                  <div className="space-y-3">
+                    {ongoingNotes.length === 0 ? (
+                      <div className="text-sm text-gray-600">No notes yet.</div>
+                    ) : (
+                      sortByPos(ongoingNotes).map((n) => (
+                        <div
+                          key={n.id}
+                          className="rounded-xl border bg-white p-3 cursor-pointer"
+                          onClick={() => openEditNote(n.id)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-semibold">{n.title}</div>
+                            {n.category && <Pill>{n.category}</Pill>}
+                          </div>
+                          {n.content && (
+                            <div className="text-xs text-gray-600 mt-2 whitespace-pre-wrap line-clamp-3">
+                              {n.content}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </Card>
             </div>
           </ResizableSidebar>
@@ -1887,6 +2336,136 @@ async function selectPreviousSession(sessionId: string) {
             </div>
           </Modal>
 
+          {/* Milestone Modal */}
+          <Modal
+            open={milestoneOpen}
+            title={editingMilestoneId ? "Edit Milestone" : "New Milestone"}
+            onClose={() => setMilestoneOpen(false)}
+            footer={
+              <>
+                {editingMilestoneId && (
+                  <Button variant="ghost" onClick={deleteMilestone} disabled={busy}>
+                    Delete
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={() => setMilestoneOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveMilestone} disabled={busy}>
+                  Save
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-600">Title *</label>
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600">Description</label>
+                <Textarea rows={3} value={mDescription} onChange={(e) => setMDescription(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-600">Status</label>
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={mStatus}
+                    onChange={(e) => setMStatus(e.target.value)}
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Delayed">Delayed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600">Priority</label>
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={mPriority}
+                    onChange={(e) => setMPriority(e.target.value)}
+                  >
+                    <option value="Urgent">Urgent</option>
+                    <option value="High">High</option>
+                    <option value="Normal">Normal</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-600">Owner</label>
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={mOwner}
+                    onChange={(e) => setMOwner(e.target.value)}
+                  >
+                    <option value="">(None)</option>
+                    <optgroup label="Registered Users">
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.full_name || p.email || p.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Attendees (email)">
+                      {attendees
+                        .filter((a) => !a.user_id)
+                        .map((a) => (
+                          <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
+                            {a.full_name || a.email}
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600">Target Date</label>
+                  <Input type="date" value={mTargetDate} onChange={(e) => setMTargetDate(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          </Modal>
+
+          {/* Ongoing Note Modal */}
+          <Modal
+            open={noteOpen}
+            title={editingNoteId ? "Edit Note" : "New Note"}
+            onClose={() => setNoteOpen(false)}
+            footer={
+              <>
+                {editingNoteId && (
+                  <Button variant="ghost" onClick={deleteNote} disabled={busy}>
+                    Delete
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={() => setNoteOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveNote} disabled={busy}>
+                  Save
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-600">Title *</label>
+                <Input value={nTitle} onChange={(e) => setNTitle(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600">Category (optional)</label>
+                <Input value={nCategory} onChange={(e) => setNCategory(e.target.value)} placeholder="e.g., Action Items, Ideas, References" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600">Content</label>
+                <Textarea rows={8} value={nContent} onChange={(e) => setNContent(e.target.value)} />
+              </div>
+            </div>
+          </Modal>
+
           {/* Email settings modal */}
           <Modal
             open={emailSettingsOpen}
@@ -1923,6 +2502,59 @@ async function selectPreviousSession(sessionId: string) {
                   <option value="biweekly">Every 2 weeks</option>
                   <option value="monthly">Monthly</option>
                 </select>
+              </div>
+            </div>
+          </Modal>
+
+          {/* Profile Color modal */}
+          <Modal
+            open={profileColorOpen}
+            title="My Profile Color"
+            onClose={() => setProfileColorOpen(false)}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setProfileColorOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveMyProfileColor} disabled={busy}>
+                  Save
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <div className="text-sm text-gray-600">
+                This color will be used as the border color for tasks and milestones assigned to you.
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600 mb-2 block">Choose your color</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={myProfileColor}
+                    onChange={(e) => setMyProfileColor(e.target.value)}
+                    className="w-24 h-12 rounded border cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <Input
+                      value={myProfileColor}
+                      onChange={(e) => setMyProfileColor(e.target.value)}
+                      placeholder="#6B7280"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-gray-600 mb-2">Preview</div>
+                <div
+                  className="rounded-xl border bg-white p-3"
+                  style={{ borderLeft: `6px solid ${myProfileColor}` }}
+                >
+                  <div className="text-sm font-semibold">Sample Task Card</div>
+                  <div className="text-xs text-gray-600 mt-1">This is how your tasks will appear</div>
+                </div>
               </div>
             </div>
           </Modal>
