@@ -36,6 +36,8 @@ type Column = { id: string; name: string; position: number };
 
 type StatusOpt = { id: string; name: string; position: number; color_hex?: string | null };
 
+type PriorityOpt = { id: string; name: string; position: number; color_hex?: string | null };
+
 type Task = {
   id: string;
   column_id: string;
@@ -213,6 +215,7 @@ export default function MeetingDetailPage() {
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
   const [statuses, setStatuses] = useState<StatusOpt[]>([]);
+  const [priorities, setPriorities] = useState<PriorityOpt[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [ongoingNotes, setOngoingNotes] = useState<OngoingNote[]>([]);
@@ -234,6 +237,8 @@ export default function MeetingDetailPage() {
   const [sendNotesOpen, setSendNotesOpen] = useState(false);
   const [prevSessions, setPrevSessions] = useState<MinutesSession[]>([]);
   const [statusMgrOpen, setStatusMgrOpen] = useState(false);
+  const [priorityMgrOpen, setPriorityMgrOpen] = useState(false);
+  const [attendeesMgrOpen, setAttendeesMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
   const [profileColorOpen, setProfileColorOpen] = useState(false);
   const [myProfileColor, setMyProfileColor] = useState("#6B7280");
@@ -300,7 +305,18 @@ export default function MeetingDetailPage() {
     return p?.color_hex || "#E5E7EB";
   }
 
+  function attendeeColor(email: string | null): string {
+    if (!email) return "#E5E7EB";
+    const a = attendees.find((x) => x.email?.toLowerCase() === email.toLowerCase());
+    return (a as any)?.color_hex || "#E5E7EB";
+  }
+
   function priorityColor(priority: string): string {
+    const prio = priorities.find((p) => p.name === priority);
+    if (prio && prio.color_hex) {
+      return prio.color_hex;
+    }
+    // Fallback colors
     const p = priority.toLowerCase();
     if (p === "urgent") return "#DC2626"; // red-600
     if (p === "high") return "#EA580C"; // orange-600
@@ -525,6 +541,40 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
   }
 
+  async function ensureDefaultPriorities(meetingId: string) {
+    const p = await sb
+      .from("meeting_task_priorities")
+      .select("id,name,position,color_hex")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true });
+
+    if (!p.error && (p.data?.length ?? 0) > 0) {
+      setPriorities((p.data ?? []) as any);
+      return;
+    }
+
+    const seed = [
+      { meeting_id: meetingId, name: "Urgent", position: 1, color_hex: "#DC2626" },
+      { meeting_id: meetingId, name: "High", position: 2, color_hex: "#EA580C" },
+      { meeting_id: meetingId, name: "Normal", position: 3, color_hex: "#2563EB" },
+      { meeting_id: meetingId, name: "Low", position: 4, color_hex: "#16A34A" },
+    ];
+    
+    const ins = await sb.from("meeting_task_priorities").insert(seed);
+    // ignore if table doesn't exist yet / RLS / duplicates
+    if (ins.error) {
+      // no-op
+    }
+
+    const again = await sb
+      .from("meeting_task_priorities")
+      .select("id,name,position,color_hex")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true });
+
+    if (!again.error) setPriorities((again.data ?? []) as any);
+  }
+
   async function loadAll() {
     const m = await sb
       .from("meetings")
@@ -556,6 +606,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setColumns((c.data ?? []) as any);
 
     await ensureDefaultStatuses(meetingId);
+    await ensureDefaultPriorities(meetingId);
 
     const t = await sb
       .from("meeting_tasks")
@@ -699,13 +750,14 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
   const cols = sortByPos(columns);
   const statusOpts = sortByPos(statuses);
+  const priorityOpts = sortByPos(priorities);
 
   function openNewTask(colId: string) {
     setEditingTaskId(null);
     setTColumnId(colId);
     setTTitle("");
     setTStatus(statusOpts[0]?.name ?? "In Progress");
-    setTPriority("Normal");
+    setTPriority(priorityOpts[0]?.name ?? "Normal");
     setTOwner("");
     setTStart("");
     setTDue("");
@@ -1576,7 +1628,84 @@ async function selectPreviousSession(sessionId: string) {
     }
     await sb.from("meeting_task_statuses").delete().eq("id", id);
     setStatuses((prev) => prev.filter((s) => s.id !== id));
-    } 
+  }
+
+  // Priority CRUD functions
+  async function addPriority(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const maxPos = Math.max(0, ...priorityOpts.map((p) => p.position ?? 0));
+    const ins = await sb.from("meeting_task_priorities").insert({ meeting_id: meetingId, name: trimmed, position: maxPos + 1 }).select("id,name,position,color_hex").single();
+    if (!ins.error) setPriorities((prev) => [...prev, ins.data as any]);
+  }
+
+  async function updatePriority(id: string, name: string) {
+    setPriorities((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
+    await sb.from("meeting_task_priorities").update({ name }).eq("id", id);
+  }
+
+  async function updatePriorityColor(id: string, color_hex: string) {
+    setPriorities((prev) => prev.map((p) => (p.id === id ? { ...p, color_hex } : p)));
+    await sb.from("meeting_task_priorities").update({ color_hex }).eq("id", id);
+  }
+
+  async function deletePriority(id: string) {
+    const priorityName = priorities.find((p) => p.id === id)?.name;
+    if (!priorityName) return;
+    const used = tasks.some((t) => t.priority === priorityName) || milestones.some((m) => m.priority === priorityName);
+    if (used) {
+      alert("That priority is currently used by at least one task or milestone. Change those first.");
+      return;
+    }
+    await sb.from("meeting_task_priorities").delete().eq("id", id);
+    setPriorities((prev) => prev.filter((p) => p.id !== id));
+  }
+
+  // Attendee CRUD functions
+  async function addAttendee(email: string, fullName: string, color: string) {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedName = fullName.trim();
+    if (!trimmedEmail) return;
+    const exists = attendees.find((a) => a.email?.toLowerCase() === trimmedEmail);
+    if (exists) {
+      alert("An attendee with this email already exists.");
+      return;
+    }
+    const ins = await sb.from("meeting_attendees").insert({ 
+      meeting_id: meetingId, 
+      email: trimmedEmail, 
+      full_name: trimmedName || null,
+      color_hex: color || null
+    }).select("email,full_name,user_id").single();
+    if (!ins.error) setAttendees((prev) => [...prev, { ...ins.data, color_hex: color } as any]);
+  }
+
+  async function updateAttendee(email: string, fullName: string, color: string) {
+    setAttendees((prev) => prev.map((a) => 
+      a.email?.toLowerCase() === email.toLowerCase() 
+        ? { ...a, full_name: fullName, color_hex: color } as any
+        : a
+    ));
+    await sb.from("meeting_attendees")
+      .update({ full_name: fullName, color_hex: color })
+      .eq("meeting_id", meetingId)
+      .eq("email", email);
+  }
+
+  async function deleteAttendee(email: string) {
+    const used = tasks.some((t) => t.owner_email?.toLowerCase() === email.toLowerCase()) ||
+                 milestones.some((m) => m.owner_email?.toLowerCase() === email.toLowerCase());
+    if (used) {
+      alert("This attendee is assigned to tasks or milestones. Unassign them first.");
+      return;
+    }
+    await sb.from("meeting_attendees")
+      .delete()
+      .eq("meeting_id", meetingId)
+      .eq("email", email);
+    setAttendees((prev) => prev.filter((a) => a.email?.toLowerCase() !== email.toLowerCase()));
+  }
+
   useEffect(() => {
     void loadReminderSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1620,6 +1749,8 @@ async function selectPreviousSession(sessionId: string) {
                 items={[
                   { label: "Edit agenda", onClick: () => setAgendaOpen(true) },
                   { label: "Task statuses", onClick: () => setStatusMgrOpen(true) },
+                  { label: "Task priorities", onClick: () => setPriorityMgrOpen(true) },
+                  { label: "Edit attendees", onClick: () => setAttendeesMgrOpen(true) },
                   { label: "Email settings", onClick: () => setEmailSettingsOpen(true) },
                   { 
                     label: "My profile color", 
@@ -1725,10 +1856,19 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                      className="text-gray-500 hover:text-gray-700 transition-colors"
                       onClick={() => setTasksCollapsed((v) => !v)}
+                      title={tasksCollapsed ? "Expand" : "Collapse"}
                     >
-                      {tasksCollapsed ? "Show" : "Hide"}
+                      {tasksCollapsed ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                      )}
                     </button>
                     <button
                       type="button"
@@ -1820,10 +1960,19 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                      className="text-gray-500 hover:text-gray-700 transition-colors"
                       onClick={() => setMilestonesCollapsed((v) => !v)}
+                      title={milestonesCollapsed ? "Expand" : "Collapse"}
                     >
-                      {milestonesCollapsed ? "Show" : "Hide"}
+                      {milestonesCollapsed ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                      )}
                     </button>
                     <Button variant="ghost" onClick={openNewMilestone}>
                       + New Milestone
@@ -1869,10 +2018,19 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+                      className="text-gray-500 hover:text-gray-700 transition-colors"
                       onClick={() => setNotesCollapsed((v) => !v)}
+                      title={notesCollapsed ? "Expand" : "Collapse"}
                     >
-                      {notesCollapsed ? "Show" : "Hide"}
+                      {notesCollapsed ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                      )}
                     </button>
                     <Button variant="ghost" onClick={openNewNote}>
                       + New Note
@@ -2003,10 +2161,18 @@ async function selectPreviousSession(sessionId: string) {
                     value={tPriority}
                     onChange={(e) => setTPriority(e.target.value)}
                   >
-                    <option>Low</option>
-                    <option>Normal</option>
-                    <option>High</option>
-                    <option>Urgent</option>
+                    {priorityOpts.length ? (
+                      priorityOpts.map((p) => (
+                        <option key={p.id} value={p.name}>{p.name}</option>
+                      ))
+                    ) : (
+                      <>
+                        <option>Low</option>
+                        <option>Normal</option>
+                        <option>High</option>
+                        <option>Urgent</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -2025,6 +2191,15 @@ async function selectPreviousSession(sessionId: string) {
                       );
                     })}
                   </select>
+                  {tOwner && (
+                    <div className="mt-1 flex items-center gap-2">
+                      <div 
+                        className="w-4 h-4 rounded border"
+                        style={{ backgroundColor: tOwner.startsWith("email:") ? attendeeColor(tOwner.slice(6)) : ownerColor(tOwner) }}
+                      />
+                      <span className="text-xs text-gray-500">Owner color</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2336,6 +2511,89 @@ async function selectPreviousSession(sessionId: string) {
             </div>
           </Modal>
 
+          {/* Priority manager modal */}
+          <Modal
+            open={priorityMgrOpen}
+            title="Task Priorities"
+            onClose={() => setPriorityMgrOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setPriorityMgrOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="text-sm text-gray-600 mb-3">
+              This controls the list of Priority values available for tasks and milestones in this meeting.
+            </div>
+
+            <div className="space-y-3">
+              {priorityOpts.map((p) => (
+                <div key={p.id} className="flex items-center gap-2">
+                  <Input value={p.name} onChange={(e) => updatePriority(p.id, e.target.value)} />
+                  <input
+                    type="color"
+                    value={p.color_hex || "#6B7280"}
+                    onChange={(e) => updatePriorityColor(p.id, e.target.value)}
+                    className="w-12 h-8 rounded border cursor-pointer"
+                    title="Priority color"
+                  />
+                  <Button variant="ghost" onClick={() => deletePriority(p.id)}>
+                    Delete
+                  </Button>
+                </div>
+              ))}
+
+              <AddPriorityRow onAdd={addPriority} />
+            </div>
+          </Modal>
+
+          {/* Attendees manager modal */}
+          <Modal
+            open={attendeesMgrOpen}
+            title="Edit Attendees"
+            onClose={() => setAttendeesMgrOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setAttendeesMgrOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="text-sm text-gray-600 mb-3">
+              Manage the list of attendees for this meeting. These attendees are used in task/milestone owners and meeting notes recipients.
+            </div>
+
+            <div className="space-y-3">
+              {attendees.map((a) => (
+                <div key={a.email} className="flex items-center gap-2">
+                  <div className="flex-1 grid grid-cols-2 gap-2">
+                    <Input 
+                      value={a.full_name || ""} 
+                      onChange={(e) => updateAttendee(a.email, e.target.value, (a as any).color_hex || "#6B7280")} 
+                      placeholder="Full name"
+                    />
+                    <Input 
+                      value={a.email} 
+                      disabled
+                      className="bg-gray-50"
+                    />
+                  </div>
+                  <input
+                    type="color"
+                    value={(a as any).color_hex || "#6B7280"}
+                    onChange={(e) => updateAttendee(a.email, a.full_name || "", e.target.value)}
+                    className="w-12 h-8 rounded border cursor-pointer"
+                    title="Attendee color"
+                  />
+                  <Button variant="ghost" onClick={() => deleteAttendee(a.email)}>
+                    Delete
+                  </Button>
+                </div>
+              ))}
+
+              <AddAttendeeRow onAdd={addAttendee} />
+            </div>
+          </Modal>
+
           {/* Milestone Modal */}
           <Modal
             open={milestoneOpen}
@@ -2387,10 +2645,18 @@ async function selectPreviousSession(sessionId: string) {
                     value={mPriority}
                     onChange={(e) => setMPriority(e.target.value)}
                   >
-                    <option value="Urgent">Urgent</option>
-                    <option value="High">High</option>
-                    <option value="Normal">Normal</option>
-                    <option value="Low">Low</option>
+                    {priorityOpts.length ? (
+                      priorityOpts.map((p) => (
+                        <option key={p.id} value={p.name}>{p.name}</option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Urgent">Urgent</option>
+                        <option value="High">High</option>
+                        <option value="Normal">Normal</option>
+                        <option value="Low">Low</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
@@ -2420,6 +2686,15 @@ async function selectPreviousSession(sessionId: string) {
                         ))}
                     </optgroup>
                   </select>
+                  {mOwner && (
+                    <div className="mt-1 flex items-center gap-2">
+                      <div 
+                        className="w-4 h-4 rounded border"
+                        style={{ backgroundColor: mOwner.startsWith("email:") ? attendeeColor(mOwner.slice(6)) : ownerColor(mOwner) }}
+                      />
+                      <span className="text-xs text-gray-500">Owner color</span>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs text-gray-600">Target Date</label>
@@ -2640,6 +2915,63 @@ function AddStatusRow({ onAdd }: { onAdd: (name: string) => void }) {
       >
         Add
       </Button>
+    </div>
+  );
+}
+
+function AddPriorityRow({ onAdd }: { onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <div className="flex items-center gap-2">
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a new priority..." />
+      <Button
+        variant="ghost"
+        onClick={() => {
+          const v = name.trim();
+          if (!v) return;
+          onAdd(v);
+          setName("");
+        }}
+      >
+        Add
+      </Button>
+    </div>
+  );
+}
+
+function AddAttendeeRow({ onAdd }: { onAdd: (email: string, fullName: string, color: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [color, setColor] = useState("#6B7280");
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <div className="text-sm font-medium">Add New Attendee</div>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 grid grid-cols-2 gap-2">
+          <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" />
+          <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email *" />
+        </div>
+        <input
+          type="color"
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+          className="w-12 h-8 rounded border cursor-pointer"
+          title="Attendee color"
+        />
+        <Button
+          variant="ghost"
+          onClick={() => {
+            const e = email.trim();
+            if (!e) return;
+            onAdd(e, fullName.trim(), color);
+            setEmail("");
+            setFullName("");
+            setColor("#6B7280");
+          }}
+        >
+          Add
+        </Button>
+      </div>
     </div>
   );
 }
