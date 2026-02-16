@@ -1,5 +1,5 @@
 "use client";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState, useRef } from "react";
 
 export function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
@@ -135,6 +135,55 @@ export function Tabs({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+export function Dropdown({
+  trigger,
+  items,
+}: {
+  trigger: ReactNode;
+  items: Array<{ label: string; onClick: () => void; disabled?: boolean }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative inline-block" ref={dropdownRef}>
+      <div onClick={() => setOpen(!open)}>{trigger}</div>
+      {open && (
+        <div className="absolute right-0 mt-1 w-56 rounded-lg border bg-white shadow-lg z-50">
+          <div className="py-1">
+            {items.map((item, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  if (!item.disabled) {
+                    item.onClick();
+                    setOpen(false);
+                  }
+                }}
+                disabled={item.disabled}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
