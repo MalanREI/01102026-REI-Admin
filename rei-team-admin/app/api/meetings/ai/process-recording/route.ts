@@ -49,7 +49,10 @@ export async function POST(req: Request) {
     if (upd.error) throw upd.error;
 
     // Call AI route asynchronously (don't await)
-    const aiUrl = `${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/meetings/ai`;
+    const aiUrl = process.env.NEXT_PUBLIC_SITE_URL 
+      ? `${process.env.NEXT_PUBLIC_SITE_URL}/api/meetings/ai`
+      : "/api/meetings/ai";
+    
     fetch(aiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
