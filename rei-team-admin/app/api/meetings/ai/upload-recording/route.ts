@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { randomUUID } from "crypto";
+import { supabaseAdmin } from "@/src/lib/supabase/admin";
 
 /**
  * Max upload size (bytes)
@@ -12,93 +8,65 @@ import { randomUUID } from "crypto";
  */
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_RECORDING_UPLOAD_BYTES || 4_000_000);
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
 
     const meetingId = (formData.get("meetingId") as string | null) ?? null;
-    const chunkIndex = (formData.get("chunkIndex") as string | null) ?? null;
-    const totalChunks = (formData.get("totalChunks") as string | null) ?? null;
+    const sessionId = (formData.get("sessionId") as string | null) ?? null;
+    const durationSeconds = (formData.get("durationSeconds") as string | null) ?? null;
+    const createdBy = (formData.get("createdBy") as string | null) ?? null;
     const file = (formData.get("file") as File | null) ?? null;
 
-    if (!meetingId || !file) {
-      return NextResponse.json({ error: "Missing meetingId or file" }, { status: 400 });
+    if (!meetingId || !sessionId || !file) {
+      return NextResponse.json({ error: "Missing meetingId, sessionId, or file" }, { status: 400 });
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
         {
-          error: `Recording chunk too large (${file.size} bytes). Max allowed is ${MAX_UPLOAD_BYTES} bytes.`,
+          error: `Recording too large (${file.size} bytes). Max allowed is ${MAX_UPLOAD_BYTES} bytes.`,
         },
         { status: 413 }
       );
     }
 
-    // Temp directory for chunks
-    const tmpDir = path.join(os.tmpdir(), "meeting-recordings", meetingId);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const admin = supabaseAdmin();
+    const recordingsBucket = process.env.RECORDINGS_BUCKET || "meeting-recordings";
+    const storagePath = `${meetingId}/${sessionId}/recording_${Date.now()}.webm`;
 
-    const chunkName =
-      chunkIndex !== null ? `chunk_${chunkIndex}.webm` : `${randomUUID()}.webm`;
-
-    const chunkPath = path.join(tmpDir, chunkName);
-
-    // Write file to disk
+    // Upload to Supabase storage
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(chunkPath, buffer);
+    const { error: uploadError } = await admin.storage
+      .from(recordingsBucket)
+      .upload(storagePath, buffer, {
+        contentType: "audio/webm",
+        upsert: false,
+      });
 
-    // If all chunks uploaded, assemble final file
-    let finalPath: string | null = null;
+    if (uploadError) {
+      console.error("Failed to upload recording to storage", uploadError);
+      return NextResponse.json({ error: "Failed to upload recording" }, { status: 500 });
+    }
 
-    const isChunkedUpload =
-      chunkIndex !== null && totalChunks !== null && !Number.isNaN(Number(chunkIndex)) && !Number.isNaN(Number(totalChunks));
+    // Save record in meeting_recordings table
+    const { error: dbError } = await admin
+      .from("meeting_recordings")
+      .insert({
+        session_id: sessionId,
+        storage_path: storagePath,
+        duration_seconds: durationSeconds ? Number(durationSeconds) : null,
+        created_by: createdBy,
+      });
 
-    if (isChunkedUpload && Number(chunkIndex) === Number(totalChunks) - 1) {
-      const finalName = `meeting_${meetingId}.webm`;
-      finalPath = path.join(tmpDir, finalName);
-
-      const writeStream = fs.createWriteStream(finalPath);
-
-      for (let i = 0; i < Number(totalChunks); i++) {
-        const partPath = path.join(tmpDir, `chunk_${i}.webm`);
-        if (!fs.existsSync(partPath)) {
-          writeStream.end();
-          return NextResponse.json(
-            { error: `Missing chunk file: chunk_${i}.webm` },
-            { status: 400 }
-          );
-        }
-        const partBuffer = fs.readFileSync(partPath);
-        writeStream.write(partBuffer);
-      }
-
-      writeStream.end();
-
-      // Save final recording path in DB and mark queued
-      const { error } = await supabase
-        .from("meetings")
-        .update({
-          recording_path: finalPath,
-          ai_status: "queued",
-        })
-        .eq("id", meetingId);
-
-      if (error) {
-        console.error("Failed to update meeting recording_path", error);
-        return NextResponse.json({ error: "Failed to save recording path" }, { status: 500 });
-      }
+    if (dbError) {
+      console.error("Failed to save recording record", dbError);
+      return NextResponse.json({ error: "Failed to save recording record" }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      chunkIndex,
-      totalChunks,
-      finalPath,
+      recordingPath: storagePath,
     });
   } catch (err: any) {
     console.error("Upload recording error:", err);

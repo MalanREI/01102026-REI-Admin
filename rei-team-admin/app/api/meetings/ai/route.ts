@@ -25,6 +25,9 @@ type AgendaItemRow = {
 };
 
 export async function POST(req: Request) {
+  const admin = supabaseAdmin();
+  let sessionId: string | undefined;
+  
   try {
     const body = (await req.json()) as {
       meetingId?: string;
@@ -33,7 +36,7 @@ export async function POST(req: Request) {
     };
 
     const meetingId = body.meetingId;
-    const sessionId = body.sessionId;
+    sessionId = body.sessionId;
     const recordingPath = body.recordingPath;
 
     if (!meetingId || !sessionId || !recordingPath) {
@@ -46,7 +49,11 @@ export async function POST(req: Request) {
     const openaiKey = requireEnv("OPENAI_API_KEY");
     const recordingsBucket = requireEnv("RECORDINGS_BUCKET");
 
-    const admin = supabaseAdmin();
+    // Mark as processing
+    await admin
+      .from("meeting_minutes_sessions")
+      .update({ ai_status: "processing" } as any)
+      .eq("id", sessionId);
 
     // 1) Load agenda items
     const agendaRes = await admin
@@ -67,6 +74,13 @@ export async function POST(req: Request) {
     }));
 
     if (!agenda.length) {
+      await admin
+        .from("meeting_minutes_sessions")
+        .update({ 
+          ai_status: "done",
+          ai_processed_at: new Date().toISOString(),
+        } as any)
+        .eq("id", sessionId);
       return NextResponse.json({ ok: true, skipped: "No agenda items" });
     }
 
@@ -89,6 +103,13 @@ export async function POST(req: Request) {
       : "";
 
     if (!transcriptText.trim()) {
+      await admin
+        .from("meeting_minutes_sessions")
+        .update({ 
+          ai_status: "done",
+          ai_processed_at: new Date().toISOString(),
+        } as any)
+        .eq("id", sessionId);
       return NextResponse.json({ ok: true, skipped: "Empty transcript" });
     }
 
@@ -152,7 +173,6 @@ export async function POST(req: Request) {
     if (up.error) throw up.error;
 
     // 6) Save transcript onto session (if column exists)
-    // If column doesn't exist in your DB yet, ignore.
     try {
       await admin
         .from("meeting_minutes_sessions")
@@ -162,8 +182,28 @@ export async function POST(req: Request) {
       // no-op
     }
 
+    // Mark as done
+    await admin
+      .from("meeting_minutes_sessions")
+      .update({ 
+        ai_status: "done",
+        ai_processed_at: new Date().toISOString(),
+      } as any)
+      .eq("id", sessionId);
+
     return NextResponse.json({ ok: true, agendaItemsUpdated: upRows.length });
   } catch (e: any) {
+    // Mark as error
+    if (sessionId) {
+      await admin
+        .from("meeting_minutes_sessions")
+        .update({ 
+          ai_status: "error",
+          ai_error: e?.message ?? "AI processing failed",
+        } as any)
+        .eq("id", sessionId);
+    }
+    
     return NextResponse.json(
       { error: e?.message ?? "AI processing failed" },
       { status: 500 }

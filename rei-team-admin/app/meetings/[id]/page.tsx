@@ -980,11 +980,8 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   setErr(null);
   setInfo(null);
   try {
-    let recordingPath: string | null = lastRecordingPath;
-
     if (isRecording) {
-      const up = await stopRecordingAndUpload();
-      recordingPath = up?.recordingPath ?? null;
+      await stopRecordingAndUpload();
     }
 
     const res = await fetch("/api/meetings/ai/conclude", {
@@ -993,7 +990,6 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       body: JSON.stringify({
         meetingId,
         sessionId: currentSession.id,
-        recordingPath,
         referenceLink: minutesReferenceLink || null,
       }),
     });
@@ -1016,66 +1012,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       setPrevSessions(sessions.filter((x) => !!x.ended_at));
     }
 
-    // AI minutes + PDF generation runs asynchronously in Supabase.
-    // Poll until processed so the UI updates automatically.
-    const pollSessionId = currentSession.id;
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    const maxSeconds = Number(process.env.NEXT_PUBLIC_AI_POLL_MAX_SECONDS || "600");
-    const intervalMs = Math.max(2000, Number(process.env.NEXT_PUBLIC_AI_POLL_INTERVAL_MS || "4000"));
-    const maxIters = Math.max(1, Math.floor((maxSeconds * 1000) / intervalMs));
-
-    let reachedTerminal = false;
-    for (let i = 0; i < maxIters; i++) {
-      const st = await sb
-        .from("meeting_minutes_sessions")
-        .select("id,ai_status,ai_error,pdf_path")
-        .eq("id", pollSessionId)
-        .maybeSingle();
-
-      if (!st.error && st.data) {
-        const status = String((st.data as any).ai_status ?? "");
-        const pdfPath = String((st.data as any).pdf_path ?? "");
-        const aiError = String((st.data as any).ai_error ?? "");
-
-        if (status === "done") {
-          reachedTerminal = true;
-          await loadAgendaNotes(pollSessionId, true);
-          // Refresh session lists to pick up pdf_path
-          const s2 = await sb
-            .from("meeting_minutes_sessions")
-            .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
-            .eq("meeting_id", meetingId)
-            .order("started_at", { ascending: false });
-          if (!s2.error) {
-            const sessions2 = (s2.data as any[]) ?? [];
-            const current2 = sessions2.find((x) => !x.ended_at) ?? null;
-            const prev2 = sessions2.find((x) => !!x.ended_at) ?? null;
-            setCurrentSession(current2);
-            setPrevSession(prev2);
-            setPrevSessions(sessions2.filter((x) => !!x.ended_at));
-          }
-          // If PDF is ready, stop polling.
-          if (pdfPath) break;
-        }
-
-        if (status === "error") {
-          reachedTerminal = true;
-          setErr(aiError || "AI processing failed");
-          break;
-        }
-      }
-
-      await sleep(intervalMs);
-    }
-
-    // If we exited the loop without a terminal status, processing is still happening server-side.
-    // Don’t show this as an error (it’s expected for long meetings).
-    if (!reachedTerminal) {
-      setInfo(
-        "AI processing is still running in the background. " +
-          "You can keep working and come back later—open ‘View Previous Meetings’ to check status and download the PDF once it’s ready."
-      );
+    if (j.hasRecording) {
+      setInfo("Meeting concluded successfully! Click the 'Process Recording' button to generate AI minutes.");
+    } else {
+      setInfo("Meeting concluded successfully! No recording to process.");
     }
   } catch (e: any) {
     setErr(e?.message ?? "Failed to conclude meeting");
@@ -1083,6 +1024,94 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setBusy(false);
   }
 }
+
+  async function processRecording() {
+    if (!prevSession?.id) return;
+    setBusy(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      const res = await fetch("/api/meetings/ai/process-recording", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          meetingId,
+          sessionId: prevSession.id,
+        }),
+      });
+
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(j?.error || "Failed to start AI processing");
+
+      setInfo("AI processing started...");
+
+      const pollSessionId = prevSession.id;
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+      // NOTE: Using client-side polling as an interim solution.
+      // For production with many concurrent long recordings, consider:
+      // - Supabase Realtime subscriptions
+      // - Server-sent events (SSE)
+      // - Webhooks to update status externally
+      const maxSeconds = Number(process.env.NEXT_PUBLIC_AI_POLL_MAX_SECONDS || "1800");
+      const intervalMs = Math.max(2000, Number(process.env.NEXT_PUBLIC_AI_POLL_INTERVAL_MS || "4000"));
+      const maxIters = Math.max(1, Math.floor((maxSeconds * 1000) / intervalMs));
+
+      let reachedTerminal = false;
+      for (let i = 0; i < maxIters; i++) {
+        const st = await sb
+          .from("meeting_minutes_sessions")
+          .select("id,ai_status,ai_error,pdf_path")
+          .eq("id", pollSessionId)
+          .maybeSingle();
+
+        if (!st.error && st.data) {
+          const status = String((st.data as any).ai_status ?? "");
+          const pdfPath = String((st.data as any).pdf_path ?? "");
+          const aiError = String((st.data as any).ai_error ?? "");
+
+          if (status === "done") {
+            reachedTerminal = true;
+            await loadAgendaNotes(pollSessionId, true);
+            const s2 = await sb
+              .from("meeting_minutes_sessions")
+              .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+              .eq("meeting_id", meetingId)
+              .order("started_at", { ascending: false });
+            if (!s2.error) {
+              const sessions2 = (s2.data as any[]) ?? [];
+              const current2 = sessions2.find((x) => !x.ended_at) ?? null;
+              const prev2 = sessions2.find((x) => !!x.ended_at) ?? null;
+              setCurrentSession(current2);
+              setPrevSession(prev2);
+              setPrevSessions(sessions2.filter((x) => !!x.ended_at));
+            }
+            setInfo("AI processing complete!");
+            if (pdfPath) break;
+          }
+
+          if (status === "error") {
+            reachedTerminal = true;
+            setErr(aiError || "AI processing failed");
+            break;
+          }
+        }
+
+        await sleep(intervalMs);
+      }
+
+      if (!reachedTerminal) {
+        setInfo(
+          "AI processing is still running in the background. " +
+            "You can keep working and come back later—open 'View Previous Meetings' to check status and download the PDF once it's ready."
+        );
+      }
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to process recording");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function loadPreviousSessions() {
     const s = await sb
@@ -1238,6 +1267,11 @@ async function selectPreviousSession(sessionId: string) {
               <Button variant="ghost" onClick={concludeMeeting} disabled={busy}>
                 Conclude meeting
               </Button>
+              {prevSession && prevSession.ai_status === "ready" && (
+                <Button variant="ghost" onClick={processRecording} disabled={busy}>
+                  Process Recording
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 onClick={async () => {
