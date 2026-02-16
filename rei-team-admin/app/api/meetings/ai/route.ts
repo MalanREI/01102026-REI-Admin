@@ -27,6 +27,7 @@ type AgendaItemRow = {
 export async function POST(req: Request) {
   const admin = supabaseAdmin();
   let sessionId: string | undefined;
+  let tasksCreated = 0;
   
   try {
     const body = (await req.json()) as {
@@ -172,7 +173,127 @@ export async function POST(req: Request) {
 
     if (up.error) throw up.error;
 
-    // 6) Save transcript onto session (if column exists)
+    // 6) Extract action items from transcript
+    try {
+      const actionItemSchema = {
+        name: "ActionItems",
+        schema: {
+          type: "object",
+          properties: {
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  owner: { type: "string" },
+                  dueDate: { type: "string" },
+                  priority: { type: "string" },
+                },
+                required: ["title", "owner"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["items"],
+          additionalProperties: false,
+        },
+        strict: true,
+      } as const;
+
+      const actionCompletion = await client.chat.completions.create({
+        model: process.env.OPENAI_SUMMARY_MODEL || "gpt-4o-mini",
+        temperature: 0.2,
+        response_format: { type: "json_schema", json_schema: actionItemSchema },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Extract action items from a meeting transcript. An action item is a task assigned to someone with a deadline. " +
+              "Return JSON with an array of items, each having: title (the task), owner (person responsible), dueDate (if mentioned, format YYYY-MM-DD or empty string), " +
+              "and priority (High/Normal/Low based on urgency, default to Normal). Only include clear action items, not general discussion points.",
+          },
+          {
+            role: "user",
+            content: `Transcript:\n${transcriptText}`,
+          },
+        ],
+      });
+
+      const actionContent = actionCompletion.choices?.[0]?.message?.content ?? "{}";
+      let actionItems: Array<{ title: string; owner: string; dueDate: string; priority: string }> = [];
+      
+      try {
+        const parsed = JSON.parse(actionContent);
+        actionItems = parsed.items ?? [];
+      } catch {
+        // Failed to parse, skip action items
+      }
+
+      if (actionItems.length > 0) {
+        // Get or create an "Action Items" column
+        let actionColumn = await admin
+          .from("meeting_task_columns")
+          .select("id")
+          .eq("meeting_id", meetingId)
+          .eq("name", "Action Items")
+          .single();
+
+        if (!actionColumn.data) {
+          // Create the Action Items column
+          const maxPos = await admin
+            .from("meeting_task_columns")
+            .select("position")
+            .eq("meeting_id", meetingId)
+            .order("position", { ascending: false })
+            .limit(1);
+
+          const nextPos = (maxPos.data?.[0]?.position ?? 0) + 1;
+
+          const newCol = await admin
+            .from("meeting_task_columns")
+            .insert({
+              meeting_id: meetingId,
+              name: "Action Items",
+              position: nextPos,
+            })
+            .select("id")
+            .single();
+
+          if (!newCol.error) {
+            actionColumn = newCol;
+          }
+        }
+
+        if (actionColumn.data) {
+          // Create tasks for each action item
+          const taskRows = actionItems.map((item, idx) => {
+            const dueDate = item.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(item.dueDate) ? item.dueDate : null;
+            return {
+              meeting_id: meetingId,
+              column_id: actionColumn.data!.id,
+              title: item.title,
+              status: "In Progress",
+              priority: ["High", "Low"].includes(item.priority) ? item.priority : "Normal",
+              owner_name: item.owner,
+              due_date: dueDate,
+              notes: `Extracted from meeting transcript by AI`,
+              position: idx + 1,
+            };
+          });
+
+          const taskInsert = await admin.from("meeting_tasks").insert(taskRows);
+          if (!taskInsert.error) {
+            tasksCreated = taskRows.length;
+          }
+        }
+      }
+    } catch (actionError) {
+      // Don't fail the entire process if action item extraction fails
+      console.error("Action item extraction failed:", actionError);
+    }
+
+    // 7) Save transcript onto session (if column exists)
     try {
       await admin
         .from("meeting_minutes_sessions")
@@ -191,7 +312,11 @@ export async function POST(req: Request) {
       } as any)
       .eq("id", sessionId);
 
-    return NextResponse.json({ ok: true, agendaItemsUpdated: upRows.length });
+    return NextResponse.json({ 
+      ok: true, 
+      agendaItemsUpdated: upRows.length,
+      tasksCreated,
+    });
   } catch (e: any) {
     // Mark as error
     if (sessionId) {
