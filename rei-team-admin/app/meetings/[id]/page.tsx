@@ -34,7 +34,7 @@ type Attendee = { email: string; full_name: string | null; user_id: string | nul
 
 type Column = { id: string; name: string; position: number };
 
-type StatusOpt = { id: string; name: string; position: number };
+type StatusOpt = { id: string; name: string; position: number; color_hex?: string | null };
 
 type Task = {
   id: string;
@@ -252,6 +252,29 @@ export default function MeetingDetailPage() {
     const p = profiles.find((x) => x.id === ownerId);
     return p?.color_hex || "#E5E7EB";
   }
+
+  function priorityColor(priority: string): string {
+    const p = priority.toLowerCase();
+    if (p === "urgent") return "#DC2626"; // red-600
+    if (p === "high") return "#EA580C"; // orange-600
+    if (p === "normal") return "#2563EB"; // blue-600
+    if (p === "low") return "#16A34A"; // green-600
+    return "#6B7280"; // gray-500
+  }
+
+  function statusColor(statusName: string): string {
+    const status = statuses.find((s) => s.name === statusName);
+    if (status && (status as any).color_hex) {
+      return (status as any).color_hex;
+    }
+    // Default colors based on common status names
+    const s = statusName.toLowerCase();
+    if (s.includes("complete")) return "#16A34A"; // green
+    if (s.includes("progress") || s.includes("doing")) return "#2563EB"; // blue
+    if (s.includes("review")) return "#EA580C"; // orange
+    if (s.includes("wait")) return "#CA8A04"; // yellow
+    return "#6B7280"; // gray
+  }
 function toTitleCase(s: string) {
   return (s || "")
     .toLowerCase()
@@ -414,7 +437,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   async function ensureDefaultStatuses(meetingId: string) {
     const s = await sb
       .from("meeting_task_statuses")
-      .select("id,name,position")
+      .select("id,name,position,color_hex")
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
 
@@ -424,10 +447,10 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     }
 
     const seed = [
-      { meeting_id: meetingId, name: "In Progress", position: 1 },
-      { meeting_id: meetingId, name: "Needs Review", position: 2 },
-      { meeting_id: meetingId, name: "Waiting", position: 3 },
-      { meeting_id: meetingId, name: "Completed", position: 4 },
+      { meeting_id: meetingId, name: "In Progress", position: 1, color_hex: "#2563EB" },
+      { meeting_id: meetingId, name: "Needs Review", position: 2, color_hex: "#EA580C" },
+      { meeting_id: meetingId, name: "Waiting", position: 3, color_hex: "#CA8A04" },
+      { meeting_id: meetingId, name: "Completed", position: 4, color_hex: "#16A34A" },
     ];
     {
   const ins = await sb.from("meeting_task_statuses").insert(seed);
@@ -439,7 +462,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
     const again = await sb
       .from("meeting_task_statuses")
-      .select("id,name,position")
+      .select("id,name,position,color_hex")
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
 
@@ -1200,13 +1223,18 @@ async function selectPreviousSession(sessionId: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
     const maxPos = Math.max(0, ...statusOpts.map((s) => s.position ?? 0));
-    const ins = await sb.from("meeting_task_statuses").insert({ meeting_id: meetingId, name: trimmed, position: maxPos + 1 }).select("id,name,position").single();
+    const ins = await sb.from("meeting_task_statuses").insert({ meeting_id: meetingId, name: trimmed, position: maxPos + 1 }).select("id,name,position,color_hex").single();
     if (!ins.error) setStatuses((prev) => [...prev, ins.data as any]);
   }
 
   async function updateStatus(id: string, name: string) {
     setStatuses((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)));
     await sb.from("meeting_task_statuses").update({ name }).eq("id", id);
+  }
+
+  async function updateStatusColor(id: string, color_hex: string) {
+    setStatuses((prev) => prev.map((s) => (s.id === id ? { ...s, color_hex } : s)));
+    await sb.from("meeting_task_statuses").update({ color_hex }).eq("id", id);
   }
 
   async function deleteStatus(id: string) {
@@ -1398,8 +1426,18 @@ async function selectPreviousSession(sessionId: string) {
                                   >
                                     <div className="text-sm font-semibold">{t.title}</div>
                                     <div className="mt-1 flex flex-wrap gap-2">
-                                      <Pill>{t.status}</Pill>
-                                      <Pill>{t.priority}</Pill>
+                                      <span 
+                                        className="rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                                        style={{ backgroundColor: statusColor(t.status) }}
+                                      >
+                                        {t.status}
+                                      </span>
+                                      <span 
+                                        className="rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                                        style={{ backgroundColor: priorityColor(t.priority) }}
+                                      >
+                                        {t.priority}
+                                      </span>
                                       {t.due_date && <Pill>Due {t.due_date}</Pill>}
                                     </div>
 
@@ -1479,6 +1517,11 @@ async function selectPreviousSession(sessionId: string) {
                   <label className="text-xs text-gray-600">Status</label>
                   <select
                     className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ 
+                      backgroundColor: statusColor(tStatus), 
+                      color: 'white',
+                      fontWeight: '500'
+                    }}
                     value={tStatus}
                     onChange={(e) => setTStatus(e.target.value)}
                   >
@@ -1503,13 +1546,18 @@ async function selectPreviousSession(sessionId: string) {
                   <label className="text-xs text-gray-600">Priority</label>
                   <select
                     className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ 
+                      backgroundColor: priorityColor(tPriority), 
+                      color: 'white',
+                      fontWeight: '500'
+                    }}
                     value={tPriority}
                     onChange={(e) => setTPriority(e.target.value)}
                   >
                     <option>Low</option>
                     <option>Normal</option>
                     <option>High</option>
-                    <option>!Urgent!</option>
+                    <option>Urgent</option>
                   </select>
                 </div>
 
@@ -1822,6 +1870,13 @@ async function selectPreviousSession(sessionId: string) {
               {statusOpts.map((s) => (
                 <div key={s.id} className="flex items-center gap-2">
                   <Input value={s.name} onChange={(e) => updateStatus(s.id, e.target.value)} />
+                  <input
+                    type="color"
+                    value={s.color_hex || "#6B7280"}
+                    onChange={(e) => updateStatusColor(s.id, e.target.value)}
+                    className="w-12 h-8 rounded border cursor-pointer"
+                    title="Status color"
+                  />
                   <Button variant="ghost" onClick={() => deleteStatus(s.id)}>
                     Delete
                   </Button>
