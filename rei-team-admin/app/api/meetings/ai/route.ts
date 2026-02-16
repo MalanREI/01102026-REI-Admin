@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
 
+const MAX_STACK_TRACE_LINES = 5;
+
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing ${name}`);
@@ -372,7 +374,7 @@ export async function POST(req: Request) {
       message: errorMessage,
       type: errorType,
       timestamp: new Date().toISOString(),
-      stack: e?.stack?.split('\n').slice(0, 5).join('\n'), // First 5 lines of stack
+      stack: e?.stack?.split('\n').slice(0, MAX_STACK_TRACE_LINES).join('\n'),
     };
     
     console.error("AI processing error:", {
