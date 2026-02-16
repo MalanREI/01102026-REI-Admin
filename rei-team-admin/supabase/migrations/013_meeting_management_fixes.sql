@@ -47,7 +47,7 @@ create policy if not exists "meeting_task_priorities_all"
 alter table public.meeting_attendees 
   add column if not exists color_hex text;
 
--- 4. Add full_name column if it doesn't exist (it should from migration 004)
--- This is idempotent
+-- Ensure full_name column exists (added in migration 004, this is a safety check)
+-- This is idempotent and safe to run even if migration 004 was already applied
 alter table public.meeting_attendees 
   add column if not exists full_name text;

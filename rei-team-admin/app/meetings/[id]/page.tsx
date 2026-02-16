@@ -308,7 +308,7 @@ export default function MeetingDetailPage() {
   function attendeeColor(email: string | null): string {
     if (!email) return "#E5E7EB";
     const a = attendees.find((x) => x.email?.toLowerCase() === email.toLowerCase());
-    return (a as any)?.color_hex || "#E5E7EB";
+    return a?.color_hex || "#E5E7EB";
   }
 
   function priorityColor(priority: string): string {
@@ -549,7 +549,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .order("position", { ascending: true });
 
     if (!p.error && (p.data?.length ?? 0) > 0) {
-      setPriorities((p.data ?? []) as any);
+      setPriorities(p.data as PriorityOpt[]);
       return;
     }
 
@@ -1676,14 +1676,14 @@ async function selectPreviousSession(sessionId: string) {
       email: trimmedEmail, 
       full_name: trimmedName || null,
       color_hex: color || null
-    }).select("email,full_name,user_id").single();
-    if (!ins.error) setAttendees((prev) => [...prev, { ...ins.data, color_hex: color } as any]);
+    }).select("email,full_name,user_id,color_hex").single();
+    if (!ins.error) setAttendees((prev) => [...prev, ins.data]);
   }
 
   async function updateAttendee(email: string, fullName: string, color: string) {
     setAttendees((prev) => prev.map((a) => 
       a.email?.toLowerCase() === email.toLowerCase() 
-        ? { ...a, full_name: fullName, color_hex: color } as any
+        ? { ...a, full_name: fullName, color_hex: color }
         : a
     ));
     await sb.from("meeting_attendees")
@@ -2568,7 +2568,7 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="flex-1 grid grid-cols-2 gap-2">
                     <Input 
                       value={a.full_name || ""} 
-                      onChange={(e) => updateAttendee(a.email, e.target.value, (a as any).color_hex || "#6B7280")} 
+                      onChange={(e) => updateAttendee(a.email, e.target.value, a.color_hex || "#6B7280")} 
                       placeholder="Full name"
                     />
                     <Input 
@@ -2579,7 +2579,7 @@ async function selectPreviousSession(sessionId: string) {
                   </div>
                   <input
                     type="color"
-                    value={(a as any).color_hex || "#6B7280"}
+                    value={a.color_hex || "#6B7280"}
                     onChange={(e) => updateAttendee(a.email, a.full_name || "", e.target.value)}
                     className="w-12 h-8 rounded border cursor-pointer"
                     title="Attendee color"
