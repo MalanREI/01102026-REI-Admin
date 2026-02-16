@@ -235,6 +235,8 @@ export default function MeetingDetailPage() {
   const [prevSessions, setPrevSessions] = useState<MinutesSession[]>([]);
   const [statusMgrOpen, setStatusMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
+  const [profileColorOpen, setProfileColorOpen] = useState(false);
+  const [myProfileColor, setMyProfileColor] = useState("#6B7280");
   const [reminderFreq, setReminderFreq] = useState<
   "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
 >("weekly");
@@ -1505,6 +1507,39 @@ async function selectPreviousSession(sessionId: string) {
     if (!r.error && (r.data as any)?.reminder_frequency) setReminderFreq(((r.data as any).reminder_frequency as any) ?? "weekly");
   }
 
+  async function loadMyProfileColor() {
+    const { data: userData } = await sb.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return;
+    
+    const profile = profiles.find((p) => p.id === userId);
+    if (profile?.color_hex) {
+      setMyProfileColor(profile.color_hex);
+    }
+  }
+
+  async function saveMyProfileColor() {
+    setBusy(true);
+    try {
+      const { data: userData } = await sb.auth.getUser();
+      const userId = userData?.user?.id;
+      if (!userId) throw new Error("Not authenticated");
+
+      await sb.from("profiles").update({ color_hex: myProfileColor }).eq("id", userId);
+      
+      // Update local profiles state
+      setProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, color_hex: myProfileColor } : p)));
+      
+      setProfileColorOpen(false);
+      setInfo("Profile color saved!");
+      setTimeout(() => setInfo(null), 3000);
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to save profile color");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function addStatus(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -1536,8 +1571,9 @@ async function selectPreviousSession(sessionId: string) {
     } 
   useEffect(() => {
     void loadReminderSettings();
+    void loadMyProfileColor();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetingId]);
+  }, [meetingId, profiles]);
 
   return (
     <PageShell>
@@ -1573,6 +1609,13 @@ async function selectPreviousSession(sessionId: string) {
                   { label: "Edit agenda", onClick: () => setAgendaOpen(true) },
                   { label: "Task statuses", onClick: () => setStatusMgrOpen(true) },
                   { label: "Email settings", onClick: () => setEmailSettingsOpen(true) },
+                  { 
+                    label: "My profile color", 
+                    onClick: async () => {
+                      await loadMyProfileColor();
+                      setProfileColorOpen(true);
+                    } 
+                  },
                 ]}
               />
               
@@ -2447,6 +2490,59 @@ async function selectPreviousSession(sessionId: string) {
                   <option value="biweekly">Every 2 weeks</option>
                   <option value="monthly">Monthly</option>
                 </select>
+              </div>
+            </div>
+          </Modal>
+
+          {/* Profile Color modal */}
+          <Modal
+            open={profileColorOpen}
+            title="My Profile Color"
+            onClose={() => setProfileColorOpen(false)}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setProfileColorOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveMyProfileColor} disabled={busy}>
+                  Save
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <div className="text-sm text-gray-600">
+                This color will be used as the border color for tasks and milestones assigned to you.
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600 mb-2 block">Choose your color</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={myProfileColor}
+                    onChange={(e) => setMyProfileColor(e.target.value)}
+                    className="w-24 h-12 rounded border cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <Input
+                      value={myProfileColor}
+                      onChange={(e) => setMyProfileColor(e.target.value)}
+                      placeholder="#6B7280"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-gray-600 mb-2">Preview</div>
+                <div
+                  className="rounded-xl border bg-white p-3"
+                  style={{ borderLeft: `6px solid ${myProfileColor}` }}
+                >
+                  <div className="text-sm font-semibold">Sample Task Card</div>
+                  <div className="text-xs text-gray-600 mt-1">This is how your tasks will appear</div>
+                </div>
               </div>
             </div>
           </Modal>
