@@ -169,6 +169,54 @@ function sortByPos<T extends { position: number }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
+function sortTasksByDueDate<T extends { due_date: string | null; position: number; updated_at?: string; id?: string }>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => {
+    // Sort by due_date ascending, nulls last
+    if (a.due_date && !b.due_date) return -1;
+    if (!a.due_date && b.due_date) return 1;
+    if (a.due_date && b.due_date) {
+      const dateComp = a.due_date.localeCompare(b.due_date);
+      if (dateComp !== 0) return dateComp;
+    }
+    // Tie-breaker: position, then updated_at, then id
+    if ((a.position ?? 0) !== (b.position ?? 0)) {
+      return (a.position ?? 0) - (b.position ?? 0);
+    }
+    if (a.updated_at && b.updated_at) {
+      const updComp = b.updated_at.localeCompare(a.updated_at); // Descending (newest first)
+      if (updComp !== 0) return updComp;
+    }
+    if (a.id && b.id) {
+      return a.id.localeCompare(b.id);
+    }
+    return 0;
+  });
+}
+
+function sortMilestonesByTargetDate<T extends { target_date: string | null; position: number; updated_at?: string; id?: string }>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => {
+    // Sort by target_date ascending, nulls last
+    if (a.target_date && !b.target_date) return -1;
+    if (!a.target_date && b.target_date) return 1;
+    if (a.target_date && b.target_date) {
+      const dateComp = a.target_date.localeCompare(b.target_date);
+      if (dateComp !== 0) return dateComp;
+    }
+    // Tie-breaker: position, then updated_at, then id
+    if ((a.position ?? 0) !== (b.position ?? 0)) {
+      return (a.position ?? 0) - (b.position ?? 0);
+    }
+    if (a.updated_at && b.updated_at) {
+      const updComp = b.updated_at.localeCompare(a.updated_at);
+      if (updComp !== 0) return updComp;
+    }
+    if (a.id && b.id) {
+      return a.id.localeCompare(b.id);
+    }
+    return 0;
+  });
+}
+
 function toISODate(d: string | null): string {
   return d ? d : "";
 }
@@ -227,10 +275,22 @@ export default function MeetingDetailPage() {
   const [latestEventByTask, setLatestEventByTask] = useState<LatestEventMap>({});
 
   // Kanban filters
-  const [showCompletedTasks, setShowCompletedTasks] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [milestonesCollapsed, setMilestonesCollapsed] = useState(false);
   const [notesCollapsed, setNotesCollapsed] = useState(false);
+
+  // Advanced filtering for tasks
+  const [taskFilterStatuses, setTaskFilterStatuses] = useState<string[]>([]);
+  const [taskFilterOwner, setTaskFilterOwner] = useState<string>("");
+  const [taskFilterPriority, setTaskFilterPriority] = useState<string>("");
+
+  // Advanced filtering for milestones
+  const [milestoneFilterStatus, setMilestoneFilterStatus] = useState<string>("");
+  const [milestoneFilterOwner, setMilestoneFilterOwner] = useState<string>("");
+  const [milestoneFilterPriority, setMilestoneFilterPriority] = useState<string>("");
+
+  // Advanced filtering for notes
+  const [noteFilterCategory, setNoteFilterCategory] = useState<string>("");
 
   // UI toggles
   const [prevMeetingsOpen, setPrevMeetingsOpen] = useState(false);
@@ -240,8 +300,6 @@ export default function MeetingDetailPage() {
   const [priorityMgrOpen, setPriorityMgrOpen] = useState(false);
   const [attendeesMgrOpen, setAttendeesMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
-  const [profileColorOpen, setProfileColorOpen] = useState(false);
-  const [myProfileColor, setMyProfileColor] = useState("#6B7280");
   const [reminderFreq, setReminderFreq] = useState<
   "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
 >("weekly");
@@ -281,6 +339,10 @@ export default function MeetingDetailPage() {
   const [nContent, setNContent] = useState("");
   const [nCategory, setNCategory] = useState("");
 
+  // Note categories management
+  const [noteCategoriesOpen, setNoteCategoriesOpen] = useState(false);
+  const [noteCategories, setNoteCategories] = useState<string[]>([]);
+
   // Agenda edit
   const [agendaOpen, setAgendaOpen] = useState(false);
 
@@ -299,6 +361,27 @@ export default function MeetingDetailPage() {
   const chunksRef = useRef<BlobPart[]>([]);
   const tickRef = useRef<number | null>(null);
 
+  // Derive available note categories from existing notes + predefined categories
+  const availableNoteCategories = useMemo(() => {
+    const fromNotes = ongoingNotes
+      .filter((n) => n.category)
+      .map((n) => n.category!)
+      .filter((c, i, arr) => arr.indexOf(c) === i); // unique
+    const combined = [...new Set([...noteCategories, ...fromNotes])];
+    return combined.sort();
+  }, [noteCategories, ongoingNotes]);
+
+  // Memoized filtered collections to avoid redundant filtering
+  const filteredMilestones = useMemo(
+    () => applyMilestoneFilters(milestones),
+    [milestones, milestoneFilterStatus, milestoneFilterOwner, milestoneFilterPriority]
+  );
+
+  const filteredNotes = useMemo(
+    () => applyNoteFilters(ongoingNotes),
+    [ongoingNotes, noteFilterCategory]
+  );
+
   function ownerColor(ownerId: string | null): string {
     if (!ownerId) return "#E5E7EB";
     const p = profiles.find((x) => x.id === ownerId);
@@ -309,6 +392,17 @@ export default function MeetingDetailPage() {
     if (!email) return "#E5E7EB";
     const a = attendees.find((x) => x.email?.toLowerCase() === email.toLowerCase());
     return a?.color_hex || "#E5E7EB";
+  }
+
+  // Helper to get color for task/milestone owner
+  function getOwnerColor(task: { owner_id: string | null; owner_email?: string | null }): string {
+    if (task.owner_id) {
+      return ownerColor(task.owner_id);
+    }
+    if (task.owner_email) {
+      return attendeeColor(task.owner_email);
+    }
+    return "#E5E7EB";
   }
 
   function priorityColor(priority: string): string {
@@ -412,7 +506,7 @@ function firstNameFromEmail(email: string | null | undefined): string | null {
 }
 
 function profileName(userId: string | null | undefined): string {
-  if (!userId) return "Unknown";
+  if (!userId) return "Unknown User";
   const p = profiles.find((x) => x.id === userId);
 
   const fn = firstNameFromFullName(p?.full_name);
@@ -421,7 +515,21 @@ function profileName(userId: string | null | undefined): string {
   const fe = firstNameFromEmail(p?.email);
   if (fe) return fe;
 
-  return "Unknown";
+  // Try to find in attendees by user_id
+  const attendee = attendees.find((a) => a.user_id === userId);
+  if (attendee) {
+    const aFn = firstNameFromFullName(attendee.full_name);
+    if (aFn) return aFn;
+    
+    const aFe = firstNameFromEmail(attendee.email);
+    if (aFe) return aFe;
+    
+    // Return email as fallback
+    if (attendee.email) return attendee.email;
+  }
+
+  // Return user ID as last resort instead of "Unknown"
+  return userId.slice(0, 8) + "...";
 }
 
 function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): string {
@@ -472,6 +580,66 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   // Fallback (keep it readable)
   return String(e.event_type || "event");
 }
+
+  // Filter helpers
+  function applyTaskFilters(tasksToFilter: Task[]): Task[] {
+    return tasksToFilter.filter((t) => {
+      // Status filter (multi-select - if empty, show all)
+      if (taskFilterStatuses.length > 0 && !taskFilterStatuses.includes(t.status)) {
+        return false;
+      }
+
+      // Owner filter
+      if (taskFilterOwner) {
+        const taskOwner = formatOwnerForForm(t.owner_id, t.owner_email);
+        if (taskOwner !== taskFilterOwner) {
+          return false;
+        }
+      }
+
+      // Priority filter
+      if (taskFilterPriority && t.priority !== taskFilterPriority) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  function applyMilestoneFilters(milestonesToFilter: Milestone[]): Milestone[] {
+    return milestonesToFilter.filter((m) => {
+      if (milestoneFilterStatus && m.status !== milestoneFilterStatus) {
+        return false;
+      }
+      if (milestoneFilterOwner) {
+        const milestoneOwner = formatOwnerForForm(m.owner_id, m.owner_email);
+        if (milestoneOwner !== milestoneFilterOwner) {
+          return false;
+        }
+      }
+      if (milestoneFilterPriority && m.priority !== milestoneFilterPriority) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function applyNoteFilters(notesToFilter: OngoingNote[]): OngoingNote[] {
+    if (!noteFilterCategory) return notesToFilter;
+    return notesToFilter.filter((n) => n.category === noteFilterCategory);
+  }
+
+  function clearTaskFilters() {
+    setTaskFilterStatuses([]);
+    setTaskFilterOwner("");
+    setTaskFilterPriority("");
+  }
+
+  function clearMilestoneFilters() {
+    setMilestoneFilterStatus("");
+    setMilestoneFilterOwner("");
+    setMilestoneFilterPriority("");
+  }
 
 
   async function loadAgendaNotes(sessionId: string, isCurrent: boolean) {
@@ -1567,38 +1735,7 @@ async function selectPreviousSession(sessionId: string) {
     if (!r.error && (r.data as any)?.reminder_frequency) setReminderFreq(((r.data as any).reminder_frequency as any) ?? "weekly");
   }
 
-  async function loadMyProfileColor() {
-    const { data: userData } = await sb.auth.getUser();
-    const userId = userData?.user?.id;
-    if (!userId) return;
-    
-    const profile = profiles.find((p) => p.id === userId);
-    if (profile?.color_hex) {
-      setMyProfileColor(profile.color_hex);
-    }
-  }
 
-  async function saveMyProfileColor() {
-    setBusy(true);
-    try {
-      const { data: userData } = await sb.auth.getUser();
-      const userId = userData?.user?.id;
-      if (!userId) throw new Error("Not authenticated");
-
-      await sb.from("profiles").update({ color_hex: myProfileColor }).eq("id", userId);
-      
-      // Update local profiles state
-      setProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, color_hex: myProfileColor } : p)));
-      
-      setProfileColorOpen(false);
-      setInfo("Profile color saved!");
-      setTimeout(() => setInfo(null), 3000);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to save profile color");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function addStatus(name: string) {
     const trimmed = name.trim();
@@ -1661,6 +1798,43 @@ async function selectPreviousSession(sessionId: string) {
     setPriorities((prev) => prev.filter((p) => p.id !== id));
   }
 
+  // Note category management functions
+  function addNoteCategory(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (noteCategories.includes(trimmed)) {
+      alert("A category with this name already exists.");
+      return;
+    }
+    setNoteCategories((prev) => [...prev, trimmed].sort());
+  }
+
+  function updateNoteCategory(oldName: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setNoteCategories((prev) => prev.map((c) => (c === oldName ? trimmed : c)).sort());
+    // Also update existing notes with this category
+    setOngoingNotes((prev) => prev.map((n) => (n.category === oldName ? { ...n, category: trimmed } : n)));
+    // Update in database
+    const notesToUpdate = ongoingNotes.filter((n) => n.category === oldName);
+    if (notesToUpdate.length > 0) {
+      Promise.all(
+        notesToUpdate.map((n) => sb.from("meeting_ongoing_notes").update({ category: trimmed }).eq("id", n.id))
+      ).catch((err) => {
+        console.error("Failed to update note categories in database:", err);
+      });
+    }
+  }
+
+  function deleteNoteCategory(name: string) {
+    const used = ongoingNotes.some((n) => n.category === name);
+    if (used) {
+      alert("This category is currently used by at least one note. Change those notes first.");
+      return;
+    }
+    setNoteCategories((prev) => prev.filter((c) => c !== name));
+  }
+
   // Attendee CRUD functions
   async function addAttendee(email: string, fullName: string, color: string) {
     const trimmedEmail = email.trim().toLowerCase();
@@ -1711,11 +1885,6 @@ async function selectPreviousSession(sessionId: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
 
-  useEffect(() => {
-    void loadMyProfileColor();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profiles.length]); // Only trigger when profiles count changes, not on every profile mutation
-
   return (
     <PageShell>
       {!meeting ? (
@@ -1750,15 +1919,9 @@ async function selectPreviousSession(sessionId: string) {
                   { label: "Edit agenda", onClick: () => setAgendaOpen(true) },
                   { label: "Task statuses", onClick: () => setStatusMgrOpen(true) },
                   { label: "Task priorities", onClick: () => setPriorityMgrOpen(true) },
+                  { label: "Edit note categories", onClick: () => setNoteCategoriesOpen(true) },
                   { label: "Edit attendees", onClick: () => setAttendeesMgrOpen(true) },
                   { label: "Email settings", onClick: () => setEmailSettingsOpen(true) },
-                  { 
-                    label: "My profile color", 
-                    onClick: async () => {
-                      await loadMyProfileColor();
-                      setProfileColorOpen(true);
-                    } 
-                  },
                 ]}
               />
               
@@ -1870,18 +2033,75 @@ async function selectPreviousSession(sessionId: string) {
                         </svg>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
-                      onClick={() => setShowCompletedTasks((v) => !v)}
-                    >
-                      {showCompletedTasks ? "Showing Completed" : "Hiding Completed"}
-                    </button>
-                    <div className="text-xs text-gray-500">Drag cards between columns • Scroll horizontally if needed</div>
                   </div>
                 }
               >
                 {!tasksCollapsed && (
+                <>
+                  {/* Filter bar */}
+                  <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <div>
+                        <label className="text-xs text-gray-600 mb-1 block">Status (multi)</label>
+                        <select
+                          multiple
+                          size={3}
+                          className="w-full rounded border px-2 py-1 text-xs"
+                          value={taskFilterStatuses}
+                          onChange={(e) => {
+                            const selected = Array.from(e.target.selectedOptions, (opt) => opt.value);
+                            setTaskFilterStatuses(selected);
+                          }}
+                        >
+                          {statuses.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-600 mb-1 block">Owner</label>
+                        <select
+                          className="w-full rounded border px-2 py-1 text-xs"
+                          value={taskFilterOwner}
+                          onChange={(e) => setTaskFilterOwner(e.target.value)}
+                        >
+                          <option value="">All</option>
+                          {attendees.map((a) => (
+                            <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
+                              {a.full_name || a.email}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-600 mb-1 block">Priority</label>
+                        <select
+                          className="w-full rounded border px-2 py-1 text-xs"
+                          value={taskFilterPriority}
+                          onChange={(e) => setTaskFilterPriority(e.target.value)}
+                        >
+                          <option value="">All</option>
+                          {priorities.map((p) => (
+                            <option key={p.id} value={p.name}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          variant="ghost"
+                          onClick={clearTaskFilters}
+                          disabled={taskFilterStatuses.length === 0 && !taskFilterOwner && !taskFilterPriority}
+                        >
+                          Clear Filters
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
                   <div className="overflow-x-auto overflow-y-hidden max-w-full">
                     <div
@@ -1907,15 +2127,15 @@ async function selectPreviousSession(sessionId: string) {
                           </div>
 
                           <div className="space-y-2">
-                            {sortByPos(
-                              tasks.filter((t) => t.column_id === c.id && (showCompletedTasks || t.status !== "Completed"))
+                            {sortTasksByDueDate(
+                              applyTaskFilters(tasks.filter((t) => t.column_id === c.id))
                             ).map((t) => {
                               const le = latestEventByTask[t.id];
                               return (
                                 <DraggableTaskCard key={t.id} id={t.id}>
                                   <div
                                     className="rounded-xl border bg-white p-3 cursor-pointer select-none"
-                                    style={{ borderLeft: `6px solid ${ownerColor(t.owner_id)}` }}
+                                    style={{ borderLeft: `6px solid ${getOwnerColor(t)}` }}
                                     onClick={() => openEditTask(t.id)}
                                   >
                                     <div className="text-sm font-semibold">{t.title}</div>
@@ -1950,6 +2170,7 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
                   </div>
                 </DndContext>
+                </>
                 )}
               </Card>
 
@@ -1981,15 +2202,75 @@ async function selectPreviousSession(sessionId: string) {
                 }
               >
                 {!milestonesCollapsed && (
-                  <div className="space-y-3">
-                    {milestones.length === 0 ? (
-                      <div className="text-sm text-gray-600">No milestones yet.</div>
+                  <>
+                    {/* Filter bar */}
+                    <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Status</label>
+                          <select
+                            className="w-full rounded border px-2 py-1 text-xs"
+                            value={milestoneFilterStatus}
+                            onChange={(e) => setMilestoneFilterStatus(e.target.value)}
+                          >
+                            <option value="">All</option>
+                            <option value="Pending">Pending</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Delayed">Delayed</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Owner</label>
+                          <select
+                            className="w-full rounded border px-2 py-1 text-xs"
+                            value={milestoneFilterOwner}
+                            onChange={(e) => setMilestoneFilterOwner(e.target.value)}
+                          >
+                            <option value="">All</option>
+                            {attendees.map((a) => (
+                              <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
+                                {a.full_name || a.email}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Priority</label>
+                          <select
+                            className="w-full rounded border px-2 py-1 text-xs"
+                            value={milestoneFilterPriority}
+                            onChange={(e) => setMilestoneFilterPriority(e.target.value)}
+                          >
+                            <option value="">All</option>
+                            {priorities.map((p) => (
+                              <option key={p.id} value={p.name}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            variant="ghost"
+                            onClick={clearMilestoneFilters}
+                            disabled={!milestoneFilterStatus && !milestoneFilterOwner && !milestoneFilterPriority}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                    {filteredMilestones.length === 0 ? (
+                      <div className="text-sm text-gray-600">No milestones match filters.</div>
                     ) : (
-                      sortByPos(milestones).map((m) => (
+                      sortMilestonesByTargetDate(filteredMilestones).map((m) => (
                         <div
                           key={m.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
-                          style={{ borderLeft: `6px solid ${ownerColor(m.owner_id)}` }}
+                          style={{ borderLeft: `6px solid ${getOwnerColor(m)}` }}
                           onClick={() => openEditMilestone(m.id)}
                         >
                           <div className="text-sm font-semibold">{m.title}</div>
@@ -2008,6 +2289,7 @@ async function selectPreviousSession(sessionId: string) {
                       ))
                     )}
                   </div>
+                  </>
                 )}
               </Card>
 
@@ -2039,11 +2321,31 @@ async function selectPreviousSession(sessionId: string) {
                 }
               >
                 {!notesCollapsed && (
-                  <div className="space-y-3">
-                    {ongoingNotes.length === 0 ? (
-                      <div className="text-sm text-gray-600">No notes yet.</div>
+                  <>
+                    {/* Filter bar */}
+                    {ongoingNotes.some((n) => n.category) && (
+                      <div className="mb-3 flex items-center gap-2">
+                        <label className="text-xs text-gray-600">Category:</label>
+                        <select
+                          className="rounded border px-2 py-1 text-xs"
+                          value={noteFilterCategory}
+                          onChange={(e) => setNoteFilterCategory(e.target.value)}
+                        >
+                          <option value="">All</option>
+                          {Array.from(new Set(ongoingNotes.filter((n) => n.category).map((n) => n.category!))).map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                    {filteredNotes.length === 0 ? (
+                      <div className="text-sm text-gray-600">No notes match filter.</div>
                     ) : (
-                      sortByPos(ongoingNotes).map((n) => (
+                      sortByPos(filteredNotes).map((n) => (
                         <div
                           key={n.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
@@ -2062,6 +2364,7 @@ async function selectPreviousSession(sessionId: string) {
                       ))
                     )}
                   </div>
+                  </>
                 )}
               </Card>
             </div>
@@ -2134,16 +2437,23 @@ async function selectPreviousSession(sessionId: string) {
                   >
                     {statusOpts.length ? (
                       statusOpts.map((s) => (
-                        <option key={s.id} value={s.name}>
+                        <option 
+                          key={s.id} 
+                          value={s.name}
+                          style={{ 
+                            backgroundColor: s.color_hex || statusColor(s.name),
+                            color: 'white'
+                          }}
+                        >
                           {s.name}
                         </option>
                       ))
                     ) : (
                       <>
-                        <option>In Progress</option>
-                        <option>Needs Review</option>
-                        <option>Waiting</option>
-                        <option>Completed</option>
+                        <option style={{ backgroundColor: '#2563EB', color: 'white' }}>In Progress</option>
+                        <option style={{ backgroundColor: '#EA580C', color: 'white' }}>Needs Review</option>
+                        <option style={{ backgroundColor: '#CA8A04', color: 'white' }}>Waiting</option>
+                        <option style={{ backgroundColor: '#16A34A', color: 'white' }}>Completed</option>
                       </>
                     )}
                   </select>
@@ -2163,14 +2473,23 @@ async function selectPreviousSession(sessionId: string) {
                   >
                     {priorityOpts.length ? (
                       priorityOpts.map((p) => (
-                        <option key={p.id} value={p.name}>{p.name}</option>
+                        <option 
+                          key={p.id} 
+                          value={p.name}
+                          style={{ 
+                            backgroundColor: p.color_hex || priorityColor(p.name),
+                            color: 'white'
+                          }}
+                        >
+                          {p.name}
+                        </option>
                       ))
                     ) : (
                       <>
-                        <option>Low</option>
-                        <option>Normal</option>
-                        <option>High</option>
-                        <option>Urgent</option>
+                        <option style={{ backgroundColor: '#DC2626', color: 'white' }}>Urgent</option>
+                        <option style={{ backgroundColor: '#EA580C', color: 'white' }}>High</option>
+                        <option style={{ backgroundColor: '#2563EB', color: 'white' }}>Normal</option>
+                        <option style={{ backgroundColor: '#16A34A', color: 'white' }}>Low</option>
                       </>
                     )}
                   </select>
@@ -2594,6 +2913,39 @@ async function selectPreviousSession(sessionId: string) {
             </div>
           </Modal>
 
+          {/* Note Categories Manager modal */}
+          <Modal
+            open={noteCategoriesOpen}
+            title="Note Categories"
+            onClose={() => setNoteCategoriesOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setNoteCategoriesOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="text-sm text-gray-600 mb-3">
+              Manage predefined categories for notes. Categories from existing notes are automatically included.
+            </div>
+
+            <div className="space-y-3">
+              {availableNoteCategories.map((cat) => (
+                <div key={cat} className="flex items-center gap-2">
+                  <Input 
+                    value={cat} 
+                    onChange={(e) => updateNoteCategory(cat, e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button variant="ghost" onClick={() => deleteNoteCategory(cat)}>
+                    Delete
+                  </Button>
+                </div>
+              ))}
+
+              <AddNoteCategoryRow onAdd={addNoteCategory} />
+            </div>
+          </Modal>
+
           {/* Milestone Modal */}
           <Modal
             open={milestoneOpen}
@@ -2642,19 +2994,33 @@ async function selectPreviousSession(sessionId: string) {
                   <label className="text-xs text-gray-600">Priority</label>
                   <select
                     className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ 
+                      backgroundColor: priorityColor(mPriority), 
+                      color: 'white',
+                      fontWeight: '500'
+                    }}
                     value={mPriority}
                     onChange={(e) => setMPriority(e.target.value)}
                   >
                     {priorityOpts.length ? (
                       priorityOpts.map((p) => (
-                        <option key={p.id} value={p.name}>{p.name}</option>
+                        <option 
+                          key={p.id} 
+                          value={p.name}
+                          style={{ 
+                            backgroundColor: p.color_hex || priorityColor(p.name),
+                            color: 'white'
+                          }}
+                        >
+                          {p.name}
+                        </option>
                       ))
                     ) : (
                       <>
-                        <option value="Urgent">Urgent</option>
-                        <option value="High">High</option>
-                        <option value="Normal">Normal</option>
-                        <option value="Low">Low</option>
+                        <option value="Urgent" style={{ backgroundColor: '#DC2626', color: 'white' }}>Urgent</option>
+                        <option value="High" style={{ backgroundColor: '#EA580C', color: 'white' }}>High</option>
+                        <option value="Normal" style={{ backgroundColor: '#2563EB', color: 'white' }}>Normal</option>
+                        <option value="Low" style={{ backgroundColor: '#16A34A', color: 'white' }}>Low</option>
                       </>
                     )}
                   </select>
@@ -2732,7 +3098,18 @@ async function selectPreviousSession(sessionId: string) {
               </div>
               <div>
                 <label className="text-xs text-gray-600">Category (optional)</label>
-                <Input value={nCategory} onChange={(e) => setNCategory(e.target.value)} placeholder="e.g., Action Items, Ideas, References" />
+                <select
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  value={nCategory}
+                  onChange={(e) => setNCategory(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {availableNoteCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-gray-600">Content</label>
@@ -2777,59 +3154,6 @@ async function selectPreviousSession(sessionId: string) {
                   <option value="biweekly">Every 2 weeks</option>
                   <option value="monthly">Monthly</option>
                 </select>
-              </div>
-            </div>
-          </Modal>
-
-          {/* Profile Color modal */}
-          <Modal
-            open={profileColorOpen}
-            title="My Profile Color"
-            onClose={() => setProfileColorOpen(false)}
-            footer={
-              <>
-                <Button variant="ghost" onClick={() => setProfileColorOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={saveMyProfileColor} disabled={busy}>
-                  Save
-                </Button>
-              </>
-            }
-          >
-            <div className="space-y-3">
-              <div className="text-sm text-gray-600">
-                This color will be used as the border color for tasks and milestones assigned to you.
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-600 mb-2 block">Choose your color</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={myProfileColor}
-                    onChange={(e) => setMyProfileColor(e.target.value)}
-                    className="w-24 h-12 rounded border cursor-pointer"
-                  />
-                  <div className="flex-1">
-                    <Input
-                      value={myProfileColor}
-                      onChange={(e) => setMyProfileColor(e.target.value)}
-                      placeholder="#6B7280"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-gray-600 mb-2">Preview</div>
-                <div
-                  className="rounded-xl border bg-white p-3"
-                  style={{ borderLeft: `6px solid ${myProfileColor}` }}
-                >
-                  <div className="text-sm font-semibold">Sample Task Card</div>
-                  <div className="text-xs text-gray-600 mt-1">This is how your tasks will appear</div>
-                </div>
               </div>
             </div>
           </Modal>
@@ -2972,6 +3296,26 @@ function AddAttendeeRow({ onAdd }: { onAdd: (email: string, fullName: string, co
           Add
         </Button>
       </div>
+    </div>
+  );
+}
+
+function AddNoteCategoryRow({ onAdd }: { onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <div className="flex items-center gap-2 border-t pt-3">
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a new category..." className="flex-1" />
+      <Button
+        variant="ghost"
+        onClick={() => {
+          const v = name.trim();
+          if (!v) return;
+          onAdd(v);
+          setName("");
+        }}
+      >
+        Add
+      </Button>
     </div>
   );
 }
