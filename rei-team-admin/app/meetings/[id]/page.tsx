@@ -371,6 +371,17 @@ export default function MeetingDetailPage() {
     return combined.sort();
   }, [noteCategories, ongoingNotes]);
 
+  // Memoized filtered collections to avoid redundant filtering
+  const filteredMilestones = useMemo(
+    () => applyMilestoneFilters(milestones),
+    [milestones, milestoneFilterStatus, milestoneFilterOwner, milestoneFilterPriority]
+  );
+
+  const filteredNotes = useMemo(
+    () => applyNoteFilters(ongoingNotes),
+    [ongoingNotes, noteFilterCategory]
+  );
+
   function ownerColor(ownerId: string | null): string {
     if (!ownerId) return "#E5E7EB";
     const p = profiles.find((x) => x.id === ownerId);
@@ -1805,11 +1816,14 @@ async function selectPreviousSession(sessionId: string) {
     // Also update existing notes with this category
     setOngoingNotes((prev) => prev.map((n) => (n.category === oldName ? { ...n, category: trimmed } : n)));
     // Update in database
-    ongoingNotes
-      .filter((n) => n.category === oldName)
-      .forEach((n) => {
-        sb.from("meeting_ongoing_notes").update({ category: trimmed }).eq("id", n.id);
+    const notesToUpdate = ongoingNotes.filter((n) => n.category === oldName);
+    if (notesToUpdate.length > 0) {
+      Promise.all(
+        notesToUpdate.map((n) => sb.from("meeting_ongoing_notes").update({ category: trimmed }).eq("id", n.id))
+      ).catch((err) => {
+        console.error("Failed to update note categories in database:", err);
       });
+    }
   }
 
   function deleteNoteCategory(name: string) {
@@ -2054,7 +2068,6 @@ async function selectPreviousSession(sessionId: string) {
                           onChange={(e) => setTaskFilterOwner(e.target.value)}
                         >
                           <option value="">All</option>
-                          <option value="">Unassigned</option>
                           {attendees.map((a) => (
                             <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
                               {a.full_name || a.email}
@@ -2250,10 +2263,10 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
 
                     <div className="space-y-3">
-                    {applyMilestoneFilters(milestones).length === 0 ? (
+                    {filteredMilestones.length === 0 ? (
                       <div className="text-sm text-gray-600">No milestones match filters.</div>
                     ) : (
-                      sortMilestonesByTargetDate(applyMilestoneFilters(milestones)).map((m) => (
+                      sortMilestonesByTargetDate(filteredMilestones).map((m) => (
                         <div
                           key={m.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
@@ -2329,10 +2342,10 @@ async function selectPreviousSession(sessionId: string) {
                     )}
 
                     <div className="space-y-3">
-                    {applyNoteFilters(ongoingNotes).length === 0 ? (
+                    {filteredNotes.length === 0 ? (
                       <div className="text-sm text-gray-600">No notes match filter.</div>
                     ) : (
-                      sortByPos(applyNoteFilters(ongoingNotes)).map((n) => (
+                      sortByPos(filteredNotes).map((n) => (
                         <div
                           key={n.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
