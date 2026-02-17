@@ -47,8 +47,8 @@ export default function ResetPasswordPage() {
 
       alert("Password updated. Please sign in.");
       window.location.href = "/login";
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to update password");
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? "Failed to update password");
     } finally {
       setBusy(false);
     }

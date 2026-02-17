@@ -68,10 +68,10 @@ export async function POST(req: NextRequest) {
       success: true,
       recordingPath: storagePath,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Upload recording error:", err);
     return NextResponse.json(
-      { error: err?.message || "Failed to upload recording" },
+      { error: (err as Error)?.message || "Failed to upload recording" },
       { status: 500 }
     );
   }

@@ -40,8 +40,8 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
       setP1("");
       setP2("");
       alert("Password updated.");
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to update password");
+    } catch (e: unknown) {
+      setErr((e as Error)?.message ?? "Failed to update password");
     } finally {
       setBusy(false);
     }

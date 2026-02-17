@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       .update({
         ai_status: "queued",
         ai_error: null,
-      } as any)
+      })
       .eq("id", sessionId);
 
     if (upd.error) throw upd.error;
@@ -58,20 +58,20 @@ export async function POST(req: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ meetingId, sessionId, recordingPath }),
-    }).catch(async (err) => {
+    }).catch(async (err: unknown) => {
       console.error("Failed to trigger AI processing:", err);
       // Update session status to error if fetch fails
       await admin
         .from("meeting_minutes_sessions")
         .update({
           ai_status: "error",
-          ai_error: "Failed to start AI processing: " + (err?.message || "Unknown error"),
-        } as any)
+          ai_error: "Failed to start AI processing: " + ((err as Error)?.message || "Unknown error"),
+        })
         .eq("id", sessionId);
     });
 
     return NextResponse.json({ ok: true, queued: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Failed to queue processing" }, { status: 500 });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error)?.message ?? "Failed to queue processing" }, { status: 500 });
   }
 }

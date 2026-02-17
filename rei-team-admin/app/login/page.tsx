@@ -22,8 +22,8 @@ export default function LoginPage() {
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw error;
       window.location.href = "/home";
-    } catch (err: any) {
-      setError(err?.message ?? "Login failed");
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? "Login failed");
     } finally {
       setBusy(false);
     }
@@ -45,8 +45,8 @@ export default function LoginPage() {
       // Depending on Supabase email confirmation settings, user may need to confirm.
       alert("Account created. If email confirmation is enabled, check your inbox.");
       setMode("signin");
-    } catch (err: any) {
-      setError(err?.message ?? "Signup failed");
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? "Signup failed");
     } finally {
       setBusy(false);
     }
@@ -62,8 +62,8 @@ export default function LoginPage() {
       if (error) throw error;
       alert("Password reset email sent (if the account exists). Check your inbox.");
       setMode("signin");
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to send reset email");
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? "Failed to send reset email");
     } finally {
       setBusy(false);
     }
@@ -83,7 +83,7 @@ export default function LoginPage() {
               { value: "forgot", label: "Forgot password" },
             ]}
             value={mode}
-            onChange={(v) => setMode(v as any)}
+            onChange={(v) => setMode(v as "signin" | "signup" | "forgot")}
           />
         </div>
 
