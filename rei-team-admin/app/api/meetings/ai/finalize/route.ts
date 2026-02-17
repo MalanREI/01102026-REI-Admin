@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, PDFFont, RGB } from "pdf-lib";
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
 
 function requireEnv(name: string): string {
@@ -36,7 +36,7 @@ function normalizeNotes(s: string | null | undefined): string {
 /**
  * Very small word-wrap helper for pdf-lib.
  */
-function wrapText(opts: { text: string; font: any; size: number; maxWidth: number }): string[] {
+function wrapText(opts: { text: string; font: PDFFont; size: number; maxWidth: number }): string[] {
   const text = (opts.text ?? "").replace(/\r\n/g, "\n");
   const paras = text.split("\n");
   const lines: string[] = [];
@@ -107,7 +107,7 @@ async function buildPdf(opts: {
     if (y - need < BOTTOM) newPage();
   };
 
-  const drawText = (t: string, x: number, yPos: number, size: number, isBold = false, color?: any) => {
+  const drawText = (t: string, x: number, yPos: number, size: number, isBold = false, color?: RGB) => {
     const f = isBold ? bold : font;
     page.drawText(t, { x, y: yPos, size, font: f, color: color ?? rgb(0, 0, 0) });
   };
@@ -121,7 +121,7 @@ async function buildPdf(opts: {
     });
   };
 
-  const drawBox = (x: number, yTop: number, w: number, h: number, fill?: any) => {
+  const drawBox = (x: number, yTop: number, w: number, h: number, fill?: RGB) => {
     page.drawRectangle({
       x,
       y: yTop - h,
@@ -434,17 +434,14 @@ export async function POST(req: Request) {
     if (attendeesRes.error) throw attendeesRes.error;
 
     const attendeeLabel = (attendeesRes.data ?? [])
-      .map((a: any) => String(a.full_name ?? "").trim() || String(a.email ?? "").trim())
-      .filter(Boolean);
-
-    const attendeeEmail = (attendeesRes.data ?? [])
-      .map((a: any) => String(a.email ?? "").trim())
+      .map((a: { full_name?: string; email?: string }) => String(a.full_name ?? "").trim() || String(a.email ?? "").trim())
       .filter(Boolean);
 
     const emailToName = new Map<string, string>();
     for (const a of attendeesRes.data ?? []) {
-      const e = String((a as any).email ?? "").trim().toLowerCase();
-      const n = String((a as any).full_name ?? "").trim();
+      const typedA = a as { email?: string; full_name?: string };
+      const e = String(typedA.email ?? "").trim().toLowerCase();
+      const n = String(typedA.full_name ?? "").trim();
       if (e) emailToName.set(e, n || e);
     }
 
@@ -464,7 +461,8 @@ export async function POST(req: Request) {
 
     const notesMap: Record<string, string> = {};
     for (const r of notesRes.data ?? []) {
-      notesMap[String((r as any).agenda_item_id)] = String((r as any).notes ?? "");
+      const typedR = r as { agenda_item_id: string; notes?: string };
+      notesMap[String(typedR.agenda_item_id)] = String(typedR.notes ?? "");
     }
 
     // Previous session notes
@@ -488,7 +486,8 @@ export async function POST(req: Request) {
         .eq("session_id", prevSessionId);
       if (prevNotesRes.error) throw prevNotesRes.error;
       for (const r of prevNotesRes.data ?? []) {
-        prevNotesMap[String((r as any).agenda_item_id)] = String((r as any).notes ?? "");
+        const typedR = r as { agenda_item_id: string; notes?: string };
+        prevNotesMap[String(typedR.agenda_item_id)] = String(typedR.notes ?? "");
       }
     }
 
@@ -506,17 +505,17 @@ export async function POST(req: Request) {
     const profRes = await admin.from("profiles").select("id,full_name,email");
     if (profRes.error) throw profRes.error;
 
-    const colName = new Map((colsRes.data ?? []).map((c: any) => [String(c.id), String(c.name)]));
+    const colName = new Map((colsRes.data ?? []).map((c: { id: string; name: string }) => [String(c.id), String(c.name)]));
     const ownerById = new Map(
-      (profRes.data ?? []).map((p: any) => [
+      (profRes.data ?? []).map((p: { id: string; full_name?: string; email?: string }) => [
         String(p.id),
         String(p.full_name?.trim() || p.email?.trim() || "Unassigned"),
       ])
     );
-    const emailById = new Map((profRes.data ?? []).map((p: any) => [String(p.id), String(p.email ?? "").trim()]));
+    const emailById = new Map((profRes.data ?? []).map((p: { id: string; email?: string }) => [String(p.id), String(p.email ?? "").trim()]));
 
     // Latest comment per task (from events)
-    const taskIds = (tasksRes.data ?? []).map((t: any) => String(t.id)).filter(Boolean);
+    const taskIds = (tasksRes.data ?? []).map((t: { id: string }) => String(t.id)).filter(Boolean);
     const latestCommentByTask = new Map<string, string>();
     if (taskIds.length) {
       const evRes = await admin
@@ -527,16 +526,30 @@ export async function POST(req: Request) {
         .order("created_at", { ascending: false });
       if (!evRes.error) {
         for (const ev of evRes.data ?? []) {
-          const tid = String((ev as any).task_id);
+          const typedEv = ev as { task_id: string; payload?: { text?: string } };
+          const tid = String(typedEv.task_id);
           if (!latestCommentByTask.has(tid)) {
-            const text = String((ev as any)?.payload?.text ?? "").trim();
+            const text = String(typedEv.payload?.text ?? "").trim();
             if (text) latestCommentByTask.set(tid, text);
           }
         }
       }
     }
 
-    const tasks: TaskRow[] = (tasksRes.data ?? []).map((t: any) => {
+    type TaskData = {
+      id: string;
+      title?: string;
+      status?: string;
+      priority?: string;
+      owner_id?: string;
+      owner_email?: string;
+      owner_name?: string;
+      due_date?: string;
+      notes?: string;
+      column_id?: string;
+    };
+
+    const tasks: TaskRow[] = (tasksRes.data ?? []).map((t: TaskData) => {
       const col = colName.get(String(t.column_id)) ?? "Uncategorized";
 
       // owner priority:
@@ -563,7 +576,7 @@ export async function POST(req: Request) {
       };
     });
 
-    const agenda: AgendaPdfRow[] = (agendaRes.data ?? []).map((a: any) => ({
+    const agenda: AgendaPdfRow[] = (agendaRes.data ?? []).map((a: { id: string; code?: string; title?: string }) => ({
       label: `${a.code ? a.code + " - " : ""}${String(a.title ?? "")}`,
       notes: String(notesMap[String(a.id)] ?? "").trim(),
       prevNotes: String(prevNotesMap[String(a.id)] ?? "").trim(),
@@ -575,10 +588,10 @@ export async function POST(req: Request) {
       .select("reference_link")
       .eq("id", sessionId)
       .maybeSingle();
-    const referenceLink = !sessionRes.error ? (sessionRes.data as any)?.reference_link ?? null : null;
+    const referenceLink = !sessionRes.error ? sessionRes.data?.reference_link ?? null : null;
 
     // Build PDF
-    const meeting = meetingRes.data as any;
+    const meeting = meetingRes.data;
     const start = new Date(meeting.start_at);
     const dateLabel = start.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
     const timeLabel = `${start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
@@ -609,7 +622,7 @@ export async function POST(req: Request) {
     if (upPdf.error) throw upPdf.error;
 
     // Save PDF path
-    const updSession = await admin.from("meeting_minutes_sessions").update({ pdf_path: pdfPath } as any).eq("id", sessionId);
+    const updSession = await admin.from("meeting_minutes_sessions").update({ pdf_path: pdfPath }).eq("id", sessionId);
     if (updSession.error) throw updSession.error;
 
     // Signed URL (optional)
@@ -625,7 +638,7 @@ export async function POST(req: Request) {
     try {
       const mark = await admin
         .from("meeting_minutes_sessions")
-        .update({ email_status: "ready", email_error: null } as any)
+        .update({ email_status: "ready", email_error: null })
         .eq("id", sessionId);
       // ignore if column doesn't exist yet
       if (mark.error && String(mark.error.message || "").includes("email_status")) {
@@ -636,8 +649,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, pdfPath, pdfUrl });
-  } catch (e: any) {
-    const status = String(e?.message || "").toLowerCase().includes("unauthorized") ? 401 : 500;
-    return NextResponse.json({ error: e?.message ?? "Finalize failed" }, { status });
+  } catch (e: unknown) {
+    const errorMessage = (e as Error)?.message || "";
+    const status = String(errorMessage).toLowerCase().includes("unauthorized") ? 401 : 500;
+    return NextResponse.json({ error: errorMessage || "Finalize failed" }, { status });
   }
 }
