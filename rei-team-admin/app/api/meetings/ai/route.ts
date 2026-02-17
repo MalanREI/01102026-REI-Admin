@@ -18,22 +18,23 @@ async function retryWithBackoff<T>(
   maxRetries = 3,
   initialDelay = 1000
 ): Promise<T> {
-  let lastError: any;
+  let lastError: unknown;
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
       
       if (attempt < maxRetries) {
         // Check if it's a retryable error
+        const err = error as { status?: number; code?: string; message?: string };
         const isRetryable = 
-          error?.status === 429 || // Rate limit
-          error?.status === 503 || // Service unavailable
-          error?.status === 500 || // Internal server error
-          error?.code === 'ECONNRESET' || // Connection reset
-          error?.code === 'ETIMEDOUT'; // Timeout
+          err?.status === 429 || // Rate limit
+          err?.status === 503 || // Service unavailable
+          err?.status === 500 || // Internal server error
+          err?.code === 'ECONNRESET' || // Connection reset
+          err?.code === 'ETIMEDOUT'; // Timeout
         
         if (!isRetryable) {
           // Don't retry on non-retryable errors (e.g., 400 Bad Request)
@@ -41,7 +42,7 @@ async function retryWithBackoff<T>(
         }
         
         const delay = initialDelay * Math.pow(2, attempt);
-        console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms for error:`, error?.message);
+        console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms for error:`, err?.message);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -96,7 +97,7 @@ export async function POST(req: Request) {
     // Mark as processing
     await admin
       .from("meeting_minutes_sessions")
-      .update({ ai_status: "processing" } as any)
+      .update({ ai_status: "processing" })
       .eq("id", sessionId);
 
     // 1) Load agenda items
@@ -123,7 +124,7 @@ export async function POST(req: Request) {
         .update({ 
           ai_status: "done",
           ai_processed_at: new Date().toISOString(),
-        } as any)
+        })
         .eq("id", sessionId);
       return NextResponse.json({ ok: true, skipped: "No agenda items" });
     }
@@ -144,8 +145,8 @@ export async function POST(req: Request) {
       });
     }, 3, 2000); // 3 retries, starting with 2 second delay
 
-    const transcriptText = (transcription as any)?.text
-      ? String((transcription as any).text)
+    const transcriptText = transcription?.text
+      ? String(transcription.text)
       : "";
 
     if (!transcriptText.trim()) {
@@ -154,7 +155,7 @@ export async function POST(req: Request) {
         .update({ 
           ai_status: "done",
           ai_processed_at: new Date().toISOString(),
-        } as any)
+        })
         .eq("id", sessionId);
       return NextResponse.json({ ok: true, skipped: "Empty transcript" });
     }
@@ -346,7 +347,7 @@ export async function POST(req: Request) {
     try {
       await admin
         .from("meeting_minutes_sessions")
-        .update({ transcript: transcriptText } as any)
+        .update({ transcript: transcriptText })
         .eq("id", sessionId);
     } catch {
       // no-op
@@ -358,7 +359,7 @@ export async function POST(req: Request) {
       .update({ 
         ai_status: "done",
         ai_processed_at: new Date().toISOString(),
-      } as any)
+      })
       .eq("id", sessionId);
 
     return NextResponse.json({ 
@@ -366,15 +367,16 @@ export async function POST(req: Request) {
       agendaItemsUpdated: upRows.length,
       tasksCreated,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     // Mark as error with detailed context
-    const errorMessage = e?.message ?? "AI processing failed";
-    const errorType = e?.constructor?.name ?? "Error";
+    const error = e as Error & { constructor?: { name?: string }; stack?: string };
+    const errorMessage = error?.message ?? "AI processing failed";
+    const errorType = error?.constructor?.name ?? "Error";
     const errorDetails = {
       message: errorMessage,
       type: errorType,
       timestamp: new Date().toISOString(),
-      stack: e?.stack?.split('\n').slice(0, MAX_STACK_TRACE_LINES).join('\n'),
+      stack: error?.stack?.split('\n').slice(0, MAX_STACK_TRACE_LINES).join('\n'),
     };
     
     console.error("AI processing error:", {
@@ -390,7 +392,7 @@ export async function POST(req: Request) {
           .update({ 
             ai_status: "error",
             ai_error: `${errorType}: ${errorMessage}`,
-          } as any)
+          })
           .eq("id", sessionId);
       } catch (updateError) {
         console.error("Failed to update error status:", updateError);

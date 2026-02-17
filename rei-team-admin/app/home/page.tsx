@@ -40,11 +40,11 @@ export default function HomePage() {
     setError(null);
     const { data, error } = await sb.from("links").select("*").order("created_at", { ascending: false });
     if (error) setError(error.message);
-    setItems((data as any) ?? []);
+    setItems(data ?? []);
     setLoading(false);
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
   // -------- Widgets (sortable)
   type WidgetId = "links" | "kpis";
@@ -66,7 +66,7 @@ export default function HomePage() {
 
   useEffect(() => {
     window.localStorage.setItem("rei_home_widgets", JSON.stringify(widgetOrder));
-  }, [widgetOrder]);
+  }, [widgetOrder, defaultOrder]);
 
   function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -85,8 +85,8 @@ export default function HomePage() {
       setTitle(""); setUrl(""); setPurpose("");
       setModalOpen(false);
       await load();
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to save");
+    } catch (e: unknown) {
+      setError((e as Error)?.message ?? "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -236,8 +236,8 @@ function KpiWidget({ sb }: { sb: ReturnType<typeof supabaseBrowser> }) {
           leads: leads.count ?? 0,
           cards: cards.count ?? 0,
         });
-      } catch (e: any) {
-        setErr(e?.message ?? "Failed to load KPIs");
+      } catch (e: unknown) {
+        setErr((e as Error)?.message ?? "Failed to load KPIs");
       } finally {
         setLoading(false);
       }

@@ -126,7 +126,7 @@ export default function MeetingsPage() {
     }
 
     const { data, error } = await q;
-    if (!error) setMeetings((data ?? []) as any);
+    if (!error) setMeetings(data ?? []);
     setLoading(false);
   }
 
@@ -192,8 +192,9 @@ export default function MeetingsPage() {
         const emailToUserId = new Map<string, string>();
         if (!pr.error) {
           for (const p of pr.data ?? []) {
-            const e = String((p as any).email ?? "").toLowerCase();
-            if (e) emailToUserId.set(e, String((p as any).id));
+            const typedP = p as { email?: string; id: string };
+            const e = String(typedP.email ?? "").toLowerCase();
+            if (e) emailToUserId.set(e, String(typedP.id));
           }
         }
 
@@ -276,8 +277,8 @@ export default function MeetingsPage() {
       setAttendees("");
       await load();
       window.location.href = `/meetings/${meetingId}`;
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to save meeting");
+    } catch (e: unknown) {
+      setErr((e as Error)?.message ?? "Failed to save meeting");
     } finally {
       setBusy(false);
     }
@@ -296,16 +297,16 @@ export default function MeetingsPage() {
     }
 
     const a = await sb.from("meeting_attendees").select("email").eq("meeting_id", meetingId);
-    const aEmails = (a.data ?? []).map((r: any) => String(r.email ?? "").trim()).filter(Boolean);
+    const aEmails = (a.data ?? []).map((r: { email?: string }) => String(r.email ?? "").trim()).filter(Boolean);
 
     setEditingMeetingId(meetingId);
-    setTitle(String((m.data as any)?.title ?? ""));
-    setLocation(String((m.data as any)?.location ?? ""));
-    const startIso = String((m.data as any)?.start_at ?? "");
+    setTitle(String(m.data?.title ?? ""));
+    setLocation(String(m.data?.location ?? ""));
+    const startIso = String(m.data?.start_at ?? "");
     // datetime-local expects YYYY-MM-DDTHH:MM
     setStartAt(startIso ? new Date(startIso).toISOString().slice(0, 16) : "");
-    setDuration(Number((m.data as any)?.duration_minutes ?? 60));
-    setFreq(presetFromRrule((m.data as any)?.rrule ?? null));
+    setDuration(Number(m.data?.duration_minutes ?? 60));
+    setFreq(presetFromRrule(m.data?.rrule ?? null));
     setAttendees(aEmails.join("\n"));
     setOpen(true);
   }
@@ -324,8 +325,8 @@ export default function MeetingsPage() {
         .eq("id", meetingId);
       if (up.error) throw up.error;
       await load();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to update archive status");
+    } catch (e: unknown) {
+      alert((e as Error)?.message ?? "Failed to update archive status");
     }
   }
 
@@ -336,8 +337,8 @@ export default function MeetingsPage() {
       const del = await sb.from("meetings").delete().eq("id", meetingId);
       if (del.error) throw del.error;
       await load();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to delete meeting");
+    } catch (e: unknown) {
+      alert((e as Error)?.message ?? "Failed to delete meeting");
     }
   }
 
