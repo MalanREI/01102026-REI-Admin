@@ -169,6 +169,54 @@ function sortByPos<T extends { position: number }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
+function sortTasksByDueDate<T extends { due_date: string | null; position: number; updated_at?: string; id?: string }>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => {
+    // Sort by due_date ascending, nulls last
+    if (a.due_date && !b.due_date) return -1;
+    if (!a.due_date && b.due_date) return 1;
+    if (a.due_date && b.due_date) {
+      const dateComp = a.due_date.localeCompare(b.due_date);
+      if (dateComp !== 0) return dateComp;
+    }
+    // Tie-breaker: position, then updated_at, then id
+    if ((a.position ?? 0) !== (b.position ?? 0)) {
+      return (a.position ?? 0) - (b.position ?? 0);
+    }
+    if (a.updated_at && b.updated_at) {
+      const updComp = b.updated_at.localeCompare(a.updated_at); // Descending (newest first)
+      if (updComp !== 0) return updComp;
+    }
+    if (a.id && b.id) {
+      return a.id.localeCompare(b.id);
+    }
+    return 0;
+  });
+}
+
+function sortMilestonesByTargetDate<T extends { target_date: string | null; position: number; updated_at?: string; id?: string }>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => {
+    // Sort by target_date ascending, nulls last
+    if (a.target_date && !b.target_date) return -1;
+    if (!a.target_date && b.target_date) return 1;
+    if (a.target_date && b.target_date) {
+      const dateComp = a.target_date.localeCompare(b.target_date);
+      if (dateComp !== 0) return dateComp;
+    }
+    // Tie-breaker: position, then updated_at, then id
+    if ((a.position ?? 0) !== (b.position ?? 0)) {
+      return (a.position ?? 0) - (b.position ?? 0);
+    }
+    if (a.updated_at && b.updated_at) {
+      const updComp = b.updated_at.localeCompare(a.updated_at);
+      if (updComp !== 0) return updComp;
+    }
+    if (a.id && b.id) {
+      return a.id.localeCompare(b.id);
+    }
+    return 0;
+  });
+}
+
 function toISODate(d: string | null): string {
   return d ? d : "";
 }
@@ -1891,7 +1939,7 @@ async function selectPreviousSession(sessionId: string) {
                           </div>
 
                           <div className="space-y-2">
-                            {sortByPos(
+                            {sortTasksByDueDate(
                               tasks.filter((t) => t.column_id === c.id && (showCompletedTasks || t.status !== "Completed"))
                             ).map((t) => {
                               const le = latestEventByTask[t.id];
@@ -1969,7 +2017,7 @@ async function selectPreviousSession(sessionId: string) {
                     {milestones.length === 0 ? (
                       <div className="text-sm text-gray-600">No milestones yet.</div>
                     ) : (
-                      sortByPos(milestones).map((m) => (
+                      sortMilestonesByTargetDate(milestones).map((m) => (
                         <div
                           key={m.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
@@ -2118,16 +2166,23 @@ async function selectPreviousSession(sessionId: string) {
                   >
                     {statusOpts.length ? (
                       statusOpts.map((s) => (
-                        <option key={s.id} value={s.name}>
+                        <option 
+                          key={s.id} 
+                          value={s.name}
+                          style={{ 
+                            backgroundColor: s.color_hex || statusColor(s.name),
+                            color: 'white'
+                          }}
+                        >
                           {s.name}
                         </option>
                       ))
                     ) : (
                       <>
-                        <option>In Progress</option>
-                        <option>Needs Review</option>
-                        <option>Waiting</option>
-                        <option>Completed</option>
+                        <option style={{ backgroundColor: '#2563EB', color: 'white' }}>In Progress</option>
+                        <option style={{ backgroundColor: '#EA580C', color: 'white' }}>Needs Review</option>
+                        <option style={{ backgroundColor: '#CA8A04', color: 'white' }}>Waiting</option>
+                        <option style={{ backgroundColor: '#16A34A', color: 'white' }}>Completed</option>
                       </>
                     )}
                   </select>
@@ -2147,14 +2202,23 @@ async function selectPreviousSession(sessionId: string) {
                   >
                     {priorityOpts.length ? (
                       priorityOpts.map((p) => (
-                        <option key={p.id} value={p.name}>{p.name}</option>
+                        <option 
+                          key={p.id} 
+                          value={p.name}
+                          style={{ 
+                            backgroundColor: p.color_hex || priorityColor(p.name),
+                            color: 'white'
+                          }}
+                        >
+                          {p.name}
+                        </option>
                       ))
                     ) : (
                       <>
-                        <option>Low</option>
-                        <option>Normal</option>
-                        <option>High</option>
-                        <option>Urgent</option>
+                        <option style={{ backgroundColor: '#DC2626', color: 'white' }}>Urgent</option>
+                        <option style={{ backgroundColor: '#EA580C', color: 'white' }}>High</option>
+                        <option style={{ backgroundColor: '#2563EB', color: 'white' }}>Normal</option>
+                        <option style={{ backgroundColor: '#16A34A', color: 'white' }}>Low</option>
                       </>
                     )}
                   </select>
@@ -2626,19 +2690,33 @@ async function selectPreviousSession(sessionId: string) {
                   <label className="text-xs text-gray-600">Priority</label>
                   <select
                     className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ 
+                      backgroundColor: priorityColor(mPriority), 
+                      color: 'white',
+                      fontWeight: '500'
+                    }}
                     value={mPriority}
                     onChange={(e) => setMPriority(e.target.value)}
                   >
                     {priorityOpts.length ? (
                       priorityOpts.map((p) => (
-                        <option key={p.id} value={p.name}>{p.name}</option>
+                        <option 
+                          key={p.id} 
+                          value={p.name}
+                          style={{ 
+                            backgroundColor: p.color_hex || priorityColor(p.name),
+                            color: 'white'
+                          }}
+                        >
+                          {p.name}
+                        </option>
                       ))
                     ) : (
                       <>
-                        <option value="Urgent">Urgent</option>
-                        <option value="High">High</option>
-                        <option value="Normal">Normal</option>
-                        <option value="Low">Low</option>
+                        <option value="Urgent" style={{ backgroundColor: '#DC2626', color: 'white' }}>Urgent</option>
+                        <option value="High" style={{ backgroundColor: '#EA580C', color: 'white' }}>High</option>
+                        <option value="Normal" style={{ backgroundColor: '#2563EB', color: 'white' }}>Normal</option>
+                        <option value="Low" style={{ backgroundColor: '#16A34A', color: 'white' }}>Low</option>
                       </>
                     )}
                   </select>
