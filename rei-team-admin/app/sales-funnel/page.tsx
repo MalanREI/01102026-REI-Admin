@@ -137,8 +137,6 @@ function fmtDT(v: string | null) {
   return d.toLocaleString();
 }
 
-
-
 function normalizeHeaderMap(headers: string[]) {
   const map = new Map<string, string>();
   for (const h of headers) map.set(toKey(h), h);
