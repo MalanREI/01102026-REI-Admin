@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
-import { Button, Card, Input, Modal, Pill, Textarea, Dropdown } from "@/src/components/ui";
+import { Button, Card, Input, Modal, Pill, Textarea, Dropdown, MultiSelectDropdown } from "@/src/components/ui";
 import { prettyDate } from "@/src/lib/format";
 import { PageShell } from "@/src/components/PageShell";
 import ResizableSidebar from "@/src/components/ResizableSidebar";
@@ -280,17 +280,17 @@ export default function MeetingDetailPage() {
   const [notesCollapsed, setNotesCollapsed] = useState(false);
 
   // Advanced filtering for tasks
-  const [taskFilterStatuses, setTaskFilterStatuses] = useState<string[]>([]);
-  const [taskFilterOwner, setTaskFilterOwner] = useState<string>("");
-  const [taskFilterPriority, setTaskFilterPriority] = useState<string>("");
+  const [taskFilterStatuses, setTaskFilterStatuses] = useState<Set<string>>(new Set());
+  const [taskFilterOwners, setTaskFilterOwners] = useState<Set<string>>(new Set());
+  const [taskFilterPriorities, setTaskFilterPriorities] = useState<Set<string>>(new Set());
 
   // Advanced filtering for milestones
-  const [milestoneFilterStatus, setMilestoneFilterStatus] = useState<string>("");
-  const [milestoneFilterOwner, setMilestoneFilterOwner] = useState<string>("");
-  const [milestoneFilterPriority, setMilestoneFilterPriority] = useState<string>("");
+  const [milestoneFilterStatuses, setMilestoneFilterStatuses] = useState<Set<string>>(new Set());
+  const [milestoneFilterOwners, setMilestoneFilterOwners] = useState<Set<string>>(new Set());
+  const [milestoneFilterPriorities, setMilestoneFilterPriorities] = useState<Set<string>>(new Set());
 
   // Advanced filtering for notes
-  const [noteFilterCategory, setNoteFilterCategory] = useState<string>("");
+  const [noteFilterCategories, setNoteFilterCategories] = useState<Set<string>>(new Set());
 
   // UI toggles
   const [prevMeetingsOpen, setPrevMeetingsOpen] = useState(false);
@@ -374,12 +374,12 @@ export default function MeetingDetailPage() {
   // Memoized filtered collections to avoid redundant filtering
   const filteredMilestones = useMemo(
     () => applyMilestoneFilters(milestones),
-    [milestones, milestoneFilterStatus, milestoneFilterOwner, milestoneFilterPriority]
+    [milestones, milestoneFilterStatuses, milestoneFilterOwners, milestoneFilterPriorities, attendees, priorities]
   );
 
   const filteredNotes = useMemo(
     () => applyNoteFilters(ongoingNotes),
-    [ongoingNotes, noteFilterCategory]
+    [ongoingNotes, noteFilterCategories, availableNoteCategories]
   );
 
   function ownerColor(ownerId: string | null): string {
@@ -507,13 +507,16 @@ function firstNameFromEmail(email: string | null | undefined): string | null {
 
 function profileName(userId: string | null | undefined): string {
   if (!userId) return "Unknown User";
+  
+  // First try to find in profiles by id
   const p = profiles.find((x) => x.id === userId);
-
-  const fn = firstNameFromFullName(p?.full_name);
-  if (fn) return fn;
-
-  const fe = firstNameFromEmail(p?.email);
-  if (fe) return fe;
+  if (p) {
+    const fn = firstNameFromFullName(p.full_name);
+    if (fn) return fn;
+    
+    const fe = firstNameFromEmail(p.email);
+    if (fe) return fe;
+  }
 
   // Try to find in attendees by user_id
   const attendee = attendees.find((a) => a.user_id === userId);
@@ -526,6 +529,17 @@ function profileName(userId: string | null | undefined): string {
     
     // Return email as fallback
     if (attendee.email) return attendee.email;
+  }
+
+  // Try to find in attendees by email (in case userId is actually an email)
+  if (userId.includes("@")) {
+    const attendeeByEmail = attendees.find((a) => a.email?.toLowerCase() === userId.toLowerCase());
+    if (attendeeByEmail) {
+      const aFn = firstNameFromFullName(attendeeByEmail.full_name);
+      if (aFn) return aFn;
+      
+      return attendeeByEmail.email;
+    }
   }
 
   // Return user ID as last resort instead of "Unknown"
@@ -584,21 +598,24 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   // Filter helpers
   function applyTaskFilters(tasksToFilter: Task[]): Task[] {
     return tasksToFilter.filter((t) => {
-      // Status filter (multi-select - if empty, show all)
-      if (taskFilterStatuses.length > 0 && !taskFilterStatuses.includes(t.status)) {
+      // Status filter (if size matches all statuses or is 0, show all; otherwise filter)
+      const allStatuses = statuses.length;
+      if (taskFilterStatuses.size > 0 && taskFilterStatuses.size < allStatuses && !taskFilterStatuses.has(t.status)) {
         return false;
       }
 
-      // Owner filter
-      if (taskFilterOwner) {
+      // Owner filter (if size matches all owners or is 0, show all; otherwise filter)
+      const allOwners = attendees.length;
+      if (taskFilterOwners.size > 0 && taskFilterOwners.size < allOwners) {
         const taskOwner = formatOwnerForForm(t.owner_id, t.owner_email);
-        if (taskOwner !== taskFilterOwner) {
+        if (!taskFilterOwners.has(taskOwner)) {
           return false;
         }
       }
 
-      // Priority filter
-      if (taskFilterPriority && t.priority !== taskFilterPriority) {
+      // Priority filter (if size matches all priorities or is 0, show all; otherwise filter)
+      const allPriorities = priorities.length;
+      if (taskFilterPriorities.size > 0 && taskFilterPriorities.size < allPriorities && !taskFilterPriorities.has(t.priority)) {
         return false;
       }
 
@@ -607,17 +624,23 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   }
 
   function applyMilestoneFilters(milestonesToFilter: Milestone[]): Milestone[] {
+    const milestoneStatuses = ["Pending", "In Progress", "Completed", "Delayed"];
     return milestonesToFilter.filter((m) => {
-      if (milestoneFilterStatus && m.status !== milestoneFilterStatus) {
+      // Status filter
+      if (milestoneFilterStatuses.size > 0 && milestoneFilterStatuses.size < milestoneStatuses.length && !milestoneFilterStatuses.has(m.status)) {
         return false;
       }
-      if (milestoneFilterOwner) {
+      // Owner filter
+      const allOwners = attendees.length;
+      if (milestoneFilterOwners.size > 0 && milestoneFilterOwners.size < allOwners) {
         const milestoneOwner = formatOwnerForForm(m.owner_id, m.owner_email);
-        if (milestoneOwner !== milestoneFilterOwner) {
+        if (!milestoneFilterOwners.has(milestoneOwner)) {
           return false;
         }
       }
-      if (milestoneFilterPriority && m.priority !== milestoneFilterPriority) {
+      // Priority filter
+      const allPriorities = priorities.length;
+      if (milestoneFilterPriorities.size > 0 && milestoneFilterPriorities.size < allPriorities && !milestoneFilterPriorities.has(m.priority)) {
         return false;
       }
       return true;
@@ -625,20 +648,28 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   }
 
   function applyNoteFilters(notesToFilter: OngoingNote[]): OngoingNote[] {
-    if (!noteFilterCategory) return notesToFilter;
-    return notesToFilter.filter((n) => n.category === noteFilterCategory);
+    const allCategories = availableNoteCategories.length;
+    if (noteFilterCategories.size === 0 || noteFilterCategories.size === allCategories) {
+      return notesToFilter;
+    }
+    return notesToFilter.filter((n) => n.category && noteFilterCategories.has(n.category));
   }
 
   function clearTaskFilters() {
-    setTaskFilterStatuses([]);
-    setTaskFilterOwner("");
-    setTaskFilterPriority("");
+    setTaskFilterStatuses(new Set(statuses.map((s) => s.name)));
+    setTaskFilterOwners(new Set(attendees.map((a) => formatOwnerForForm(a.user_id, a.email))));
+    setTaskFilterPriorities(new Set(priorities.map((p) => p.name)));
   }
 
   function clearMilestoneFilters() {
-    setMilestoneFilterStatus("");
-    setMilestoneFilterOwner("");
-    setMilestoneFilterPriority("");
+    const milestoneStatuses = ["Pending", "In Progress", "Completed", "Delayed"];
+    setMilestoneFilterStatuses(new Set(milestoneStatuses));
+    setMilestoneFilterOwners(new Set(attendees.map((a) => formatOwnerForForm(a.user_id, a.email))));
+    setMilestoneFilterPriorities(new Set(priorities.map((p) => p.name)));
+  }
+
+  function clearNoteFilters() {
+    setNoteFilterCategories(new Set(availableNoteCategories));
   }
 
 
@@ -841,6 +872,52 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
+
+  // Initialize task filters when data is loaded
+  useEffect(() => {
+    if (statuses.length > 0 && taskFilterStatuses.size === 0) {
+      setTaskFilterStatuses(new Set(statuses.map((s) => s.name)));
+    }
+  }, [statuses, taskFilterStatuses.size]);
+
+  useEffect(() => {
+    if (attendees.length > 0 && taskFilterOwners.size === 0) {
+      setTaskFilterOwners(new Set(attendees.map((a) => formatOwnerForForm(a.user_id, a.email))));
+    }
+  }, [attendees, taskFilterOwners.size]);
+
+  useEffect(() => {
+    if (priorities.length > 0 && taskFilterPriorities.size === 0) {
+      setTaskFilterPriorities(new Set(priorities.map((p) => p.name)));
+    }
+  }, [priorities, taskFilterPriorities.size]);
+
+  // Initialize milestone filters when data is loaded
+  useEffect(() => {
+    const milestoneStatuses = ["Pending", "In Progress", "Completed", "Delayed"];
+    if (milestoneFilterStatuses.size === 0) {
+      setMilestoneFilterStatuses(new Set(milestoneStatuses));
+    }
+  }, [milestoneFilterStatuses.size]);
+
+  useEffect(() => {
+    if (attendees.length > 0 && milestoneFilterOwners.size === 0) {
+      setMilestoneFilterOwners(new Set(attendees.map((a) => formatOwnerForForm(a.user_id, a.email))));
+    }
+  }, [attendees, milestoneFilterOwners.size]);
+
+  useEffect(() => {
+    if (priorities.length > 0 && milestoneFilterPriorities.size === 0) {
+      setMilestoneFilterPriorities(new Set(priorities.map((p) => p.name)));
+    }
+  }, [priorities, milestoneFilterPriorities.size]);
+
+  // Initialize note filters when categories are available
+  useEffect(() => {
+    if (availableNoteCategories.length > 0 && noteFilterCategories.size === 0) {
+      setNoteFilterCategories(new Set(availableNoteCategories));
+    }
+  }, [availableNoteCategories, noteFilterCategories.size]);
 
 
   async function ensureSelfProfile() {
@@ -2042,59 +2119,39 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
                     <div className="grid gap-3 md:grid-cols-4">
                       <div>
-                        <label className="text-xs text-gray-600 mb-1 block">Status (multi)</label>
-                        <select
-                          multiple
-                          size={3}
-                          className="w-full rounded border px-2 py-1 text-xs"
-                          value={taskFilterStatuses}
-                          onChange={(e) => {
-                            const selected = Array.from(e.target.selectedOptions, (opt) => opt.value);
-                            setTaskFilterStatuses(selected);
-                          }}
-                        >
-                          {statuses.map((s) => (
-                            <option key={s.id} value={s.name}>
-                              {s.name}
-                            </option>
-                          ))}
-                        </select>
+                        <label className="text-xs text-gray-600 mb-1 block">Status</label>
+                        <MultiSelectDropdown
+                          label="Status"
+                          options={statuses.map((s) => ({ value: s.name, label: s.name }))}
+                          selected={taskFilterStatuses}
+                          onChange={setTaskFilterStatuses}
+                        />
                       </div>
                       <div>
                         <label className="text-xs text-gray-600 mb-1 block">Owner</label>
-                        <select
-                          className="w-full rounded border px-2 py-1 text-xs"
-                          value={taskFilterOwner}
-                          onChange={(e) => setTaskFilterOwner(e.target.value)}
-                        >
-                          <option value="">All</option>
-                          {attendees.map((a) => (
-                            <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
-                              {a.full_name || a.email}
-                            </option>
-                          ))}
-                        </select>
+                        <MultiSelectDropdown
+                          label="Owner"
+                          options={attendees.map((a) => ({
+                            value: formatOwnerForForm(a.user_id, a.email),
+                            label: a.full_name || a.email,
+                          }))}
+                          selected={taskFilterOwners}
+                          onChange={setTaskFilterOwners}
+                        />
                       </div>
                       <div>
                         <label className="text-xs text-gray-600 mb-1 block">Priority</label>
-                        <select
-                          className="w-full rounded border px-2 py-1 text-xs"
-                          value={taskFilterPriority}
-                          onChange={(e) => setTaskFilterPriority(e.target.value)}
-                        >
-                          <option value="">All</option>
-                          {priorities.map((p) => (
-                            <option key={p.id} value={p.name}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
+                        <MultiSelectDropdown
+                          label="Priority"
+                          options={priorities.map((p) => ({ value: p.name, label: p.name }))}
+                          selected={taskFilterPriorities}
+                          onChange={setTaskFilterPriorities}
+                        />
                       </div>
                       <div className="flex items-end">
                         <Button
                           variant="ghost"
                           onClick={clearTaskFilters}
-                          disabled={taskFilterStatuses.length === 0 && !taskFilterOwner && !taskFilterPriority}
                         >
                           Clear Filters
                         </Button>
@@ -2208,53 +2265,43 @@ async function selectPreviousSession(sessionId: string) {
                       <div className="grid gap-3 md:grid-cols-4">
                         <div>
                           <label className="text-xs text-gray-600 mb-1 block">Status</label>
-                          <select
-                            className="w-full rounded border px-2 py-1 text-xs"
-                            value={milestoneFilterStatus}
-                            onChange={(e) => setMilestoneFilterStatus(e.target.value)}
-                          >
-                            <option value="">All</option>
-                            <option value="Pending">Pending</option>
-                            <option value="In Progress">In Progress</option>
-                            <option value="Completed">Completed</option>
-                            <option value="Delayed">Delayed</option>
-                          </select>
+                          <MultiSelectDropdown
+                            label="Status"
+                            options={[
+                              { value: "Pending", label: "Pending" },
+                              { value: "In Progress", label: "In Progress" },
+                              { value: "Completed", label: "Completed" },
+                              { value: "Delayed", label: "Delayed" },
+                            ]}
+                            selected={milestoneFilterStatuses}
+                            onChange={setMilestoneFilterStatuses}
+                          />
                         </div>
                         <div>
                           <label className="text-xs text-gray-600 mb-1 block">Owner</label>
-                          <select
-                            className="w-full rounded border px-2 py-1 text-xs"
-                            value={milestoneFilterOwner}
-                            onChange={(e) => setMilestoneFilterOwner(e.target.value)}
-                          >
-                            <option value="">All</option>
-                            {attendees.map((a) => (
-                              <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
-                                {a.full_name || a.email}
-                              </option>
-                            ))}
-                          </select>
+                          <MultiSelectDropdown
+                            label="Owner"
+                            options={attendees.map((a) => ({
+                              value: formatOwnerForForm(a.user_id, a.email),
+                              label: a.full_name || a.email,
+                            }))}
+                            selected={milestoneFilterOwners}
+                            onChange={setMilestoneFilterOwners}
+                          />
                         </div>
                         <div>
                           <label className="text-xs text-gray-600 mb-1 block">Priority</label>
-                          <select
-                            className="w-full rounded border px-2 py-1 text-xs"
-                            value={milestoneFilterPriority}
-                            onChange={(e) => setMilestoneFilterPriority(e.target.value)}
-                          >
-                            <option value="">All</option>
-                            {priorities.map((p) => (
-                              <option key={p.id} value={p.name}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
+                          <MultiSelectDropdown
+                            label="Priority"
+                            options={priorities.map((p) => ({ value: p.name, label: p.name }))}
+                            selected={milestoneFilterPriorities}
+                            onChange={setMilestoneFilterPriorities}
+                          />
                         </div>
                         <div className="flex items-end">
                           <Button
                             variant="ghost"
                             onClick={clearMilestoneFilters}
-                            disabled={!milestoneFilterStatus && !milestoneFilterOwner && !milestoneFilterPriority}
                           >
                             Clear
                           </Button>
@@ -2323,21 +2370,27 @@ async function selectPreviousSession(sessionId: string) {
                 {!notesCollapsed && (
                   <>
                     {/* Filter bar */}
-                    {ongoingNotes.some((n) => n.category) && (
-                      <div className="mb-3 flex items-center gap-2">
-                        <label className="text-xs text-gray-600">Category:</label>
-                        <select
-                          className="rounded border px-2 py-1 text-xs"
-                          value={noteFilterCategory}
-                          onChange={(e) => setNoteFilterCategory(e.target.value)}
-                        >
-                          <option value="">All</option>
-                          {Array.from(new Set(ongoingNotes.filter((n) => n.category).map((n) => n.category!))).map((cat) => (
-                            <option key={cat} value={cat}>
-                              {cat}
-                            </option>
-                          ))}
-                        </select>
+                    {availableNoteCategories.length > 0 && (
+                      <div className="mb-3 p-3 bg-gray-50 rounded-lg border">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div>
+                            <label className="text-xs text-gray-600 mb-1 block">Category</label>
+                            <MultiSelectDropdown
+                              label="Category"
+                              options={availableNoteCategories.map((cat) => ({ value: cat, label: cat }))}
+                              selected={noteFilterCategories}
+                              onChange={setNoteFilterCategories}
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <Button
+                              variant="ghost"
+                              onClick={clearNoteFilters}
+                            >
+                              Clear
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     )}
 
