@@ -187,3 +187,115 @@ export function Dropdown({
     </div>
   );
 }
+
+export function MultiSelectDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ value: string; label: string }>;
+  selected: Set<string>;
+  onChange: (selected: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const allSelected = selected.size === options.length;
+  const summary = allSelected ? "All" : `${selected.size} selected`;
+
+  const handleSelectAll = () => {
+    onChange(new Set(options.map((o) => o.value)));
+  };
+
+  const handleSelectNone = () => {
+    onChange(new Set());
+  };
+
+  const handleInvertSelection = () => {
+    const newSelected = new Set<string>();
+    for (const opt of options) {
+      if (!selected.has(opt.value)) {
+        newSelected.add(opt.value);
+      }
+    }
+    onChange(newSelected);
+  };
+
+  const handleToggle = (value: string) => {
+    const newSelected = new Set(selected);
+    if (newSelected.has(value)) {
+      newSelected.delete(value);
+    } else {
+      newSelected.add(value);
+    }
+    onChange(newSelected);
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full text-left rounded border px-2 py-1 text-xs bg-white hover:bg-gray-50"
+      >
+        {label}: {summary}
+      </button>
+      {open && (
+        <div className="absolute left-0 mt-1 w-full min-w-[200px] rounded-lg border bg-white shadow-lg z-50 max-h-80 overflow-auto">
+          <div className="p-2 border-b bg-gray-50 flex gap-2">
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              className="text-xs px-2 py-1 rounded hover:bg-gray-200"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectNone}
+              className="text-xs px-2 py-1 rounded hover:bg-gray-200"
+            >
+              None
+            </button>
+            <button
+              type="button"
+              onClick={handleInvertSelection}
+              className="text-xs px-2 py-1 rounded hover:bg-gray-200"
+            >
+              Invert
+            </button>
+          </div>
+          <div className="py-1">
+            {options.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(opt.value)}
+                  onChange={() => handleToggle(opt.value)}
+                  className="rounded"
+                />
+                <span>{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
