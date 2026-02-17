@@ -240,8 +240,6 @@ export default function MeetingDetailPage() {
   const [priorityMgrOpen, setPriorityMgrOpen] = useState(false);
   const [attendeesMgrOpen, setAttendeesMgrOpen] = useState(false);
   const [emailSettingsOpen, setEmailSettingsOpen] = useState(false);
-  const [profileColorOpen, setProfileColorOpen] = useState(false);
-  const [myProfileColor, setMyProfileColor] = useState("#6B7280");
   const [reminderFreq, setReminderFreq] = useState<
   "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
 >("weekly");
@@ -309,6 +307,17 @@ export default function MeetingDetailPage() {
     if (!email) return "#E5E7EB";
     const a = attendees.find((x) => x.email?.toLowerCase() === email.toLowerCase());
     return a?.color_hex || "#E5E7EB";
+  }
+
+  // Helper to get color for task/milestone owner
+  function getOwnerColor(task: { owner_id: string | null; owner_email?: string | null }): string {
+    if (task.owner_id) {
+      return ownerColor(task.owner_id);
+    }
+    if (task.owner_email) {
+      return attendeeColor(task.owner_email);
+    }
+    return "#E5E7EB";
   }
 
   function priorityColor(priority: string): string {
@@ -412,7 +421,7 @@ function firstNameFromEmail(email: string | null | undefined): string | null {
 }
 
 function profileName(userId: string | null | undefined): string {
-  if (!userId) return "Unknown";
+  if (!userId) return "Unknown User";
   const p = profiles.find((x) => x.id === userId);
 
   const fn = firstNameFromFullName(p?.full_name);
@@ -421,7 +430,21 @@ function profileName(userId: string | null | undefined): string {
   const fe = firstNameFromEmail(p?.email);
   if (fe) return fe;
 
-  return "Unknown";
+  // Try to find in attendees by user_id
+  const attendee = attendees.find((a) => a.user_id === userId);
+  if (attendee) {
+    const aFn = firstNameFromFullName(attendee.full_name);
+    if (aFn) return aFn;
+    
+    const aFe = firstNameFromEmail(attendee.email);
+    if (aFe) return aFe;
+    
+    // Return email as fallback
+    if (attendee.email) return attendee.email;
+  }
+
+  // Return user ID as last resort instead of "Unknown"
+  return userId.slice(0, 8) + "...";
 }
 
 function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): string {
@@ -1567,38 +1590,7 @@ async function selectPreviousSession(sessionId: string) {
     if (!r.error && (r.data as any)?.reminder_frequency) setReminderFreq(((r.data as any).reminder_frequency as any) ?? "weekly");
   }
 
-  async function loadMyProfileColor() {
-    const { data: userData } = await sb.auth.getUser();
-    const userId = userData?.user?.id;
-    if (!userId) return;
-    
-    const profile = profiles.find((p) => p.id === userId);
-    if (profile?.color_hex) {
-      setMyProfileColor(profile.color_hex);
-    }
-  }
 
-  async function saveMyProfileColor() {
-    setBusy(true);
-    try {
-      const { data: userData } = await sb.auth.getUser();
-      const userId = userData?.user?.id;
-      if (!userId) throw new Error("Not authenticated");
-
-      await sb.from("profiles").update({ color_hex: myProfileColor }).eq("id", userId);
-      
-      // Update local profiles state
-      setProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, color_hex: myProfileColor } : p)));
-      
-      setProfileColorOpen(false);
-      setInfo("Profile color saved!");
-      setTimeout(() => setInfo(null), 3000);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to save profile color");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function addStatus(name: string) {
     const trimmed = name.trim();
@@ -1752,13 +1744,6 @@ async function selectPreviousSession(sessionId: string) {
                   { label: "Task priorities", onClick: () => setPriorityMgrOpen(true) },
                   { label: "Edit attendees", onClick: () => setAttendeesMgrOpen(true) },
                   { label: "Email settings", onClick: () => setEmailSettingsOpen(true) },
-                  { 
-                    label: "My profile color", 
-                    onClick: async () => {
-                      await loadMyProfileColor();
-                      setProfileColorOpen(true);
-                    } 
-                  },
                 ]}
               />
               
@@ -1877,7 +1862,6 @@ async function selectPreviousSession(sessionId: string) {
                     >
                       {showCompletedTasks ? "Showing Completed" : "Hiding Completed"}
                     </button>
-                    <div className="text-xs text-gray-500">Drag cards between columns • Scroll horizontally if needed</div>
                   </div>
                 }
               >
@@ -1915,7 +1899,7 @@ async function selectPreviousSession(sessionId: string) {
                                 <DraggableTaskCard key={t.id} id={t.id}>
                                   <div
                                     className="rounded-xl border bg-white p-3 cursor-pointer select-none"
-                                    style={{ borderLeft: `6px solid ${ownerColor(t.owner_id)}` }}
+                                    style={{ borderLeft: `6px solid ${getOwnerColor(t)}` }}
                                     onClick={() => openEditTask(t.id)}
                                   >
                                     <div className="text-sm font-semibold">{t.title}</div>
@@ -1989,7 +1973,7 @@ async function selectPreviousSession(sessionId: string) {
                         <div
                           key={m.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
-                          style={{ borderLeft: `6px solid ${ownerColor(m.owner_id)}` }}
+                          style={{ borderLeft: `6px solid ${getOwnerColor(m)}` }}
                           onClick={() => openEditMilestone(m.id)}
                         >
                           <div className="text-sm font-semibold">{m.title}</div>
@@ -2777,59 +2761,6 @@ async function selectPreviousSession(sessionId: string) {
                   <option value="biweekly">Every 2 weeks</option>
                   <option value="monthly">Monthly</option>
                 </select>
-              </div>
-            </div>
-          </Modal>
-
-          {/* Profile Color modal */}
-          <Modal
-            open={profileColorOpen}
-            title="My Profile Color"
-            onClose={() => setProfileColorOpen(false)}
-            footer={
-              <>
-                <Button variant="ghost" onClick={() => setProfileColorOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={saveMyProfileColor} disabled={busy}>
-                  Save
-                </Button>
-              </>
-            }
-          >
-            <div className="space-y-3">
-              <div className="text-sm text-gray-600">
-                This color will be used as the border color for tasks and milestones assigned to you.
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-600 mb-2 block">Choose your color</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={myProfileColor}
-                    onChange={(e) => setMyProfileColor(e.target.value)}
-                    className="w-24 h-12 rounded border cursor-pointer"
-                  />
-                  <div className="flex-1">
-                    <Input
-                      value={myProfileColor}
-                      onChange={(e) => setMyProfileColor(e.target.value)}
-                      placeholder="#6B7280"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-gray-600 mb-2">Preview</div>
-                <div
-                  className="rounded-xl border bg-white p-3"
-                  style={{ borderLeft: `6px solid ${myProfileColor}` }}
-                >
-                  <div className="text-sm font-semibold">Sample Task Card</div>
-                  <div className="text-xs text-gray-600 mt-1">This is how your tasks will appear</div>
-                </div>
               </div>
             </div>
           </Modal>
