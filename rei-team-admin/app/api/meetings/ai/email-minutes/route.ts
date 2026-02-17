@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     if (attendeesRes.error) throw attendeesRes.error;
 
     const attendees = (attendeesRes.data ?? [])
-      .map((x: any) => String(x.email).trim())
+      .map((x: { email: string }) => String(x.email).trim())
       .filter(Boolean);
 
     if (!attendees.length) {
@@ -69,7 +69,8 @@ export async function POST(req: Request) {
 
     const notesByAgenda: Record<string, string> = {};
     for (const row of notesRes.data ?? []) {
-      notesByAgenda[(row as any).agenda_item_id] = (row as any).notes ?? "";
+      const typedRow = row as { agenda_item_id: string; notes?: string };
+      notesByAgenda[typedRow.agenda_item_id] = typedRow.notes ?? "";
     }
 
     const baseUrl = process.env.APP_BASE_URL || new URL(req.url).origin;
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
     const started = new Date(meetingRes.data.start_at);
 
     const rowsHtml = (agendaRes.data ?? [])
-      .map((a: any) => {
+      .map((a: { id: string; code?: string; title: string; description?: string }) => {
         const code = a.code
           ? `<span style="color:#6b7280; font-size:12px;">${escapeHtml(
               a.code
@@ -166,9 +167,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, sent: attendees.length });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { error: e?.message ?? "Failed to email minutes" },
+      { error: (e as Error)?.message ?? "Failed to email minutes" },
       { status: 500 }
     );
   }

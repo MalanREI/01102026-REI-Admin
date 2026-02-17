@@ -57,7 +57,7 @@ type Activity = {
   created_by_profile?: { id: string; full_name: string | null } | null;
 };
 
-type ImportRow = Record<string, any>;
+type ImportRow = Record<string, unknown>;
 
 type CRMViewType = "company" | "contact" | "project";
 
@@ -86,23 +86,23 @@ type ProjectBoard = Project;
 
 const ACTIVITY_KIND_VALUES = ["Call", "Voicemail", "Text", "Email", "Note"] as const;
 
-function coerceActivityKind(v: any): ActivityKind {
+function coerceActivityKind(v: unknown): ActivityKind {
   const s = String(v ?? "Note");
   return (ACTIVITY_KIND_VALUES as readonly string[]).includes(s) ? (s as ActivityKind) : "Note";
 }
 
-function normalizeProfileJoin(v: any): { id: string; full_name: string | null } | null {
+function normalizeProfileJoin(v: unknown): { id: string; full_name: string | null } | null {
   // Supabase join returns an array: [{ id, full_name }]
   const arr = Array.isArray(v) ? v : [];
   if (!arr.length) return null;
-  const r = arr[0] ?? {};
+  const r = arr[0] as Record<string, unknown>;
   return {
     id: String(r.id),
     full_name: r.full_name != null ? String(r.full_name) : null,
   };
 }
 
-function normalizeActivityRow(a: any): Activity {
+function normalizeActivityRow(a: Record<string, unknown>): Activity {
   return {
     id: String(a.id),
     company_id: String(a.company_id),
@@ -116,7 +116,7 @@ function normalizeActivityRow(a: any): Activity {
 }
 
 
-function cleanStr(v: any) {
+function cleanStr(v: unknown) {
   const s = String(v ?? "").trim();
   return s.length ? s : "";
 }
@@ -125,7 +125,7 @@ function toKey(s: string) {
   return cleanStr(s).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-function truthy(v: any) {
+function truthy(v: unknown) {
   const s = cleanStr(v).toLowerCase();
   return ["1", "true", "yes", "y", "main", "primary"].includes(s);
 }
@@ -135,14 +135,6 @@ function fmtDT(v: string | null) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return v;
   return d.toLocaleString();
-}
-
-function pick(obj: ImportRow, keys: string[]) {
-  for (const k of keys) {
-    const v = obj[k];
-    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
-  }
-  return "";
 }
 
 function normalizeHeaderMap(headers: string[]) {
@@ -268,7 +260,7 @@ export default function SalesFunnelPage() {
 
   // Import
   const [importFileName, setImportFileName] = useState<string>("");
-  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
   const [importError, setImportError] = useState<string>("");
   const [importDupMode, setImportDupMode] = useState<"skip" | "upsert">("upsert");
   const [importBusy, setImportBusy] = useState(false);
@@ -300,19 +292,19 @@ export default function SalesFunnelPage() {
 
         // Supabase returns the joined main_contact relation as an array.
         // Normalize it into a single object so the UI + types stay clean.
-        const normalized: Company[] = (companiesRes.data ?? []).map((row: any) => {
+        const normalized: Company[] = (companiesRes.data ?? []).map((row: Record<string, unknown>) => {
           const mcArr = Array.isArray(row?.main_contact) ? row.main_contact : [];
           const mc = mcArr.length ? (mcArr[0] as ContactLite) : null;
           return {
             id: String(row.id),
             name: String(row.name ?? ""),
             stage_id: row.stage_id ? String(row.stage_id) : null,
-            website: row.website ?? null,
-            phone: row.phone ?? null,
-            email: row.email ?? null,
-            notes: row.notes ?? null,
+            website: row.website ? String(row.website) : null,
+            phone: row.phone ? String(row.phone) : null,
+            email: row.email ? String(row.email) : null,
+            notes: row.notes ? String(row.notes) : null,
             main_contact_id: row.main_contact_id ? String(row.main_contact_id) : null,
-            last_activity_at: row.last_activity_at ?? null,
+            last_activity_at: row.last_activity_at ? String(row.last_activity_at) : null,
             created_at: String(row.created_at),
             updated_at: String(row.updated_at),
             main_contact: mc,
@@ -335,22 +327,22 @@ export default function SalesFunnelPage() {
 
         if (contactsRes.error) throw contactsRes.error;
 
-        const normalized: ContactBoard[] = (contactsRes.data ?? []).map((r: any) => {
+        const normalized: ContactBoard[] = (contactsRes.data ?? []).map((r: Record<string, unknown>) => {
           const cArr = Array.isArray(r?.company) ? r.company : [];
-          const c = cArr.length ? { id: String(cArr[0].id), name: String(cArr[0].name ?? "") } : null;
+          const c = cArr.length ? { id: String((cArr[0] as Record<string, unknown>).id), name: String((cArr[0] as Record<string, unknown>).name ?? "") } : null;
           return {
             id: String(r.id),
             company_id: String(r.company_id),
             stage_id: r.stage_id ? String(r.stage_id) : null,
-            first_name: r.first_name ?? null,
-            last_name: r.last_name ?? null,
-            full_name: r.full_name ?? null,
-            title: r.title ?? null,
-            phone: r.phone ?? null,
-            email: r.email ?? null,
-            notes: r.notes ?? null,
+            first_name: r.first_name ? String(r.first_name) : null,
+            last_name: r.last_name ? String(r.last_name) : null,
+            full_name: r.full_name ? String(r.full_name) : null,
+            title: r.title ? String(r.title) : null,
+            phone: r.phone ? String(r.phone) : null,
+            email: r.email ? String(r.email) : null,
+            notes: r.notes ? String(r.notes) : null,
             is_main: !!r.is_main,
-            last_activity_at: r.last_activity_at ?? null,
+            last_activity_at: r.last_activity_at ? String(r.last_activity_at) : null,
             created_at: String(r.created_at),
             company: c,
           };
@@ -370,17 +362,17 @@ export default function SalesFunnelPage() {
 
         if (projectsRes.error) throw projectsRes.error;
 
-        const normalized: ProjectBoard[] = (projectsRes.data ?? []).map((r: any) => {
+        const normalized: ProjectBoard[] = (projectsRes.data ?? []).map((r: Record<string, unknown>) => {
           const cArr = Array.isArray(r?.company) ? r.company : [];
-          const c = cArr.length ? { id: String(cArr[0].id), name: String(cArr[0].name ?? "") } : null;
+          const c = cArr.length ? { id: String((cArr[0] as Record<string, unknown>).id), name: String((cArr[0] as Record<string, unknown>).name ?? "") } : null;
           return {
             id: String(r.id),
             company_id: r.company_id ? String(r.company_id) : null,
             name: String(r.name ?? ""),
             stage_id: r.stage_id ? String(r.stage_id) : null,
-            website: r.website ?? null,
-            notes: r.notes ?? null,
-            last_activity_at: r.last_activity_at ?? null,
+            website: r.website ? String(r.website) : null,
+            notes: r.notes ? String(r.notes) : null,
+            last_activity_at: r.last_activity_at ? String(r.last_activity_at) : null,
             created_at: String(r.created_at),
             updated_at: String(r.updated_at),
             company: c,
@@ -392,9 +384,9 @@ export default function SalesFunnelPage() {
         setContactsBoard([]);
       }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to load CRM board.");
+      alert((e as Error)?.message ?? "Failed to load CRM board.");
     } finally {
       setLoading(false);
     }
@@ -559,9 +551,9 @@ export default function SalesFunnelPage() {
         if (res.error) throw res.error;
         setProjectsBoard((prev) => prev.map((p) => (p.id === entityId ? { ...p, stage_id: stageId } : p)));
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to move card.");
+      alert((e as Error)?.message ?? "Failed to move card.");
     }
   }
 
@@ -573,9 +565,9 @@ export default function SalesFunnelPage() {
       if (res.error) throw res.error;
 
       setCompanies((prev) => prev.map((c) => (c.id === companyId ? { ...c, stage_id: stageId } : c)));
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to move company.");
+      alert((e as Error)?.message ?? "Failed to move company.");
     }
   }
 
@@ -618,7 +610,7 @@ export default function SalesFunnelPage() {
 
       // Supabase returns the joined main_contact relation as an array.
       // Normalize it into a single object to satisfy our Company type.
-      const row: any = compRes.data;
+      const row = compRes.data as Record<string, unknown>;
       const mcArr = Array.isArray(row?.main_contact) ? row.main_contact : [];
       const mc = mcArr.length ? (mcArr[0] as ContactLite) : null;
 
@@ -626,12 +618,12 @@ export default function SalesFunnelPage() {
         id: String(row.id),
         name: String(row.name ?? ""),
         stage_id: row.stage_id ? String(row.stage_id) : null,
-        website: row.website ?? null,
-        phone: row.phone ?? null,
-        email: row.email ?? null,
-        notes: row.notes ?? null,
+        website: row.website ? String(row.website) : null,
+        phone: row.phone ? String(row.phone) : null,
+        email: row.email ? String(row.email) : null,
+        notes: row.notes ? String(row.notes) : null,
         main_contact_id: row.main_contact_id ? String(row.main_contact_id) : null,
-        last_activity_at: row.last_activity_at ?? null,
+        last_activity_at: row.last_activity_at ? String(row.last_activity_at) : null,
         created_at: String(row.created_at),
         updated_at: String(row.updated_at),
         main_contact: mc,
@@ -640,16 +632,16 @@ export default function SalesFunnelPage() {
       setCompanyDetail(normalizedCompany);
       setCompanyContacts((contactsRes.data ?? []) as Contact[]);
       // Normalize activity rows (joins come back as arrays)
-      const actsRaw: any[] = (actsRes.data ?? []) as any[];
+      const actsRaw = (actsRes.data ?? []) as Record<string, unknown>[];
       const normalizedActs: Activity[] = actsRaw.map(normalizeActivityRow);
       setActivities(normalizedActs);
 // select main contact if present
-      const mainId = (compRes.data as any)?.main_contact_id as string | null;
+      const mainId = (compRes.data as Record<string, unknown>)?.main_contact_id as string | null;
       if (mainId) setSelectedContactId(mainId);
       else if (contactsRes.data?.[0]?.id) setSelectedContactId(contactsRes.data[0].id);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to load company details.");
+      alert((e as Error)?.message ?? "Failed to load company details.");
       setOpenCompanyId(null);
     }
   }
@@ -686,33 +678,33 @@ export default function SalesFunnelPage() {
         .limit(200);
       if (actsRes.error) throw actsRes.error;
 
-      const row: any = cRes.data;
+      const row = cRes.data as Record<string, unknown>;
       const compArr = Array.isArray(row?.company) ? row.company : [];
-      const comp = compArr.length ? { id: String(compArr[0].id), name: String(compArr[0].name ?? "") } : null;
+      const comp = compArr.length ? { id: String((compArr[0] as Record<string, unknown>).id), name: String((compArr[0] as Record<string, unknown>).name ?? "") } : null;
 
       const normalizedContact: ContactBoard = {
         id: String(row.id),
         company_id: String(row.company_id),
         stage_id: row.stage_id ? String(row.stage_id) : null,
-        first_name: row.first_name ?? null,
-        last_name: row.last_name ?? null,
-        full_name: row.full_name ?? null,
-        title: row.title ?? null,
-        phone: row.phone ?? null,
-        email: row.email ?? null,
-        notes: row.notes ?? null,
+        first_name: row.first_name ? String(row.first_name) : null,
+        last_name: row.last_name ? String(row.last_name) : null,
+        full_name: row.full_name ? String(row.full_name) : null,
+        title: row.title ? String(row.title) : null,
+        phone: row.phone ? String(row.phone) : null,
+        email: row.email ? String(row.email) : null,
+        notes: row.notes ? String(row.notes) : null,
         is_main: !!row.is_main,
-        last_activity_at: row.last_activity_at ?? null,
+        last_activity_at: row.last_activity_at ? String(row.last_activity_at) : null,
         created_at: String(row.created_at),
         company: comp,
       };
 
-      const normalizedProjects: Project[] = (pjRes.data ?? []).map((r: any) => {
+      const normalizedProjects: Project[] = (pjRes.data ?? []).map((r: Record<string, unknown>) => {
         const pArr = Array.isArray(r?.project) ? r.project : [];
-        const p = pArr.length ? pArr[0] : null;
+        const p = pArr.length ? (pArr[0] as Record<string, unknown>) : null;
         if (!p) return null;
         const cArr = Array.isArray(p?.company) ? p.company : [];
-        const c = cArr.length ? { id: String(cArr[0].id), name: String(cArr[0].name ?? "") } : null;
+        const c = cArr.length ? { id: String((cArr[0] as Record<string, unknown>).id), name: String((cArr[0] as Record<string, unknown>).name ?? "") } : null;
         return {
           id: String(p.id),
           company_id: p.company_id ? String(p.company_id) : null,
@@ -730,11 +722,11 @@ export default function SalesFunnelPage() {
       setContactDetail(normalizedContact);
       setContactProjects(normalizedProjects);
 
-      const actsRaw: any[] = (actsRes.data ?? []) as any[];
+      const actsRaw = (actsRes.data ?? []) as Record<string, unknown>[];
       setContactActivities(actsRaw.map(normalizeActivityRow));
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to load contact details.");
+      alert((e as Error)?.message ?? "Failed to load contact details.");
       setOpenContactId(null);
     }
   }
@@ -770,26 +762,26 @@ export default function SalesFunnelPage() {
         .limit(200);
       if (actsRes.error) throw actsRes.error;
 
-      const row: any = pRes.data;
+      const row = pRes.data as Record<string, unknown>;
       const compArr = Array.isArray(row?.company) ? row.company : [];
-      const comp = compArr.length ? { id: String(compArr[0].id), name: String(compArr[0].name ?? "") } : null;
+      const comp = compArr.length ? { id: String((compArr[0] as Record<string, unknown>).id), name: String((compArr[0] as Record<string, unknown>).name ?? "") } : null;
 
       const normalizedProject: ProjectBoard = {
         id: String(row.id),
         company_id: row.company_id ? String(row.company_id) : null,
         name: String(row.name ?? ""),
         stage_id: row.stage_id ? String(row.stage_id) : null,
-        website: row.website ?? null,
-        notes: row.notes ?? null,
-        last_activity_at: row.last_activity_at ?? null,
+        website: row.website ? String(row.website) : null,
+        notes: row.notes ? String(row.notes) : null,
+        last_activity_at: row.last_activity_at ? String(row.last_activity_at) : null,
         created_at: String(row.created_at),
         updated_at: String(row.updated_at),
         company: comp,
       };
 
-      const normalizedContacts: Contact[] = (contactsRes.data ?? []).map((r: any) => {
+      const normalizedContacts: Contact[] = (contactsRes.data ?? []).map((r: Record<string, unknown>) => {
         const cArr = Array.isArray(r?.contact) ? r.contact : [];
-        const c = cArr.length ? cArr[0] : null;
+        const c = cArr.length ? (cArr[0] as Record<string, unknown>) : null;
         if (!c) return null;
         return {
           id: String(c.id),
@@ -810,11 +802,11 @@ export default function SalesFunnelPage() {
       setProjectDetail(normalizedProject);
       setProjectContacts(normalizedContacts);
 
-      const actsRaw: any[] = (actsRes.data ?? []) as any[];
+      const actsRaw = (actsRes.data ?? []) as Record<string, unknown>[];
       setProjectActivities(actsRaw.map(normalizeActivityRow));
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to load project details.");
+      alert((e as Error)?.message ?? "Failed to load project details.");
       setOpenProjectId(null);
     }
   }
@@ -838,9 +830,9 @@ export default function SalesFunnelPage() {
 
       await loadBoard();
       alert("Saved.");
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to save company.");
+      alert((e as Error)?.message ?? "Failed to save company.");
     }
   }
 
@@ -852,9 +844,9 @@ export default function SalesFunnelPage() {
       // refresh detail + board view
       await openCompany(companyId);
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to set main contact.");
+      alert((e as Error)?.message ?? "Failed to set main contact.");
     }
   }
 
@@ -881,15 +873,15 @@ export default function SalesFunnelPage() {
 
       if (insertRes.error) throw insertRes.error;
 
-      const inserted = normalizeActivityRow(insertRes.data);
+      const inserted = normalizeActivityRow(insertRes.data as Record<string, unknown>);
       setActivities((prev) => [inserted, ...prev]);
       setActivityText("");
 
       // refresh board ordering/last activity
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to add activity.");
+      alert((e as Error)?.message ?? "Failed to add activity.");
     }
   }
   async function addContactActivity() {
@@ -914,14 +906,14 @@ export default function SalesFunnelPage() {
         .single();
       if (insertRes.error) throw insertRes.error;
 
-      const inserted = normalizeActivityRow(insertRes.data);
+      const inserted = normalizeActivityRow(insertRes.data as Record<string, unknown>);
       setContactActivities((prev) => [inserted, ...prev]);
       setContactActivityText("");
 
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to add activity.");
+      alert((e as Error)?.message ?? "Failed to add activity.");
     }
   }
 
@@ -947,14 +939,14 @@ export default function SalesFunnelPage() {
         .single();
       if (insertRes.error) throw insertRes.error;
 
-      const inserted = normalizeActivityRow(insertRes.data);
+      const inserted = normalizeActivityRow(insertRes.data as Record<string, unknown>);
       setProjectActivities((prev) => [inserted, ...prev]);
       setProjectActivityText("");
 
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to add activity.");
+      alert((e as Error)?.message ?? "Failed to add activity.");
     }
   }
 
@@ -1012,9 +1004,9 @@ export default function SalesFunnelPage() {
 
       setNewStageName("");
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to add stage.");
+      alert((e as Error)?.message ?? "Failed to add stage.");
     }
   }
 
@@ -1025,9 +1017,9 @@ export default function SalesFunnelPage() {
       const res = await supabase.from("crm_stages").update({ name: val }).eq("id", stageId);
       if (res.error) throw res.error;
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to rename stage.");
+      alert((e as Error)?.message ?? "Failed to rename stage.");
     }
   }
 
@@ -1048,9 +1040,9 @@ export default function SalesFunnelPage() {
       if (res2.error) throw res2.error;
 
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to reorder stage.");
+      alert((e as Error)?.message ?? "Failed to reorder stage.");
     }
   }
 
@@ -1060,9 +1052,9 @@ export default function SalesFunnelPage() {
       const res = await supabase.from("crm_stages").delete().eq("id", stageId);
       if (res.error) throw res.error;
       await loadBoard();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to delete stage.");
+      alert((e as Error)?.message ?? "Failed to delete stage.");
     }
   }
 
@@ -1122,9 +1114,9 @@ export default function SalesFunnelPage() {
 
       // open company modal
       await openCompany(compRes.data.id);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to create company.");
+      alert((e as Error)?.message ?? "Failed to create company.");
     }
   }
 
@@ -1165,9 +1157,9 @@ export default function SalesFunnelPage() {
       setNewContact({ company_id: "", full_name: "", title: "", phone: "", email: "", notes: "", is_main: false });
       await loadBoard();
       await openCompany(company_id);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to create contact.");
+      alert((e as Error)?.message ?? "Failed to create contact.");
     }
   }
   async function createProjectFromToolbar() {
@@ -1194,10 +1186,10 @@ export default function SalesFunnelPage() {
       setNewProject({ company_id: "", name: "", website: "", notes: "" });
       setAddProjectOpen(false);
       await loadBoard();
-      await openProject(String((insertRes.data as any).id));
-    } catch (e: any) {
+      await openProject(String((insertRes.data as Record<string, unknown>).id));
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Failed to create project.");
+      alert((e as Error)?.message ?? "Failed to create project.");
     }
   }
 
@@ -1214,7 +1206,7 @@ export default function SalesFunnelPage() {
         header: true,
         skipEmptyLines: true,
         complete: (res) => {
-          const rows = (res.data ?? []) as any[];
+          const rows = (res.data ?? []) as ImportRow[];
           setImportRows(rows.filter((r) => Object.values(r).some((v) => cleanStr(v))));
         },
         error: (err) => setImportError(err.message),
@@ -1229,10 +1221,10 @@ export default function SalesFunnelPage() {
           const data = new Uint8Array((e.target?.result as ArrayBuffer) ?? new ArrayBuffer(0));
           const wb = XLSX.read(data, { type: "array" });
           const ws = wb.Sheets[wb.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(ws, { defval: "" }) as any[];
+          const json = XLSX.utils.sheet_to_json(ws, { defval: "" }) as ImportRow[];
           setImportRows(json.filter((r) => Object.values(r).some((v) => cleanStr(v))));
-        } catch (err: any) {
-          setImportError(err?.message ?? "Failed to read Excel file.");
+        } catch (err: unknown) {
+          setImportError((err as Error)?.message ?? "Failed to read Excel file.");
         }
       };
       reader.readAsArrayBuffer(file);
@@ -1242,7 +1234,7 @@ export default function SalesFunnelPage() {
     setImportError("Unsupported file type. Please upload .CSV or .XLSX");
   }
 
-  function inferImportMapping(rows: any[]) {
+  function inferImportMapping(rows: ImportRow[]) {
     const first = rows?.[0];
     if (!first) return null;
 
@@ -1337,7 +1329,7 @@ export default function SalesFunnelPage() {
           .in("name", companyPayload.map((c) => c.name));
         if (existingRes.error) throw existingRes.error;
 
-        const existingLower = new Set((existingRes.data ?? []).map((c: any) => cleanStr(c.name).toLowerCase()));
+        const existingLower = new Set((existingRes.data ?? []).map((c: Record<string, unknown>) => cleanStr(c.name).toLowerCase()));
         const toInsert = companyPayload.filter((c) => !existingLower.has(cleanStr(c.name).toLowerCase()));
 
         if (toInsert.length) {
@@ -1359,7 +1351,7 @@ export default function SalesFunnelPage() {
         );
       if (compRes.error) throw compRes.error;
 
-      const companyIdByLower = new Map((compRes.data ?? []).map((c: any) => [cleanStr(c.name_lower), c.id]));
+      const companyIdByLower = new Map((compRes.data ?? []).map((c: Record<string, unknown>) => [cleanStr(c.name_lower), c.id]));
 
       // 2) Upsert contacts
       const contactRows = normalized
@@ -1381,12 +1373,12 @@ export default function SalesFunnelPage() {
 
       if (importDupMode === "skip") {
         // Best-effort: insert only
-        const ins1 = withEmail.length ? await supabase.from("crm_contacts").insert(withEmail) : { error: null as any };
-        if ((ins1 as any).error) throw (ins1 as any).error;
-        const ins2 = withPhoneOnly.length ? await supabase.from("crm_contacts").insert(withPhoneOnly) : { error: null as any };
-        if ((ins2 as any).error) throw (ins2 as any).error;
-        const ins3 = noKey.length ? await supabase.from("crm_contacts").insert(noKey) : { error: null as any };
-        if ((ins3 as any).error) throw (ins3 as any).error;
+        const ins1 = withEmail.length ? await supabase.from("crm_contacts").insert(withEmail) : { error: null as unknown };
+        if ((ins1 as { error: unknown }).error) throw (ins1 as { error: unknown }).error;
+        const ins2 = withPhoneOnly.length ? await supabase.from("crm_contacts").insert(withPhoneOnly) : { error: null as unknown };
+        if ((ins2 as { error: unknown }).error) throw (ins2 as { error: unknown }).error;
+        const ins3 = noKey.length ? await supabase.from("crm_contacts").insert(noKey) : { error: null as unknown };
+        if ((ins3 as { error: unknown }).error) throw (ins3 as { error: unknown }).error;
       } else {
         // Upsert keyed
         if (withEmail.length) {
@@ -1427,7 +1419,7 @@ export default function SalesFunnelPage() {
               .limit(1)
               .maybeSingle();
             if (q.error) throw q.error;
-            contactId = (q.data as any)?.id ?? null;
+            contactId = (q.data as Record<string, unknown>)?.id as string ?? null;
           } else if (cleanStr(key.phone)) {
             const digits = cleanStr(key.phone).replace(/[^0-9]+/g, "");
             if (digits) {
@@ -1439,7 +1431,7 @@ export default function SalesFunnelPage() {
                 .limit(1)
                 .maybeSingle();
               if (q.error) throw q.error;
-              contactId = (q.data as any)?.id ?? null;
+              contactId = (q.data as Record<string, unknown>)?.id as string ?? null;
             }
           }
 
@@ -1454,9 +1446,9 @@ export default function SalesFunnelPage() {
       alert("Import complete.");
       setImportRows([]);
       setImportFileName("");
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(e?.message ?? "Import failed.");
+      alert((e as Error)?.message ?? "Import failed.");
     } finally {
       setImportBusy(false);
     }
@@ -1680,7 +1672,7 @@ export default function SalesFunnelPage() {
                     <div className="flex flex-col gap-2">
                       {list.map((item) => {
                         if (viewType === "company") {
-                          const c = item as any as Company;
+                          const c = item as Company;
                           const mc = c.main_contact;
                           const mcName =
                             cleanStr(mc?.full_name) ||
@@ -1711,7 +1703,7 @@ export default function SalesFunnelPage() {
                         }
 
                         if (viewType === "contact") {
-                          const c = item as any as ContactBoard;
+                          const c = item as ContactBoard;
                           const displayName = cleanStr(c.full_name) || cleanStr([c.first_name ?? "", c.last_name ?? ""].join(" "));
                           return (
                             <div
@@ -1736,7 +1728,7 @@ export default function SalesFunnelPage() {
                           );
                         }
 
-                        const p = item as any as ProjectBoard;
+                        const p = item as ProjectBoard;
                         return (
                           <div
                             key={p.id}
@@ -1962,7 +1954,7 @@ export default function SalesFunnelPage() {
               <select
                 className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
                 value={importDupMode}
-                onChange={(e) => setImportDupMode(e.target.value as any)}
+                onChange={(e) => setImportDupMode(e.target.value as "skip" | "upsert")}
               >
                 <option value="upsert">Upsert (recommended)</option>
                 <option value="skip">Skip / best effort</option>
@@ -2261,9 +2253,9 @@ export default function SalesFunnelPage() {
                       if (res.error) throw res.error;
                       setOpenCompanyId(null);
                       await loadBoard();
-                    } catch (e: any) {
+                    } catch (e: unknown) {
                       console.error(e);
-                      alert(e?.message ?? "Failed to delete company.");
+                      alert((e as Error)?.message ?? "Failed to delete company.");
                     }
                   }}
                 >
@@ -2303,9 +2295,9 @@ export default function SalesFunnelPage() {
                       if (!selectedContactId) setSelectedContactId(res.data.id);
 
                       await loadBoard();
-                    } catch (e: any) {
+                    } catch (e: unknown) {
                       console.error(e);
-                      alert(e?.message ?? "Failed to add contact.");
+                      alert((e as Error)?.message ?? "Failed to add contact.");
                     }
                   }}
                 >
@@ -2365,9 +2357,9 @@ export default function SalesFunnelPage() {
                               setCompanyContacts((prev) => prev.filter((x) => x.id !== ct.id));
                               if (selectedContactId === ct.id) setSelectedContactId(companyContacts[0]?.id ?? null);
                               await loadBoard();
-                            } catch (err: any) {
+                            } catch (err: unknown) {
                               console.error(err);
-                              alert(err?.message ?? "Failed to delete contact.");
+                              alert((err as Error)?.message ?? "Failed to delete contact.");
                             }
                           }}
                         >
@@ -2467,7 +2459,7 @@ export default function SalesFunnelPage() {
               <div className="max-h-[420px] overflow-auto pr-1">
                 <div className="flex flex-col gap-2">
                   {activities
-                    .filter((a) => {
+                    .filter(() => {
                       // show all, but if a contact is selected, highlight those
                       return true;
                     })
@@ -2580,7 +2572,7 @@ export default function SalesFunnelPage() {
                 <select
                   className="rounded-xl border px-3 py-2 text-sm bg-white"
                   value={contactActivityKind}
-                  onChange={(e) => setContactActivityKind(e.target.value as any)}
+                  onChange={(e) => setContactActivityKind(e.target.value as ActivityKind)}
                 >
                   <option>Call</option>
                   <option>Voicemail</option>
@@ -2703,7 +2695,7 @@ export default function SalesFunnelPage() {
                 <select
                   className="rounded-xl border px-3 py-2 text-sm bg-white"
                   value={projectActivityKind}
-                  onChange={(e) => setProjectActivityKind(e.target.value as any)}
+                  onChange={(e) => setProjectActivityKind(e.target.value as ActivityKind)}
                 >
                   <option>Call</option>
                   <option>Voicemail</option>

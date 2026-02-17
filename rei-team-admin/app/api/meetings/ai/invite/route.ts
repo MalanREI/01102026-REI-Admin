@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     const a = await admin.from("meeting_attendees").select("email").eq("meeting_id", meetingId);
     if (a.error) throw a.error;
 
-    const attendees = (a.data ?? []).map((x: any) => String(x.email).trim()).filter(Boolean);
+    const attendees = (a.data ?? []).map((x: { email: string }) => String(x.email).trim()).filter(Boolean);
     if (!attendees.length) return NextResponse.json({ ok: true, skipped: "no attendees" });
 
     const smtpHost = requireEnv("SMTP_HOST");
@@ -122,7 +122,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true, invited: attendees.length });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Invite failed" }, { status: 500 });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error)?.message ?? "Invite failed" }, { status: 500 });
   }
 }

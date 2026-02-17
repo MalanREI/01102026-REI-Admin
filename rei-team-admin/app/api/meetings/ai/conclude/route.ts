@@ -49,7 +49,7 @@ export async function POST(req: Request) {
           ai_status: hasRecording ? "ready" : "skipped",
           ai_error: null,
           ai_processed_at: null,
-        } as any
+        }
       )
       .eq("id", sessionId)
       .select("id,ended_at,ai_status");
@@ -59,9 +59,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ 
       ok: true, 
       hasRecording,
-      ai_status: (upd.data as any)?.[0]?.ai_status ?? null 
+      ai_status: upd.data?.[0]?.ai_status ?? null 
     });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Conclude failed" }, { status: 500 });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error)?.message ?? "Conclude failed" }, { status: 500 });
   }
 }

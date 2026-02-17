@@ -71,10 +71,19 @@ type MinutesSession = {
   ai_error?: string | null;
 };
 
+type TaskEventPayload = {
+  title?: string;
+  text?: string;
+  from?: string;
+  to?: string;
+  changes?: Record<string, { from?: unknown; to?: unknown }>;
+  [key: string]: unknown;
+};
+
 type TaskEvent = {
   id: string;
   event_type: string;
-  payload: any;
+  payload: TaskEventPayload;
   created_at: string;
   created_by?: string | null;
 };
@@ -103,67 +112,6 @@ type OngoingNote = {
 };
 
 type LatestEventMap = Record<string, TaskEvent | undefined>;
-
-function safeStr(v: any): string {
-  if (v === null || v === undefined) return "";
-  return String(v);
-}
-
-function shortValue(v: any): string {
-  const s = safeStr(v).trim();
-  if (!s) return "(blank)";
-  if (s.length <= 80) return s;
-  return s.slice(0, 79) + "…";
-}
-
-function humanizeField(field: string): string {
-  return field
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function eventSummaryLines(e: TaskEvent): string[] {
-  const t = (e.event_type || "").toLowerCase();
-  const p = e.payload || {};
-
-  if (t === "comment") {
-    const text = safeStr(p?.text).trim();
-    return text ? [text] : ["(empty comment)"];
-  }
-
-  if (t === "created") {
-    const title = safeStr(p?.title).trim();
-    return [title ? `Created: ${title}` : "Created task"];
-  }
-
-  if (t === "deleted") return ["Deleted task"]; 
-
-  if (t === "moved") {
-    const from = shortValue(p?.from);
-    const to = shortValue(p?.to);
-    return [`Moved: ${from} → ${to}`];
-  }
-
-  if (t === "updated") {
-    const changes = p?.changes && typeof p.changes === "object" ? p.changes : null;
-    if (!changes) return ["Updated task"]; 
-    const lines: string[] = [];
-    for (const [k, v] of Object.entries(changes)) {
-      const from = shortValue((v as any)?.from);
-      const to = shortValue((v as any)?.to);
-      lines.push(`${humanizeField(k)}: ${from} → ${to}`);
-    }
-    return lines.length ? lines : ["Updated task"]; 
-  }
-
-  // fallback
-  try {
-    const j = JSON.stringify(p, null, 2);
-    return j ? [j] : ["(no details)"];
-  } catch {
-    return ["(unreadable payload)"];
-  }
-}
 
 function sortByPos<T extends { position: number }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
@@ -346,9 +294,6 @@ export default function MeetingDetailPage() {
   // Agenda edit
   const [agendaOpen, setAgendaOpen] = useState(false);
 
-  // Board filters
-  const [showCompleted, setShowCompleted] = useState(false);
-
   // Recording
   const [recOpen, setRecOpen] = useState(false);
   const [recMin, setRecMin] = useState(true);
@@ -356,7 +301,6 @@ export default function MeetingDetailPage() {
   const [recErr, setRecErr] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
-  const [lastRecordingPath, setLastRecordingPath] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const tickRef = useRef<number | null>(null);
@@ -374,11 +318,13 @@ export default function MeetingDetailPage() {
   // Memoized filtered collections to avoid redundant filtering
   const filteredMilestones = useMemo(
     () => applyMilestoneFilters(milestones),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [milestones, milestoneFilterStatuses, milestoneFilterOwners, milestoneFilterPriorities, attendees, priorities]
   );
 
   const filteredNotes = useMemo(
     () => applyNoteFilters(ongoingNotes),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [ongoingNotes, noteFilterCategories, availableNoteCategories]
   );
 
@@ -421,8 +367,8 @@ export default function MeetingDetailPage() {
 
   function statusColor(statusName: string): string {
     const status = statuses.find((s) => s.name === statusName);
-    if (status && (status as any).color_hex) {
-      return (status as any).color_hex;
+    if (status && status.color_hex) {
+      return status.color_hex;
     }
     // Default colors based on common status names
     const s = statusName.toLowerCase();
@@ -548,7 +494,7 @@ function profileName(userId: string | null | undefined): string {
 
 function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): string {
   const e = opts.event;
-  const p: any = e.payload || {};
+  const p: TaskEventPayload = e.payload || {};
 
   if (e.event_type === "created") {
     const title = String(p?.title ?? "").trim();
@@ -678,7 +624,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     if (n.error) return;
     const map: Record<string, string> = {};
     for (const row of n.data ?? []) {
-      map[(row as any).agenda_item_id] = (row as any).notes ?? "";
+      const agendaItemId = row.agenda_item_id;
+      const notes = row.notes;
+      if (agendaItemId) {
+        map[agendaItemId] = notes ?? "";
+      }
     }
     if (isCurrent) setAgendaNotes(map);
     else setPrevAgendaNotes(map);
@@ -698,8 +648,8 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
     const latest: LatestEventMap = {};
     for (const row of ev.data ?? []) {
-      const taskId = (row as any).task_id as string;
-      if (!latest[taskId]) latest[taskId] = row as any;
+      const taskId = row.task_id as string;
+      if (!latest[taskId]) latest[taskId] = row as TaskEvent;
     }
     setLatestEventByTask(latest);
   }
@@ -712,7 +662,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .order("position", { ascending: true });
 
     if (!s.error && (s.data?.length ?? 0) > 0) {
-      setStatuses((s.data ?? []) as any);
+      setStatuses((s.data ?? []) as StatusOpt[]);
       return;
     }
 
@@ -736,7 +686,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
 
-    if (!again.error) setStatuses((again.data ?? []) as any);
+    if (!again.error) setStatuses((again.data ?? []) as StatusOpt[]);
 
   }
 
@@ -771,7 +721,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
 
-    if (!again.error) setPriorities((again.data ?? []) as any);
+    if (!again.error) setPriorities((again.data ?? []) as PriorityOpt[]);
   }
 
   async function loadAll() {
@@ -781,20 +731,20 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("id", meetingId)
       .single();
     if (m.error) throw m.error;
-    setMeeting(m.data as any);
+    setMeeting(m.data as Meeting);
 
     const pr = await sb
       .from("profiles")
       .select("id,full_name,email,color_hex")
       .order("created_at", { ascending: true });
-    if (!pr.error) setProfiles((pr.data ?? []) as any);
+    if (!pr.error) setProfiles((pr.data ?? []) as Profile[]);
 
     const at = await sb
       .from("meeting_attendees")
       .select("email,full_name,user_id,color_hex")
       .eq("meeting_id", meetingId)
       .order("created_at", { ascending: true });
-    if (!at.error) setAttendees((at.data ?? []) as any);
+    if (!at.error) setAttendees((at.data ?? []) as Attendee[]);
 
     const c = await sb
       .from("meeting_task_columns")
@@ -802,7 +752,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
     if (c.error) throw c.error;
-    setColumns((c.data ?? []) as any);
+    setColumns((c.data ?? []) as Column[]);
 
     await ensureDefaultStatuses(meetingId);
     await ensureDefaultPriorities(meetingId);
@@ -813,7 +763,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
     if (t.error) throw t.error;
-    const taskRows = (t.data ?? []) as any as Task[];
+    const taskRows = (t.data ?? []) as Task[];
     setTasks(taskRows);
     await loadLatestEvents(taskRows.map((x) => x.id));
 
@@ -823,7 +773,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .select("id,title,description,target_date,status,priority,owner_id,owner_email,owner_name,position,updated_at")
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
-    if (!mil.error) setMilestones((mil.data ?? []) as any);
+    if (!mil.error) setMilestones((mil.data ?? []) as Milestone[]);
 
     // Load ongoing notes
     const notes = await sb
@@ -831,7 +781,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .select("id,title,content,category,position,updated_at")
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
-    if (!notes.error) setOngoingNotes((notes.data ?? []) as any);
+    if (!notes.error) setOngoingNotes((notes.data ?? []) as OngoingNote[]);
 
     const a = await sb
       .from("meeting_agenda_items")
@@ -839,7 +789,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
     if (a.error) throw a.error;
-    setAgenda((a.data ?? []) as any);
+    setAgenda((a.data ?? []) as AgendaItem[]);
 
     const s = await sb
       .from("meeting_minutes_sessions")
@@ -848,7 +798,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .order("started_at", { ascending: false })
       .limit(2);
     if (s.error) throw s.error;
-    const sessions = (s.data ?? []) as any as MinutesSession[];
+    const sessions = (s.data ?? []) as MinutesSession[];
     setCurrentSession(sessions[0] ?? null);
     setPrevSession(sessions[1] ?? null);
 
@@ -866,8 +816,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       try {
         await ensureSelfProfile();
         await loadAll();
-      } catch (e: any) {
-        setErr(e?.message ?? "Failed to load meeting");
+      } catch (e: unknown) {
+        const error = e as Error;
+        setErr(error?.message ?? "Failed to load meeting");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -925,16 +876,19 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   const u = userData?.user;
   if (!u?.id) return;
 
-  const fullName =
-    (u.user_metadata as any)?.full_name ||
-    (u.user_metadata as any)?.name ||
-    (u.user_metadata as any)?.fullName ||
-    null;
+  interface UserMetadata {
+    full_name?: string;
+    name?: string;
+    fullName?: string;
+  }
+
+  const metadata = (u.user_metadata as UserMetadata) || {};
+  const fullName = metadata.full_name || metadata.name || metadata.fullName || null;
 
   await sb
     .from("profiles")
     .upsert(
-      { id: u.id, email: u.email ?? null, full_name: fullName, updated_at: new Date().toISOString() } as any,
+      { id: u.id, email: u.email ?? null, full_name: fullName, updated_at: new Date().toISOString() },
       { onConflict: "id" }
     );
 }
@@ -954,11 +908,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     if (created.error) throw created.error;
 
     setPrevSession(currentSession);
-    setCurrentSession(created.data as any);
+    setCurrentSession(created.data as MinutesSession);
     setPrevAgendaNotes(agendaNotes);
     setAgendaNotes({});
 
-    return created.data as any as MinutesSession;
+    return created.data as MinutesSession;
   }
 
   async function onNewMinutes() {
@@ -968,8 +922,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       await ensureCurrentSession();
       setRecOpen(true);
       setRecMin(true);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to start minutes");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to start minutes");
     } finally {
       setBusy(false);
     }
@@ -1038,12 +993,12 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .order("created_at", { ascending: false })
       .limit(50);
     if (!ev.error) {
-      setTEvents((ev.data ?? []) as any);
+      setTEvents((ev.data ?? []) as TaskEvent[]);
       
       // Load profiles for event creators if not already loaded
       const eventUserIds = (ev.data ?? [])
-        .map((e: any) => e.created_by)
-        .filter((id: any) => id && !profiles.find((p) => p.id === id));
+        .map((e) => e.created_by)
+        .filter((id): id is string => !!id && !profiles.find((p) => p.id === id));
       
       if (eventUserIds.length > 0) {
         const pr = await sb
@@ -1051,13 +1006,13 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .select("id,full_name,email,color_hex")
           .in("id", eventUserIds);
         if (!pr.error && pr.data) {
-          setProfiles((prev) => [...prev, ...(pr.data as any)]);
+          setProfiles((prev) => [...prev, ...(pr.data as Profile[])]);
         }
       }
     }
   }
 
-  async function writeTaskEvent(taskId: string, type: string, payload: any) {
+  async function writeTaskEvent(taskId: string, type: string, payload: TaskEventPayload) {
     const { data: userData } = await sb.auth.getUser();
     const userId = userData?.user?.id ?? null;
     await sb.from("meeting_task_events").insert({ task_id: taskId, event_type: type, payload, created_by: userId });
@@ -1071,7 +1026,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
-    if (!ev.error) setLatestEventByTask((m) => ({ ...m, [taskId]: ev.data as any }));
+    if (!ev.error) setLatestEventByTask((m) => ({ ...m, [taskId]: ev.data as TaskEvent }));
   }
 
   async function saveTask() {
@@ -1135,14 +1090,28 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .single();
         if (created.error) throw created.error;
 
-        const newTask = created.data as any as Task;
+        const newTask = created.data as Task;
         setTasks((prev) => [...prev, newTask]);
         await writeTaskEvent(newTask.id, "created", { title: newTask.title });
         await refreshLatestForTask(newTask.id);
       } else {
         const before = tasks.find((x) => x.id === editingTaskId);
 
-        const patch: any = {
+        interface TaskPatch {
+          title: string;
+          status: string;
+          priority: string;
+          owner_id: string | null;
+          owner_email: string | null;
+          owner_name: string | null;
+          start_date: string | null;
+          due_date: string | null;
+          notes: string | null;
+          column_id: string;
+          updated_at: string;
+        }
+
+        const patch: TaskPatch = {
           title: tTitle.trim(),
           status: tStatus,
           priority: tPriority,
@@ -1164,13 +1133,13 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .single();
         if (upd.error) throw upd.error;
 
-        const after = upd.data as any as Task;
+        const after = upd.data as Task;
         setTasks((prev) => prev.map((x) => (x.id === after.id ? after : x)));
 
-        const changes: Record<string, any> = {};
+        const changes: Record<string, { from: unknown; to: unknown }> = {};
         if (before) {
           for (const k of ["title", "status", "priority", "owner_id", "start_date", "due_date", "notes", "column_id"] as const) {
-            if ((before as any)[k] !== (after as any)[k]) changes[k] = { from: (before as any)[k], to: (after as any)[k] };
+            if (before[k] !== after[k]) changes[k] = { from: before[k], to: after[k] };
           }
         }
         if (Object.keys(changes).length) {
@@ -1180,8 +1149,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       }
 
       setTaskOpen(false);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to save task");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to save task");
     } finally {
       setBusy(false);
     }
@@ -1203,8 +1173,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       });
 
       setTaskOpen(false);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to delete task");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to delete task");
     } finally {
       setBusy(false);
     }
@@ -1225,7 +1196,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
         .eq("task_id", editingTaskId)
         .order("created_at", { ascending: false })
         .limit(50);
-      if (!ev.error) setTEvents((ev.data ?? []) as any);
+      if (!ev.error) setTEvents((ev.data ?? []) as TaskEvent[]);
       await refreshLatestForTask(editingTaskId);
     } finally {
       setBusy(false);
@@ -1252,7 +1223,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .single();
 
     if (!upd.error) {
-      setTasks((prev) => prev.map((x) => (x.id === activeId ? (upd.data as any) : x)));
+      setTasks((prev) => prev.map((x) => (x.id === activeId ? (upd.data as Task) : x)));
       await writeTaskEvent(activeId, "moved", { from: task.column_id, to: overId });
       await refreshLatestForTask(activeId);
     }
@@ -1328,7 +1299,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .select("id,title,description,target_date,status,priority,owner_id,owner_email,owner_name,position,updated_at")
           .single();
         if (ins.error) throw ins.error;
-        setMilestones((prev) => [...prev, ins.data as any]);
+        setMilestones((prev) => [...prev, ins.data as Milestone]);
       } else {
         const patch = {
           title: trimTitle,
@@ -1350,13 +1321,14 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .single();
         if (upd.error) throw upd.error;
 
-        const after = upd.data as any as Milestone;
+        const after = upd.data as Milestone;
         setMilestones((prev) => prev.map((m) => (m.id === after.id ? after : m)));
       }
 
       setMilestoneOpen(false);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to save milestone");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to save milestone");
     } finally {
       setBusy(false);
     }
@@ -1371,8 +1343,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
       setMilestones((prev) => prev.filter((m) => m.id !== editingMilestoneId));
       setMilestoneOpen(false);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to delete milestone");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to delete milestone");
     } finally {
       setBusy(false);
     }
@@ -1421,7 +1394,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .select("id,title,content,category,position,updated_at")
           .single();
         if (ins.error) throw ins.error;
-        setOngoingNotes((prev) => [...prev, ins.data as any]);
+        setOngoingNotes((prev) => [...prev, ins.data as OngoingNote]);
       } else {
         const patch = {
           title: trimTitle,
@@ -1438,13 +1411,14 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .single();
         if (upd.error) throw upd.error;
 
-        const after = upd.data as any as OngoingNote;
+        const after = upd.data as OngoingNote;
         setOngoingNotes((prev) => prev.map((n) => (n.id === after.id ? after : n)));
       }
 
       setNoteOpen(false);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to save note");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to save note");
     } finally {
       setBusy(false);
     }
@@ -1459,8 +1433,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
       setOngoingNotes((prev) => prev.filter((n) => n.id !== editingNoteId));
       setNoteOpen(false);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to delete note");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to delete note");
     } finally {
       setBusy(false);
     }
@@ -1510,8 +1485,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       }, 1000);
 
       setRecMin(true);
-    } catch (e: any) {
-      setRecErr(e?.message ?? "Could not start recording");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setRecErr(error?.message ?? "Could not start recording");
     }
   }
 
@@ -1572,18 +1548,22 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       form.append("file", blob, "recording.webm");
 
       const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
-      const upJson = await upRes.json().catch(() => ({} as any));
+      interface UploadResponse {
+        error?: string;
+        recordingPath?: string;
+      }
+      const upJson = await upRes.json().catch((): UploadResponse => ({}));
       if (!upRes.ok) throw new Error(upJson?.error || "Recording upload failed");
 
       const rp = String(upJson?.recordingPath || "");
       if (!rp) throw new Error("Recording upload failed (no path returned)");
 
-      setLastRecordingPath(rp);
       setRecMin(true);
 
       return { recordingPath: rp };
-    } catch (e: any) {
-      setRecErr(e?.message ?? "Upload failed");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setRecErr(error?.message ?? "Upload failed");
       return null;
     } finally {
       setRecBusy(false);
@@ -1610,7 +1590,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       }),
     });
 
-    const j = await res.json().catch(() => ({} as any));
+    interface ConcludeResponse {
+      error?: string;
+      hasRecording?: boolean;
+    }
+    const j = await res.json().catch((): ConcludeResponse => ({}));
     if (!res.ok) throw new Error(j?.error || "Failed to conclude meeting");
 
     const s = await sb
@@ -1620,7 +1604,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .order("started_at", { ascending: false });
 
     if (!s.error) {
-      const sessions = (s.data as any[]) ?? [];
+      const sessions = (s.data as MinutesSession[]) ?? [];
       const current = sessions.find((x) => !x.ended_at) ?? null;
       const prev = sessions.find((x) => !!x.ended_at) ?? null;
       setCurrentSession(current);
@@ -1634,8 +1618,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     } else {
       setInfo("Meeting concluded successfully! No recording to process.");
     }
-  } catch (e: any) {
-    setErr(e?.message ?? "Failed to conclude meeting");
+  } catch (e: unknown) {
+    const error = e as Error;
+    setErr(error?.message ?? "Failed to conclude meeting");
   } finally {
     setBusy(false);
   }
@@ -1656,7 +1641,10 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
         }),
       });
 
-      const j = await res.json().catch(() => ({} as any));
+      interface ProcessResponse {
+        error?: string;
+      }
+      const j = await res.json().catch((): ProcessResponse => ({}));
       if (!res.ok) throw new Error(j?.error || "Failed to start AI processing");
 
       setInfo("AI processing started...");
@@ -1682,9 +1670,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           .maybeSingle();
 
         if (!st.error && st.data) {
-          const status = String((st.data as any).ai_status ?? "");
-          const pdfPath = String((st.data as any).pdf_path ?? "");
-          const aiError = String((st.data as any).ai_error ?? "");
+          const status = String(st.data.ai_status ?? "");
+          const pdfPath = String(st.data.pdf_path ?? "");
+          const aiError = String(st.data.ai_error ?? "");
 
           if (status === "done") {
             reachedTerminal = true;
@@ -1695,7 +1683,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
               .eq("meeting_id", meetingId)
               .order("started_at", { ascending: false });
             if (!s2.error) {
-              const sessions2 = (s2.data as any[]) ?? [];
+              const sessions2 = (s2.data as MinutesSession[]) ?? [];
               const current2 = sessions2.find((x) => !x.ended_at) ?? null;
               const prev2 = sessions2.find((x) => !!x.ended_at) ?? null;
               setCurrentSession(current2);
@@ -1722,8 +1710,9 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
             "You can keep working and come back later—open 'View Previous Meetings' to check status and download the PDF once it's ready."
         );
       }
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to process recording");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to process recording");
     } finally {
       setBusy(false);
     }
@@ -1736,7 +1725,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       .eq("meeting_id", meetingId)
       .order("started_at", { ascending: false })
       .limit(50);
-    if (!s.error) setPrevSessions((s.data ?? []) as any);
+    if (!s.error) setPrevSessions((s.data ?? []) as MinutesSession[]);
   }
 
   async function sendMeetingNotes(sessionId: string) {
@@ -1749,13 +1738,17 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meetingId, sessionId, sentById }),
       });
-      const j = await res.json().catch(() => ({} as any));
+      interface SendNotesResponse {
+        error?: string;
+      }
+      const j = await res.json().catch((): SendNotesResponse => ({}));
       if (!res.ok) throw new Error(j?.error || "Failed to send");
 
       setInfo("Meeting notes sent.");
       await loadPreviousSessions();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to send meeting notes");
+    } catch (e: unknown) {
+      const error = e as Error;
+      alert(error?.message ?? "Failed to send meeting notes");
     }
   }
 
@@ -1766,11 +1759,16 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId }),
       });
-      const j = await res.json().catch(() => ({} as any));
+      interface SessionPdfResponse {
+        error?: string;
+        url?: string;
+      }
+      const j = await res.json().catch((): SessionPdfResponse => ({}));
       if (!res.ok) throw new Error(j?.error || "Failed to get PDF");
       if (j?.url) window.open(j.url, "_blank", "noopener,noreferrer");
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to open PDF");
+    } catch (e: unknown) {
+      const error = e as Error;
+      alert(error?.message ?? "Failed to open PDF");
     }
   }
 
@@ -1780,7 +1778,7 @@ async function selectPreviousSession(sessionId: string) {
       .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
       .eq("id", sessionId)
       .single();
-    if (!s.error) setPrevSession(s.data as any);
+    if (!s.error) setPrevSession(s.data as MinutesSession);
     await loadAgendaNotes(sessionId, false);
     setPrevMeetingsOpen(false);
   }
@@ -1809,7 +1807,15 @@ async function selectPreviousSession(sessionId: string) {
 
   async function loadReminderSettings() {
     const r = await sb.from("meeting_email_settings").select("reminder_frequency").eq("meeting_id", meetingId).single();
-    if (!r.error && (r.data as any)?.reminder_frequency) setReminderFreq(((r.data as any).reminder_frequency as any) ?? "weekly");
+    interface ReminderSettings {
+      reminder_frequency?: "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly";
+    }
+    if (!r.error && r.data) {
+      const settings = r.data as ReminderSettings;
+      if (settings.reminder_frequency) {
+        setReminderFreq(settings.reminder_frequency ?? "weekly");
+      }
+    }
   }
 
 
@@ -1819,7 +1825,7 @@ async function selectPreviousSession(sessionId: string) {
     if (!trimmed) return;
     const maxPos = Math.max(0, ...statusOpts.map((s) => s.position ?? 0));
     const ins = await sb.from("meeting_task_statuses").insert({ meeting_id: meetingId, name: trimmed, position: maxPos + 1 }).select("id,name,position,color_hex").single();
-    if (!ins.error) setStatuses((prev) => [...prev, ins.data as any]);
+    if (!ins.error) setStatuses((prev) => [...prev, ins.data as StatusOpt]);
   }
 
   async function updateStatus(id: string, name: string) {
@@ -1850,7 +1856,7 @@ async function selectPreviousSession(sessionId: string) {
     if (!trimmed) return;
     const maxPos = Math.max(0, ...priorityOpts.map((p) => p.position ?? 0));
     const ins = await sb.from("meeting_task_priorities").insert({ meeting_id: meetingId, name: trimmed, position: maxPos + 1 }).select("id,name,position,color_hex").single();
-    if (!ins.error) setPriorities((prev) => [...prev, ins.data as any]);
+    if (!ins.error) setPriorities((prev) => [...prev, ins.data as PriorityOpt]);
   }
 
   async function updatePriority(id: string, name: string) {
@@ -2552,7 +2558,7 @@ async function selectPreviousSession(sessionId: string) {
                   <label className="text-xs text-gray-600">Owner</label>
                   <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tOwner} onChange={(e) => setTOwner(e.target.value)}>
                     <option value="">Unassigned</option>
-                    {(attendees ?? []).map((a: any) => {
+                    {(attendees ?? []).map((a) => {
                       const email = String(a.email || "").trim();
                       const fullName = a.full_name ? String(a.full_name) : null;
             
@@ -2646,10 +2652,10 @@ async function selectPreviousSession(sessionId: string) {
                             <div className="mt-2 text-sm text-gray-800">
                               {e.event_type === "updated" && e.payload?.changes ? (
                                 <ul className="list-disc pl-5 space-y-1">
-                                  {Object.entries(e.payload.changes as any).map(([k, v]: any) => (
+                                  {Object.entries(e.payload.changes).map(([k, v]) => (
                                     <li key={k}>
                                       {formatTaskEventLine({
-                                        event: { ...e, event_type: "updated", payload: { changes: { [k]: v } } } as any,
+                                        event: { ...e, event_type: "updated", payload: { changes: { [k]: v as { from?: unknown; to?: unknown } } } },
                                         columns,
                                       })}
                                     </li>
@@ -3198,7 +3204,7 @@ async function selectPreviousSession(sessionId: string) {
                 <select
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                   value={reminderFreq}
-                  onChange={(e) => setReminderFreq(e.target.value as any)}
+                  onChange={(e) => setReminderFreq(e.target.value as "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly")}
                 >
                   <option value="none">None</option>
                   <option value="daily">Daily</option>

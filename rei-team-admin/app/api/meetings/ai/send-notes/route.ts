@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       .single();
     if (sessRes.error) throw sessRes.error;
 
-    const pdfPath = (sessRes.data as any)?.pdf_path as string | null;
+    const pdfPath = sessRes.data?.pdf_path as string | null;
     if (!pdfPath) return NextResponse.json({ error: "No PDF saved for this session" }, { status: 404 });
 
     // Attendees
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     if (attRes.error) throw attRes.error;
 
     const attendeeEmail = (attRes.data ?? [])
-      .map((a: any) => String(a.email || "").trim())
+      .map((a: { email?: string }) => String(a.email || "").trim())
       .filter((x: string) => !!x);
 
     if (attendeeEmail.length === 0) {
@@ -85,11 +85,11 @@ export async function POST(req: Request) {
       auth: { user: requireEnv("SMTP_USER"), pass: requireEnv("SMTP_PASS") },
     });
 
-    const meeting = meetingRes.data as any;
+    const meeting = meetingRes.data;
     const start = new Date(meeting.start_at);
     const subject = `Minutes PDF: ${meeting.title} (${start.toLocaleDateString()})`;
 
-    const referenceLink = (sessRes.data as any)?.reference_link ?? null;
+    const referenceLink = sessRes.data?.reference_link ?? null;
     const bodyText =
       "Meeting minutes PDF attached.\n\n" +
       (referenceLink ? `Reference link: ${referenceLink}\n\n` : "") +
@@ -117,24 +117,24 @@ export async function POST(req: Request) {
         email_sent_at: new Date().toISOString(),
         email_sent_by: sentById,
         email_error: null,
-      } as any)
+      })
       .eq("id", sessionId);
 
     return NextResponse.json({ ok: true, to: attendeeEmail, pdfPath, pdfUrl });
-  } catch (e: any) {
+  } catch (e: unknown) {
     // Best-effort error recording
     try {
       if (sessionId) {
         const admin = supabaseAdmin();
         await admin
           .from("meeting_minutes_sessions")
-          .update({ email_status: "error", email_error: e?.message ?? "Send failed" } as any)
+          .update({ email_status: "error", email_error: (e as Error)?.message ?? "Send failed" })
           .eq("id", sessionId);
       }
     } catch {
       // ignore
     }
-    return NextResponse.json({ error: e?.message ?? "Send failed" }, { status: 500 });
+    return NextResponse.json({ error: (e as Error)?.message ?? "Send failed" }, { status: 500 });
   }
 }
 

@@ -75,7 +75,7 @@ export async function GET(req: Request) {
       .neq("reminder_frequency", "none");
     if (settings.error) throw settings.error;
 
-    const meetingIds = (settings.data ?? []).map((x: any) => x.meeting_id);
+    const meetingIds = (settings.data ?? []).map((x: { meeting_id: string }) => x.meeting_id);
     if (!meetingIds.length) return NextResponse.json({ ok: true, sent: 0 });
 
     const meetingsRes = await admin
@@ -84,7 +84,7 @@ export async function GET(req: Request) {
       .in("id", meetingIds);
     if (meetingsRes.error) throw meetingsRes.error;
 
-    const byId = new Map((meetingsRes.data ?? []).map((m: any) => [m.id, m]));
+    const byId = new Map((meetingsRes.data ?? []).map((m: { id: string; title: string; start_at: string }) => [m.id, m]));
 
     const transporter = nodemailer.createTransport({
       host: requireEnv("SMTP_HOST"),
@@ -98,16 +98,17 @@ export async function GET(req: Request) {
     let sent = 0;
 
     for (const row of settings.data ?? []) {
-      const meeting = byId.get((row as any).meeting_id);
+      const typedRow = row as { meeting_id: string; reminder_frequency?: string; last_sent_at?: string | null };
+      const meeting = byId.get(typedRow.meeting_id);
       if (!meeting) continue;
 
-      const freq = String((row as any).reminder_frequency || "none");
-      const lastSentAt = (row as any).last_sent_at as string | null;
+      const freq = String(typedRow.reminder_frequency || "none");
+      const lastSentAt = typedRow.last_sent_at ?? null;
       if (!shouldSend(freq, lastSentAt)) continue;
 
       const attendeesRes = await admin.from("meeting_attendees").select("email").eq("meeting_id", meeting.id);
       if (attendeesRes.error) continue;
-      const attendees = (attendeesRes.data ?? []).map((x: any) => String(x.email).trim()).filter(Boolean);
+      const attendees = (attendeesRes.data ?? []).map((x: { email: string }) => String(x.email).trim()).filter(Boolean);
       if (!attendees.length) continue;
 
       const url = `${baseUrl}/meetings/${meeting.id}`;
@@ -129,7 +130,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({ ok: true, sent });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "cron failed" }, { status: 500 });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error)?.message ?? "cron failed" }, { status: 500 });
   }
 }
