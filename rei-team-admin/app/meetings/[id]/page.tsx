@@ -275,10 +275,22 @@ export default function MeetingDetailPage() {
   const [latestEventByTask, setLatestEventByTask] = useState<LatestEventMap>({});
 
   // Kanban filters
-  const [showCompletedTasks, setShowCompletedTasks] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [milestonesCollapsed, setMilestonesCollapsed] = useState(false);
   const [notesCollapsed, setNotesCollapsed] = useState(false);
+
+  // Advanced filtering for tasks
+  const [taskFilterStatuses, setTaskFilterStatuses] = useState<string[]>([]);
+  const [taskFilterOwner, setTaskFilterOwner] = useState<string>("");
+  const [taskFilterPriority, setTaskFilterPriority] = useState<string>("");
+
+  // Advanced filtering for milestones
+  const [milestoneFilterStatus, setMilestoneFilterStatus] = useState<string>("");
+  const [milestoneFilterOwner, setMilestoneFilterOwner] = useState<string>("");
+  const [milestoneFilterPriority, setMilestoneFilterPriority] = useState<string>("");
+
+  // Advanced filtering for notes
+  const [noteFilterCategory, setNoteFilterCategory] = useState<string>("");
 
   // UI toggles
   const [prevMeetingsOpen, setPrevMeetingsOpen] = useState(false);
@@ -543,6 +555,66 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   // Fallback (keep it readable)
   return String(e.event_type || "event");
 }
+
+  // Filter helpers
+  function applyTaskFilters(tasksToFilter: Task[]): Task[] {
+    return tasksToFilter.filter((t) => {
+      // Status filter (multi-select - if empty, show all)
+      if (taskFilterStatuses.length > 0 && !taskFilterStatuses.includes(t.status)) {
+        return false;
+      }
+
+      // Owner filter
+      if (taskFilterOwner) {
+        const taskOwner = formatOwnerForForm(t.owner_id, t.owner_email);
+        if (taskOwner !== taskFilterOwner) {
+          return false;
+        }
+      }
+
+      // Priority filter
+      if (taskFilterPriority && t.priority !== taskFilterPriority) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  function applyMilestoneFilters(milestonesToFilter: Milestone[]): Milestone[] {
+    return milestonesToFilter.filter((m) => {
+      if (milestoneFilterStatus && m.status !== milestoneFilterStatus) {
+        return false;
+      }
+      if (milestoneFilterOwner) {
+        const milestoneOwner = formatOwnerForForm(m.owner_id, m.owner_email);
+        if (milestoneOwner !== milestoneFilterOwner) {
+          return false;
+        }
+      }
+      if (milestoneFilterPriority && m.priority !== milestoneFilterPriority) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function applyNoteFilters(notesToFilter: OngoingNote[]): OngoingNote[] {
+    if (!noteFilterCategory) return notesToFilter;
+    return notesToFilter.filter((n) => n.category === noteFilterCategory);
+  }
+
+  function clearTaskFilters() {
+    setTaskFilterStatuses([]);
+    setTaskFilterOwner("");
+    setTaskFilterPriority("");
+  }
+
+  function clearMilestoneFilters() {
+    setMilestoneFilterStatus("");
+    setMilestoneFilterOwner("");
+    setMilestoneFilterPriority("");
+  }
 
 
   async function loadAgendaNotes(sessionId: string, isCurrent: boolean) {
@@ -1751,11 +1823,6 @@ async function selectPreviousSession(sessionId: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
 
-  useEffect(() => {
-    void loadMyProfileColor();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profiles.length]); // Only trigger when profiles count changes, not on every profile mutation
-
   return (
     <PageShell>
       {!meeting ? (
@@ -1903,17 +1970,76 @@ async function selectPreviousSession(sessionId: string) {
                         </svg>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
-                      onClick={() => setShowCompletedTasks((v) => !v)}
-                    >
-                      {showCompletedTasks ? "Showing Completed" : "Hiding Completed"}
-                    </button>
                   </div>
                 }
               >
                 {!tasksCollapsed && (
+                <>
+                  {/* Filter bar */}
+                  <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <div>
+                        <label className="text-xs text-gray-600 mb-1 block">Status (multi)</label>
+                        <select
+                          multiple
+                          size={3}
+                          className="w-full rounded border px-2 py-1 text-xs"
+                          value={taskFilterStatuses}
+                          onChange={(e) => {
+                            const selected = Array.from(e.target.selectedOptions, (opt) => opt.value);
+                            setTaskFilterStatuses(selected);
+                          }}
+                        >
+                          {statuses.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-600 mb-1 block">Owner</label>
+                        <select
+                          className="w-full rounded border px-2 py-1 text-xs"
+                          value={taskFilterOwner}
+                          onChange={(e) => setTaskFilterOwner(e.target.value)}
+                        >
+                          <option value="">All</option>
+                          <option value="">Unassigned</option>
+                          {attendees.map((a) => (
+                            <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
+                              {a.full_name || a.email}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-600 mb-1 block">Priority</label>
+                        <select
+                          className="w-full rounded border px-2 py-1 text-xs"
+                          value={taskFilterPriority}
+                          onChange={(e) => setTaskFilterPriority(e.target.value)}
+                        >
+                          <option value="">All</option>
+                          {priorities.map((p) => (
+                            <option key={p.id} value={p.name}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          variant="ghost"
+                          onClick={clearTaskFilters}
+                          disabled={taskFilterStatuses.length === 0 && !taskFilterOwner && !taskFilterPriority}
+                        >
+                          Clear Filters
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
                   <div className="overflow-x-auto overflow-y-hidden max-w-full">
                     <div
@@ -1940,7 +2066,7 @@ async function selectPreviousSession(sessionId: string) {
 
                           <div className="space-y-2">
                             {sortTasksByDueDate(
-                              tasks.filter((t) => t.column_id === c.id && (showCompletedTasks || t.status !== "Completed"))
+                              applyTaskFilters(tasks.filter((t) => t.column_id === c.id))
                             ).map((t) => {
                               const le = latestEventByTask[t.id];
                               return (
@@ -1982,6 +2108,7 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
                   </div>
                 </DndContext>
+                </>
                 )}
               </Card>
 
@@ -2013,11 +2140,71 @@ async function selectPreviousSession(sessionId: string) {
                 }
               >
                 {!milestonesCollapsed && (
-                  <div className="space-y-3">
-                    {milestones.length === 0 ? (
-                      <div className="text-sm text-gray-600">No milestones yet.</div>
+                  <>
+                    {/* Filter bar */}
+                    <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Status</label>
+                          <select
+                            className="w-full rounded border px-2 py-1 text-xs"
+                            value={milestoneFilterStatus}
+                            onChange={(e) => setMilestoneFilterStatus(e.target.value)}
+                          >
+                            <option value="">All</option>
+                            <option value="Pending">Pending</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Delayed">Delayed</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Owner</label>
+                          <select
+                            className="w-full rounded border px-2 py-1 text-xs"
+                            value={milestoneFilterOwner}
+                            onChange={(e) => setMilestoneFilterOwner(e.target.value)}
+                          >
+                            <option value="">All</option>
+                            {attendees.map((a) => (
+                              <option key={a.email} value={`email:${a.email.toLowerCase()}`}>
+                                {a.full_name || a.email}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Priority</label>
+                          <select
+                            className="w-full rounded border px-2 py-1 text-xs"
+                            value={milestoneFilterPriority}
+                            onChange={(e) => setMilestoneFilterPriority(e.target.value)}
+                          >
+                            <option value="">All</option>
+                            {priorities.map((p) => (
+                              <option key={p.id} value={p.name}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            variant="ghost"
+                            onClick={clearMilestoneFilters}
+                            disabled={!milestoneFilterStatus && !milestoneFilterOwner && !milestoneFilterPriority}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                    {applyMilestoneFilters(milestones).length === 0 ? (
+                      <div className="text-sm text-gray-600">No milestones match filters.</div>
                     ) : (
-                      sortMilestonesByTargetDate(milestones).map((m) => (
+                      sortMilestonesByTargetDate(applyMilestoneFilters(milestones)).map((m) => (
                         <div
                           key={m.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
@@ -2040,6 +2227,7 @@ async function selectPreviousSession(sessionId: string) {
                       ))
                     )}
                   </div>
+                  </>
                 )}
               </Card>
 
@@ -2071,11 +2259,31 @@ async function selectPreviousSession(sessionId: string) {
                 }
               >
                 {!notesCollapsed && (
-                  <div className="space-y-3">
-                    {ongoingNotes.length === 0 ? (
-                      <div className="text-sm text-gray-600">No notes yet.</div>
+                  <>
+                    {/* Filter bar */}
+                    {ongoingNotes.some((n) => n.category) && (
+                      <div className="mb-3 flex items-center gap-2">
+                        <label className="text-xs text-gray-600">Category:</label>
+                        <select
+                          className="rounded border px-2 py-1 text-xs"
+                          value={noteFilterCategory}
+                          onChange={(e) => setNoteFilterCategory(e.target.value)}
+                        >
+                          <option value="">All</option>
+                          {Array.from(new Set(ongoingNotes.filter((n) => n.category).map((n) => n.category!))).map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                    {applyNoteFilters(ongoingNotes).length === 0 ? (
+                      <div className="text-sm text-gray-600">No notes match filter.</div>
                     ) : (
-                      sortByPos(ongoingNotes).map((n) => (
+                      sortByPos(applyNoteFilters(ongoingNotes)).map((n) => (
                         <div
                           key={n.id}
                           className="rounded-xl border bg-white p-3 cursor-pointer"
@@ -2094,6 +2302,7 @@ async function selectPreviousSession(sessionId: string) {
                       ))
                     )}
                   </div>
+                  </>
                 )}
               </Card>
             </div>
