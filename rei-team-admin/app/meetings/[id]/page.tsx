@@ -339,6 +339,10 @@ export default function MeetingDetailPage() {
   const [nContent, setNContent] = useState("");
   const [nCategory, setNCategory] = useState("");
 
+  // Note categories management
+  const [noteCategoriesOpen, setNoteCategoriesOpen] = useState(false);
+  const [noteCategories, setNoteCategories] = useState<string[]>([]);
+
   // Agenda edit
   const [agendaOpen, setAgendaOpen] = useState(false);
 
@@ -356,6 +360,16 @@ export default function MeetingDetailPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const tickRef = useRef<number | null>(null);
+
+  // Derive available note categories from existing notes + predefined categories
+  const availableNoteCategories = useMemo(() => {
+    const fromNotes = ongoingNotes
+      .filter((n) => n.category)
+      .map((n) => n.category!)
+      .filter((c, i, arr) => arr.indexOf(c) === i); // unique
+    const combined = [...new Set([...noteCategories, ...fromNotes])];
+    return combined.sort();
+  }, [noteCategories, ongoingNotes]);
 
   function ownerColor(ownerId: string | null): string {
     if (!ownerId) return "#E5E7EB";
@@ -1773,6 +1787,40 @@ async function selectPreviousSession(sessionId: string) {
     setPriorities((prev) => prev.filter((p) => p.id !== id));
   }
 
+  // Note category management functions
+  function addNoteCategory(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (noteCategories.includes(trimmed)) {
+      alert("A category with this name already exists.");
+      return;
+    }
+    setNoteCategories((prev) => [...prev, trimmed].sort());
+  }
+
+  function updateNoteCategory(oldName: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setNoteCategories((prev) => prev.map((c) => (c === oldName ? trimmed : c)).sort());
+    // Also update existing notes with this category
+    setOngoingNotes((prev) => prev.map((n) => (n.category === oldName ? { ...n, category: trimmed } : n)));
+    // Update in database
+    ongoingNotes
+      .filter((n) => n.category === oldName)
+      .forEach((n) => {
+        sb.from("meeting_ongoing_notes").update({ category: trimmed }).eq("id", n.id);
+      });
+  }
+
+  function deleteNoteCategory(name: string) {
+    const used = ongoingNotes.some((n) => n.category === name);
+    if (used) {
+      alert("This category is currently used by at least one note. Change those notes first.");
+      return;
+    }
+    setNoteCategories((prev) => prev.filter((c) => c !== name));
+  }
+
   // Attendee CRUD functions
   async function addAttendee(email: string, fullName: string, color: string) {
     const trimmedEmail = email.trim().toLowerCase();
@@ -1857,6 +1905,7 @@ async function selectPreviousSession(sessionId: string) {
                   { label: "Edit agenda", onClick: () => setAgendaOpen(true) },
                   { label: "Task statuses", onClick: () => setStatusMgrOpen(true) },
                   { label: "Task priorities", onClick: () => setPriorityMgrOpen(true) },
+                  { label: "Edit note categories", onClick: () => setNoteCategoriesOpen(true) },
                   { label: "Edit attendees", onClick: () => setAttendeesMgrOpen(true) },
                   { label: "Email settings", onClick: () => setEmailSettingsOpen(true) },
                 ]}
@@ -2851,6 +2900,39 @@ async function selectPreviousSession(sessionId: string) {
             </div>
           </Modal>
 
+          {/* Note Categories Manager modal */}
+          <Modal
+            open={noteCategoriesOpen}
+            title="Note Categories"
+            onClose={() => setNoteCategoriesOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setNoteCategoriesOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="text-sm text-gray-600 mb-3">
+              Manage predefined categories for notes. Categories from existing notes are automatically included.
+            </div>
+
+            <div className="space-y-3">
+              {availableNoteCategories.map((cat) => (
+                <div key={cat} className="flex items-center gap-2">
+                  <Input 
+                    value={cat} 
+                    onChange={(e) => updateNoteCategory(cat, e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button variant="ghost" onClick={() => deleteNoteCategory(cat)}>
+                    Delete
+                  </Button>
+                </div>
+              ))}
+
+              <AddNoteCategoryRow onAdd={addNoteCategory} />
+            </div>
+          </Modal>
+
           {/* Milestone Modal */}
           <Modal
             open={milestoneOpen}
@@ -3003,7 +3085,18 @@ async function selectPreviousSession(sessionId: string) {
               </div>
               <div>
                 <label className="text-xs text-gray-600">Category (optional)</label>
-                <Input value={nCategory} onChange={(e) => setNCategory(e.target.value)} placeholder="e.g., Action Items, Ideas, References" />
+                <select
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  value={nCategory}
+                  onChange={(e) => setNCategory(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {availableNoteCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-gray-600">Content</label>
@@ -3190,6 +3283,26 @@ function AddAttendeeRow({ onAdd }: { onAdd: (email: string, fullName: string, co
           Add
         </Button>
       </div>
+    </div>
+  );
+}
+
+function AddNoteCategoryRow({ onAdd }: { onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <div className="flex items-center gap-2 border-t pt-3">
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a new category..." className="flex-1" />
+      <Button
+        variant="ghost"
+        onClick={() => {
+          const v = name.trim();
+          if (!v) return;
+          onAdd(v);
+          setName("");
+        }}
+      >
+        Add
+      </Button>
     </div>
   );
 }
