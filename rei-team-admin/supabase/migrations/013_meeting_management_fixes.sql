@@ -77,16 +77,8 @@ END;
 $$;
 
 
--- 3. Add color_hex to meeting_attendees for canonical color management
+-- 3. Add color_hex and full_name to meeting_attendees for canonical color management
+-- This is idempotent and safe to run multiple times.
 ALTER TABLE public.meeting_attendees
+  ADD COLUMN IF NOT EXISTS full_name text,
   ADD COLUMN IF NOT EXISTS color_hex text;
-
--- Ensure full_name column exists (added in migration 004, this is a safety check)
-ALTER TABLE public.meeting_attendees
-  ADD COLUMN IF NOT EXISTS full_name text;
-  add column if not exists color_hex text;
-
--- Ensure full_name column exists (added in migration 004, this is a safety check)
--- This is idempotent and safe to run even if migration 004 was already applied
-alter table public.meeting_attendees 
-  add column if not exists full_name text;
