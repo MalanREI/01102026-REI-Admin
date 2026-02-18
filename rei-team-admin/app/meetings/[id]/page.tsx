@@ -3593,8 +3593,40 @@ function CalendarView({
   const itemsByDate = new Map<string, { tasks: Task[]; milestones: Milestone[] }>();
   
   tasks.forEach((task) => {
-    if (task.due_date) {
+    // If task has both start_date and due_date, show it on all days in between
+    if (task.start_date && task.due_date) {
+      const startDate = new Date(task.start_date);
+      const endDate = new Date(task.due_date);
+      
+      // Ensure dates are in correct order
+      if (startDate <= endDate) {
+        // Iterate through each day from start to end
+        // Use date manipulation to handle DST transitions correctly
+        const currentDate = new Date(startDate);
+        
+        while (currentDate <= endDate) {
+          const key = formatDateKey(currentDate);
+          if (!itemsByDate.has(key)) {
+            itemsByDate.set(key, { tasks: [], milestones: [] });
+          }
+          const items = itemsByDate.get(key);
+          if (items) items.tasks.push(task);
+          
+          // Move to next day (handles DST correctly)
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+      }
+    } else if (task.due_date) {
+      // If only due_date is set, show it on that date
       const key = task.due_date;
+      if (!itemsByDate.has(key)) {
+        itemsByDate.set(key, { tasks: [], milestones: [] });
+      }
+      const items = itemsByDate.get(key);
+      if (items) items.tasks.push(task);
+    } else if (task.start_date) {
+      // If only start_date is set, show it on that date
+      const key = task.start_date;
       if (!itemsByDate.has(key)) {
         itemsByDate.set(key, { tasks: [], milestones: [] });
       }
@@ -3711,20 +3743,48 @@ function CalendarView({
                   ))}
                   
                   {/* Tasks */}
-                  {items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => (
-                    <div
-                      key={task.id}
-                      className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
-                      style={{
-                        backgroundColor: `${statusColor(task.status)}20`,
-                        borderLeftColor: getOwnerColor(task),
-                      }}
-                      onClick={() => onTaskClick(task.id)}
-                      title={task.title}
-                    >
-                      <div className="font-medium truncate">{task.title}</div>
-                    </div>
-                  ))}
+                  {items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => {
+                    // Pre-calculate date keys for this task to avoid redundant formatting
+                    const taskStartKey = task.start_date ? formatDateKey(new Date(task.start_date)) : null;
+                    const taskEndKey = task.due_date ? formatDateKey(new Date(task.due_date)) : null;
+                    
+                    // Determine if this is start, middle, or end of date range
+                    const isStartDate = taskStartKey === dateKey;
+                    const isEndDate = taskEndKey === dateKey;
+                    const isMiddleDate = !isStartDate && !isEndDate;
+                    
+                    // Build indicator text
+                    let indicator = '';
+                    if (isStartDate && isEndDate) {
+                      indicator = '◆ '; // Single day task
+                    } else if (isStartDate) {
+                      indicator = '▶ '; // Start of range
+                    } else if (isEndDate) {
+                      indicator = '◀ '; // End of range
+                    } else if (isMiddleDate) {
+                      indicator = '▬ '; // Middle of range
+                    }
+                    
+                    // Format dates for tooltip
+                    const tooltipDates = task.start_date && task.due_date 
+                      ? `\nStart: ${new Date(task.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\nEnd: ${new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                      : '';
+                    
+                    return (
+                      <div
+                        key={task.id}
+                        className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
+                        style={{
+                          backgroundColor: `${statusColor(task.status)}20`,
+                          borderLeftColor: getOwnerColor(task),
+                        }}
+                        onClick={() => onTaskClick(task.id)}
+                        title={`${task.title}${tooltipDates}`}
+                      >
+                        <div className="font-medium truncate">{indicator}{task.title}</div>
+                      </div>
+                    );
+                  })}
                   
                   {/* Show count if more tasks */}
                   {items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
