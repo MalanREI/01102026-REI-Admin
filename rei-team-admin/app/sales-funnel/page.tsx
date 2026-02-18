@@ -7,6 +7,8 @@ import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 
+export const dynamic = 'force-dynamic';
+
 type Stage = { id: string; name: string; position: number };
 
 type Company = {

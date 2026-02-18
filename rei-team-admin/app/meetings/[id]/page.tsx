@@ -18,6 +18,8 @@ import { prettyDate } from "@/src/lib/format";
 import { PageShell } from "@/src/components/PageShell";
 import ResizableSidebar from "@/src/components/ResizableSidebar";
 
+export const dynamic = 'force-dynamic';
+
 type Meeting = {
   id: string;
   title: string;
@@ -196,6 +198,50 @@ function DraggableTaskCard({ id, children }: { id: string; children: React.React
   );
 }
 
+// Calendar view helpers
+function getMonthDays(year: number, month: number): Date[] {
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const days: Date[] = [];
+  
+  // Add days from previous month to fill the first week
+  const firstDayOfWeek = firstDay.getDay();
+  for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+    const d = new Date(year, month, -i);
+    days.push(d);
+  }
+  
+  // Add all days of current month
+  for (let i = 1; i <= lastDay.getDate(); i++) {
+    days.push(new Date(year, month, i));
+  }
+  
+  // Add days from next month to fill the last week
+  const remainingDays = 7 - (days.length % 7);
+  if (remainingDays < 7) {
+    for (let i = 1; i <= remainingDays; i++) {
+      days.push(new Date(year, month + 1, i));
+    }
+  }
+  
+  return days;
+}
+
+function isSameDay(d1: Date, d2: Date): boolean {
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function MeetingDetailPage() {
   const params = useParams<{ id: string }>();
   const search = useSearchParams();
@@ -226,6 +272,11 @@ export default function MeetingDetailPage() {
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [milestonesCollapsed, setMilestonesCollapsed] = useState(false);
   const [notesCollapsed, setNotesCollapsed] = useState(false);
+  const [tasksView, setTasksView] = useState<"board" | "calendar">("board");
+  
+  // Calendar state
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
   // Advanced filtering for tasks
   const [taskFilterStatuses, setTaskFilterStatuses] = useState<Set<string>>(new Set());
@@ -251,6 +302,10 @@ export default function MeetingDetailPage() {
   const [reminderFreq, setReminderFreq] = useState<
   "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
 >("weekly");
+
+  // Column manager modal
+  const [columnManagerOpen, setColumnManagerOpen] = useState(false);
+  const [newColumnName, setNewColumnName] = useState("");
 
   // Task modal
   const [taskOpen, setTaskOpen] = useState(false);
@@ -341,7 +396,7 @@ export default function MeetingDetailPage() {
   }
 
   // Helper to get color for task/milestone owner
-  function getOwnerColor(task: { owner_id: string | null; owner_email?: string | null }): string {
+  function getOwnerColor(task: { owner_id?: string | null; owner_email?: string | null }): string {
     if (task.owner_id) {
       return ownerColor(task.owner_id);
     }
@@ -457,8 +512,8 @@ function profileName(userId: string | null | undefined): string {
   // First try to find in profiles by id
   const p = profiles.find((x) => x.id === userId);
   if (p) {
-    const fn = firstNameFromFullName(p.full_name);
-    if (fn) return fn;
+    // Return full name if available
+    if (p.full_name?.trim()) return p.full_name.trim();
     
     const fe = firstNameFromEmail(p.email);
     if (fe) return fe;
@@ -467,8 +522,8 @@ function profileName(userId: string | null | undefined): string {
   // Try to find in attendees by user_id
   const attendee = attendees.find((a) => a.user_id === userId);
   if (attendee) {
-    const aFn = firstNameFromFullName(attendee.full_name);
-    if (aFn) return aFn;
+    // Return full name if available
+    if (attendee.full_name?.trim()) return attendee.full_name.trim();
     
     const aFe = firstNameFromEmail(attendee.email);
     if (aFe) return aFe;
@@ -481,8 +536,8 @@ function profileName(userId: string | null | undefined): string {
   if (userId.includes("@")) {
     const attendeeByEmail = attendees.find((a) => a.email?.toLowerCase() === userId.toLowerCase());
     if (attendeeByEmail) {
-      const aFn = firstNameFromFullName(attendeeByEmail.full_name);
-      if (aFn) return aFn;
+      // Return full name if available
+      if (attendeeByEmail.full_name?.trim()) return attendeeByEmail.full_name.trim();
       
       return attendeeByEmail.email;
     }
@@ -948,13 +1003,107 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     await sb.from("meeting_task_columns").update({ name }).eq("id", columnId);
   }
 
+  function openColumnManager() {
+    setColumnManagerOpen(true);
+    setNewColumnName("");
+    setErr(null);
+  }
+
+  async function addColumn() {
+    if (!newColumnName.trim()) {
+      setErr("Column name is required");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const maxPos = Math.max(...columns.map((c) => c.position), 0);
+      const { data, error } = await sb
+        .from("meeting_task_columns")
+        .insert({
+          meeting_id: meetingId,
+          name: newColumnName.trim(),
+          position: maxPos + 1,
+        })
+        .select("id,name,position")
+        .single();
+      if (error) throw error;
+      setColumns((prev) => [...prev, data as Column]);
+      setNewColumnName("");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to add column");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteColumn(columnId: string) {
+    const column = columns.find((c) => c.id === columnId);
+    if (!column) return;
+    
+    const taskCount = tasks.filter((t) => t.column_id === columnId).length;
+    if (taskCount > 0) {
+      const ok = window.confirm(
+        `This column contains ${taskCount} task(s). Deleting it will also delete all tasks in this column. Continue?`
+      );
+      if (!ok) return;
+    } else {
+      const ok = window.confirm(`Delete column "${column.name}"?`);
+      if (!ok) return;
+    }
+
+    setBusy(true);
+    setErr(null);
+    try {
+      const { error } = await sb.from("meeting_task_columns").delete().eq("id", columnId);
+      if (error) throw error;
+      setColumns((prev) => prev.filter((c) => c.id !== columnId));
+      setTasks((prev) => prev.filter((t) => t.column_id !== columnId));
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to delete column");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveColumn(columnId: string, direction: "left" | "right") {
+    const sorted = sortByPos(columns);
+    const index = sorted.findIndex((c) => c.id === columnId);
+    if (index === -1) return;
+    
+    const newIndex = direction === "left" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= sorted.length) return;
+
+    // Swap positions
+    const newColumns = [...sorted];
+    [newColumns[index], newColumns[newIndex]] = [newColumns[newIndex], newColumns[index]];
+    
+    // Update positions
+    const updates = newColumns.map((c, i) => ({ ...c, position: i + 1 }));
+    setColumns(updates);
+
+    // Save to database
+    try {
+      for (const col of updates) {
+        await sb.from("meeting_task_columns").update({ position: col.position }).eq("id", col.id);
+      }
+    } catch (e: unknown) {
+      console.error("Failed to update column positions:", e);
+      await loadAll();
+    }
+  }
+
+
   const cols = sortByPos(columns);
   const statusOpts = sortByPos(statuses);
   const priorityOpts = sortByPos(priorities);
 
-  function openNewTask(colId: string) {
+  function openNewTask(colId?: string) {
     setEditingTaskId(null);
-    setTColumnId(colId);
+    const defaultColId = sortByPos(columns)[0]?.id ?? "";
+    setTColumnId(colId ?? defaultColId);
     setTTitle("");
     setTStatus(statusOpts[0]?.name ?? "In Progress");
     setTPriority(priorityOpts[0]?.name ?? "Normal");
@@ -1159,7 +1308,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
   async function deleteTask() {
     if (!editingTaskId) return;
+    const ok = window.confirm("Delete this task? This cannot be undone.");
+    if (!ok) return;
+    
     setBusy(true);
+    setErr(null);
     try {
       await writeTaskEvent(editingTaskId, "deleted", {});
       const del = await sb.from("meeting_tasks").delete().eq("id", editingTaskId);
@@ -1173,6 +1326,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       });
 
       setTaskOpen(false);
+      setEditingTaskId(null);
     } catch (e: unknown) {
       const error = e as Error;
       setErr(error?.message ?? "Failed to delete task");
@@ -2116,6 +2270,36 @@ async function selectPreviousSession(sessionId: string) {
                         </svg>
                       )}
                     </button>
+                    <div className="flex border rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        className={`px-3 py-1 text-sm ${
+                          tasksView === "board"
+                            ? "bg-blue-500 text-white"
+                            : "bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setTasksView("board")}
+                      >
+                        Board
+                      </button>
+                      <button
+                        type="button"
+                        className={`px-3 py-1 text-sm ${
+                          tasksView === "calendar"
+                            ? "bg-blue-500 text-white"
+                            : "bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setTasksView("calendar")}
+                      >
+                        Calendar
+                      </button>
+                    </div>
+                    <Button variant="ghost" onClick={openColumnManager}>
+                      Manage Columns
+                    </Button>
+                    <Button variant="ghost" onClick={() => openNewTask()}>
+                      + New Task
+                    </Button>
                   </div>
                 }
               >
@@ -2165,6 +2349,7 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
                   </div>
 
+                {tasksView === "board" ? (
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
                   <div className="overflow-x-auto overflow-y-hidden max-w-full">
                     <div
@@ -2184,9 +2369,6 @@ async function selectPreviousSession(sessionId: string) {
                                 await renameColumn(c.id, e.target.value);
                               }}
                             />
-                            <Button variant="ghost" onClick={() => openNewTask(c.id)}>
-                              +
-                            </Button>
                           </div>
 
                           <div className="space-y-2">
@@ -2233,6 +2415,21 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
                   </div>
                 </DndContext>
+                ) : (
+                  <CalendarView
+                    tasks={applyTaskFilters(tasks)}
+                    milestones={applyMilestoneFilters(milestones)}
+                    month={calendarMonth}
+                    year={calendarYear}
+                    onMonthChange={(m) => setCalendarMonth(m)}
+                    onYearChange={(y) => setCalendarYear(y)}
+                    onTaskClick={openEditTask}
+                    onMilestoneClick={openEditMilestone}
+                    statusColor={statusColor}
+                    priorityColor={priorityColor}
+                    getOwnerColor={getOwnerColor}
+                  />
+                )}
                 </>
                 )}
               </Card>
@@ -3276,9 +3473,272 @@ async function selectPreviousSession(sessionId: string) {
               )}
             </div>
           </Modal>
+
+          {/* Column Manager Modal */}
+          <Modal
+            open={columnManagerOpen}
+            title="Manage Task Board Columns"
+            onClose={() => setColumnManagerOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setColumnManagerOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-600">Add New Column</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={newColumnName}
+                    onChange={(e) => setNewColumnName(e.target.value)}
+                    placeholder="Column name"
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter") void addColumn();
+                    }}
+                  />
+                  <Button onClick={addColumn} disabled={busy}>
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600 mb-2 block">Existing Columns</label>
+                <div className="space-y-2">
+                  {sortByPos(columns).map((col, index) => (
+                    <div key={col.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          onClick={() => moveColumn(col.id, "left")}
+                          disabled={index === 0 || busy}
+                          title="Move left"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          onClick={() => moveColumn(col.id, "right")}
+                          disabled={index === columns.length - 1 || busy}
+                          title="Move right"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="flex-1 font-medium">{col.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {tasks.filter((t) => t.column_id === col.id).length} tasks
+                      </div>
+                      <Button
+                        variant="ghost"
+                        onClick={() => deleteColumn(col.id)}
+                        disabled={busy}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {err && (
+                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>
+              )}
+            </div>
+          </Modal>
         </div>
       )}
     </PageShell>
+  );
+}
+
+// Calendar View Component
+function CalendarView({
+  tasks,
+  milestones,
+  month,
+  year,
+  onMonthChange,
+  onYearChange,
+  onTaskClick,
+  onMilestoneClick,
+  statusColor,
+  priorityColor,
+  getOwnerColor,
+}: {
+  tasks: Task[];
+  milestones: Milestone[];
+  month: number;
+  year: number;
+  onMonthChange: (month: number) => void;
+  onYearChange: (year: number) => void;
+  onTaskClick: (taskId: string) => void;
+  onMilestoneClick: (milestoneId: string) => void;
+  statusColor: (status: string) => string;
+  priorityColor: (priority: string) => string;
+  getOwnerColor: (item: { owner_id?: string | null; owner_email?: string | null }) => string;
+}) {
+  const MAX_VISIBLE_TASKS_PER_DAY = 3;
+  const days = getMonthDays(year, month);
+  const monthName = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  
+  // Group tasks and milestones by date
+  const itemsByDate = new Map<string, { tasks: Task[]; milestones: Milestone[] }>();
+  
+  tasks.forEach((task) => {
+    if (task.due_date) {
+      const key = task.due_date;
+      if (!itemsByDate.has(key)) {
+        itemsByDate.set(key, { tasks: [], milestones: [] });
+      }
+      const items = itemsByDate.get(key);
+      if (items) items.tasks.push(task);
+    }
+  });
+  
+  milestones.forEach((milestone) => {
+    if (milestone.target_date) {
+      const key = milestone.target_date;
+      if (!itemsByDate.has(key)) {
+        itemsByDate.set(key, { tasks: [], milestones: [] });
+      }
+      const items = itemsByDate.get(key);
+      if (items) items.milestones.push(milestone);
+    }
+  });
+  
+  const goToPrevMonth = () => {
+    if (month === 0) {
+      onMonthChange(11);
+      onYearChange(year - 1);
+    } else {
+      onMonthChange(month - 1);
+    }
+  };
+  
+  const goToNextMonth = () => {
+    if (month === 11) {
+      onMonthChange(0);
+      onYearChange(year + 1);
+    } else {
+      onMonthChange(month + 1);
+    }
+  };
+  
+  const goToToday = () => {
+    const today = new Date();
+    onMonthChange(today.getMonth());
+    onYearChange(today.getFullYear());
+  };
+  
+  const isCurrentMonth = (date: Date) => date.getMonth() === month;
+  const isToday = (date: Date) => isSameDay(date, new Date());
+  
+  return (
+    <div className="space-y-3">
+      {/* Calendar Header */}
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-semibold">{monthName}</div>
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={goToToday}>
+            Today
+          </Button>
+          <Button variant="ghost" onClick={goToPrevMonth}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </Button>
+          <Button variant="ghost" onClick={goToNextMonth}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Button>
+        </div>
+      </div>
+      
+      {/* Calendar Grid */}
+      <div className="grid grid-cols-7 gap-2">
+        {/* Day headers */}
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <div key={day} className="text-center text-xs font-semibold text-gray-600 py-2">
+            {day}
+          </div>
+        ))}
+        
+        {/* Calendar days */}
+        {days.map((date, idx) => {
+          const dateKey = formatDateKey(date);
+          const items = itemsByDate.get(dateKey);
+          const isCurrent = isCurrentMonth(date);
+          const isNow = isToday(date);
+          
+          return (
+            <div
+              key={idx}
+              className={`min-h-24 border rounded-lg p-2 ${
+                isCurrent ? 'bg-white' : 'bg-gray-50'
+              } ${isNow ? 'ring-2 ring-blue-500' : ''}`}
+            >
+              <div className={`text-xs font-semibold mb-1 ${
+                isNow ? 'text-blue-600' : isCurrent ? 'text-gray-900' : 'text-gray-400'
+              }`}>
+                {date.getDate()}
+              </div>
+              
+              {items && (
+                <div className="space-y-1">
+                  {/* Milestones */}
+                  {items.milestones.map((milestone) => (
+                    <div
+                      key={milestone.id}
+                      className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
+                      style={{
+                        backgroundColor: `${priorityColor(milestone.priority)}20`,
+                        borderLeftColor: priorityColor(milestone.priority),
+                      }}
+                      onClick={() => onMilestoneClick(milestone.id)}
+                      title={milestone.title}
+                    >
+                      <div className="font-medium truncate">🎯 {milestone.title}</div>
+                    </div>
+                  ))}
+                  
+                  {/* Tasks */}
+                  {items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => (
+                    <div
+                      key={task.id}
+                      className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
+                      style={{
+                        backgroundColor: `${statusColor(task.status)}20`,
+                        borderLeftColor: getOwnerColor(task),
+                      }}
+                      onClick={() => onTaskClick(task.id)}
+                      title={task.title}
+                    >
+                      <div className="font-medium truncate">{task.title}</div>
+                    </div>
+                  ))}
+                  
+                  {/* Show count if more tasks */}
+                  {items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
+                    <div className="text-xs text-gray-500 pl-1">
+                      +{items.tasks.length - MAX_VISIBLE_TASKS_PER_DAY} more
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
