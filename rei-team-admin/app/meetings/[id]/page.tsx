@@ -196,6 +196,50 @@ function DraggableTaskCard({ id, children }: { id: string; children: React.React
   );
 }
 
+// Calendar view helpers
+function getMonthDays(year: number, month: number): Date[] {
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const days: Date[] = [];
+  
+  // Add days from previous month to fill the first week
+  const firstDayOfWeek = firstDay.getDay();
+  for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+    const d = new Date(year, month, -i);
+    days.push(d);
+  }
+  
+  // Add all days of current month
+  for (let i = 1; i <= lastDay.getDate(); i++) {
+    days.push(new Date(year, month, i));
+  }
+  
+  // Add days from next month to fill the last week
+  const remainingDays = 7 - (days.length % 7);
+  if (remainingDays < 7) {
+    for (let i = 1; i <= remainingDays; i++) {
+      days.push(new Date(year, month + 1, i));
+    }
+  }
+  
+  return days;
+}
+
+function isSameDay(d1: Date, d2: Date): boolean {
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function MeetingDetailPage() {
   const params = useParams<{ id: string }>();
   const search = useSearchParams();
@@ -226,6 +270,11 @@ export default function MeetingDetailPage() {
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [milestonesCollapsed, setMilestonesCollapsed] = useState(false);
   const [notesCollapsed, setNotesCollapsed] = useState(false);
+  const [tasksView, setTasksView] = useState<"board" | "calendar">("board");
+  
+  // Calendar state
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
   // Advanced filtering for tasks
   const [taskFilterStatuses, setTaskFilterStatuses] = useState<Set<string>>(new Set());
@@ -2218,6 +2267,30 @@ async function selectPreviousSession(sessionId: string) {
                         </svg>
                       )}
                     </button>
+                    <div className="flex border rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        className={`px-3 py-1 text-sm ${
+                          tasksView === "board"
+                            ? "bg-blue-500 text-white"
+                            : "bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setTasksView("board")}
+                      >
+                        Board
+                      </button>
+                      <button
+                        type="button"
+                        className={`px-3 py-1 text-sm ${
+                          tasksView === "calendar"
+                            ? "bg-blue-500 text-white"
+                            : "bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setTasksView("calendar")}
+                      >
+                        Calendar
+                      </button>
+                    </div>
                     <Button variant="ghost" onClick={openColumnManager}>
                       Manage Columns
                     </Button>
@@ -2273,6 +2346,7 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
                   </div>
 
+                {tasksView === "board" ? (
                 <DndContext sensors={sensors} onDragEnd={onDragEnd}>
                   <div className="overflow-x-auto overflow-y-hidden max-w-full">
                     <div
@@ -2338,6 +2412,21 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
                   </div>
                 </DndContext>
+                ) : (
+                  <CalendarView
+                    tasks={applyTaskFilters(tasks)}
+                    milestones={applyMilestoneFilters(milestones)}
+                    month={calendarMonth}
+                    year={calendarYear}
+                    onMonthChange={(m) => setCalendarMonth(m)}
+                    onYearChange={(y) => setCalendarYear(y)}
+                    onTaskClick={openEditTask}
+                    onMilestoneClick={openEditMilestone}
+                    statusColor={statusColor}
+                    priorityColor={priorityColor}
+                    getOwnerColor={getOwnerColor}
+                  />
+                )}
                 </>
                 )}
               </Card>
@@ -3464,6 +3553,186 @@ async function selectPreviousSession(sessionId: string) {
         </div>
       )}
     </PageShell>
+  );
+}
+
+// Calendar View Component
+function CalendarView({
+  tasks,
+  milestones,
+  month,
+  year,
+  onMonthChange,
+  onYearChange,
+  onTaskClick,
+  onMilestoneClick,
+  statusColor,
+  priorityColor,
+  getOwnerColor,
+}: {
+  tasks: Task[];
+  milestones: Milestone[];
+  month: number;
+  year: number;
+  onMonthChange: (month: number) => void;
+  onYearChange: (year: number) => void;
+  onTaskClick: (taskId: string) => void;
+  onMilestoneClick: (milestoneId: string) => void;
+  statusColor: (status: string) => string;
+  priorityColor: (priority: string) => string;
+  getOwnerColor: (item: { owner_id?: string | null; owner_email?: string | null }) => string;
+}) {
+  const days = getMonthDays(year, month);
+  const monthName = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  
+  // Group tasks and milestones by date
+  const itemsByDate = new Map<string, { tasks: Task[]; milestones: Milestone[] }>();
+  
+  tasks.forEach((task) => {
+    if (task.due_date) {
+      const key = task.due_date;
+      if (!itemsByDate.has(key)) {
+        itemsByDate.set(key, { tasks: [], milestones: [] });
+      }
+      itemsByDate.get(key)!.tasks.push(task);
+    }
+  });
+  
+  milestones.forEach((milestone) => {
+    if (milestone.target_date) {
+      const key = milestone.target_date;
+      if (!itemsByDate.has(key)) {
+        itemsByDate.set(key, { tasks: [], milestones: [] });
+      }
+      itemsByDate.get(key)!.milestones.push(milestone);
+    }
+  });
+  
+  const goToPrevMonth = () => {
+    if (month === 0) {
+      onMonthChange(11);
+      onYearChange(year - 1);
+    } else {
+      onMonthChange(month - 1);
+    }
+  };
+  
+  const goToNextMonth = () => {
+    if (month === 11) {
+      onMonthChange(0);
+      onYearChange(year + 1);
+    } else {
+      onMonthChange(month + 1);
+    }
+  };
+  
+  const goToToday = () => {
+    const today = new Date();
+    onMonthChange(today.getMonth());
+    onYearChange(today.getFullYear());
+  };
+  
+  const isCurrentMonth = (date: Date) => date.getMonth() === month;
+  const isToday = (date: Date) => isSameDay(date, new Date());
+  
+  return (
+    <div className="space-y-3">
+      {/* Calendar Header */}
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-semibold">{monthName}</div>
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={goToToday}>
+            Today
+          </Button>
+          <Button variant="ghost" onClick={goToPrevMonth}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </Button>
+          <Button variant="ghost" onClick={goToNextMonth}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Button>
+        </div>
+      </div>
+      
+      {/* Calendar Grid */}
+      <div className="grid grid-cols-7 gap-2">
+        {/* Day headers */}
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <div key={day} className="text-center text-xs font-semibold text-gray-600 py-2">
+            {day}
+          </div>
+        ))}
+        
+        {/* Calendar days */}
+        {days.map((date, idx) => {
+          const dateKey = formatDateKey(date);
+          const items = itemsByDate.get(dateKey);
+          const isCurrent = isCurrentMonth(date);
+          const isNow = isToday(date);
+          
+          return (
+            <div
+              key={idx}
+              className={`min-h-24 border rounded-lg p-2 ${
+                isCurrent ? 'bg-white' : 'bg-gray-50'
+              } ${isNow ? 'ring-2 ring-blue-500' : ''}`}
+            >
+              <div className={`text-xs font-semibold mb-1 ${
+                isNow ? 'text-blue-600' : isCurrent ? 'text-gray-900' : 'text-gray-400'
+              }`}>
+                {date.getDate()}
+              </div>
+              
+              {items && (
+                <div className="space-y-1">
+                  {/* Milestones */}
+                  {items.milestones.map((milestone) => (
+                    <div
+                      key={milestone.id}
+                      className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
+                      style={{
+                        backgroundColor: `${priorityColor(milestone.priority)}20`,
+                        borderLeftColor: priorityColor(milestone.priority),
+                      }}
+                      onClick={() => onMilestoneClick(milestone.id)}
+                      title={milestone.title}
+                    >
+                      <div className="font-medium truncate">🎯 {milestone.title}</div>
+                    </div>
+                  ))}
+                  
+                  {/* Tasks */}
+                  {items.tasks.slice(0, 3).map((task) => (
+                    <div
+                      key={task.id}
+                      className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
+                      style={{
+                        backgroundColor: `${statusColor(task.status)}20`,
+                        borderLeftColor: getOwnerColor(task),
+                      }}
+                      onClick={() => onTaskClick(task.id)}
+                      title={task.title}
+                    >
+                      <div className="font-medium truncate">{task.title}</div>
+                    </div>
+                  ))}
+                  
+                  {/* Show count if more tasks */}
+                  {items.tasks.length > 3 && (
+                    <div className="text-xs text-gray-500 pl-1">
+                      +{items.tasks.length - 3} more
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
