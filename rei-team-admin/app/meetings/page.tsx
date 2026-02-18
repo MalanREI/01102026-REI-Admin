@@ -7,6 +7,8 @@ import { Button, Card, Input, Modal, Textarea } from "@/src/components/ui";
 import { prettyDate } from "@/src/lib/format";
 import { PageShell } from "@/src/components/PageShell";
 
+export const dynamic = 'force-dynamic';
+
 type Meeting = {
   id: string;
   title: string;

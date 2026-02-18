@@ -15,6 +15,8 @@ import {
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+export const dynamic = 'force-dynamic';
+
 type LinkRow = {
   id: string;
   title: string;

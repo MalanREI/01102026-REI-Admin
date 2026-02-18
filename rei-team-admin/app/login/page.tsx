@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import { Button, Input, Tabs } from "@/src/components/ui";
 
+export const dynamic = 'force-dynamic';
+
 export default function LoginPage() {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [email, setEmail] = useState("");

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import { Button, Card, Input } from "@/src/components/ui";
 
+export const dynamic = 'force-dynamic';
+
 export default function ResetPasswordPage() {
   const sb = useMemo(() => supabaseBrowser(), []);
 

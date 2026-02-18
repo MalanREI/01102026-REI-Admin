@@ -18,6 +18,8 @@ import { prettyDate } from "@/src/lib/format";
 import { PageShell } from "@/src/components/PageShell";
 import ResizableSidebar from "@/src/components/ResizableSidebar";
 
+export const dynamic = 'force-dynamic';
+
 type Meeting = {
   id: string;
   title: string;
@@ -394,7 +396,7 @@ export default function MeetingDetailPage() {
   }
 
   // Helper to get color for task/milestone owner
-  function getOwnerColor(task: { owner_id: string | null; owner_email?: string | null }): string {
+  function getOwnerColor(task: { owner_id?: string | null; owner_email?: string | null }): string {
     if (task.owner_id) {
       return ownerColor(task.owner_id);
     }
@@ -1089,7 +1091,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       }
     } catch (e: unknown) {
       console.error("Failed to update column positions:", e);
-      await loadData();
+      await loadAll();
     }
   }
 
