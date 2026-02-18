@@ -1314,7 +1314,6 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setBusy(true);
     setErr(null);
     try {
-      await writeTaskEvent(editingTaskId, "deleted", {});
       const del = await sb.from("meeting_tasks").delete().eq("id", editingTaskId);
       if (del.error) throw del.error;
 
