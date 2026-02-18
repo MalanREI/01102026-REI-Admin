@@ -252,6 +252,10 @@ export default function MeetingDetailPage() {
   "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
 >("weekly");
 
+  // Column manager modal
+  const [columnManagerOpen, setColumnManagerOpen] = useState(false);
+  const [newColumnName, setNewColumnName] = useState("");
+
   // Task modal
   const [taskOpen, setTaskOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -948,13 +952,106 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     await sb.from("meeting_task_columns").update({ name }).eq("id", columnId);
   }
 
+  function openColumnManager() {
+    setColumnManagerOpen(true);
+    setNewColumnName("");
+    setErr(null);
+  }
+
+  async function addColumn() {
+    if (!newColumnName.trim()) {
+      setErr("Column name is required");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const maxPos = Math.max(...columns.map((c) => c.position), 0);
+      const { data, error } = await sb
+        .from("meeting_task_columns")
+        .insert({
+          meeting_id: meetingId,
+          name: newColumnName.trim(),
+          position: maxPos + 1,
+        })
+        .select("id,name,position")
+        .single();
+      if (error) throw error;
+      setColumns((prev) => [...prev, data as Column]);
+      setNewColumnName("");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to add column");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteColumn(columnId: string) {
+    const column = columns.find((c) => c.id === columnId);
+    if (!column) return;
+    
+    const taskCount = tasks.filter((t) => t.column_id === columnId).length;
+    if (taskCount > 0) {
+      const ok = window.confirm(
+        `This column contains ${taskCount} task(s). Deleting it will also delete all tasks in this column. Continue?`
+      );
+      if (!ok) return;
+    } else {
+      const ok = window.confirm(`Delete column "${column.name}"?`);
+      if (!ok) return;
+    }
+
+    setBusy(true);
+    setErr(null);
+    try {
+      const { error } = await sb.from("meeting_task_columns").delete().eq("id", columnId);
+      if (error) throw error;
+      setColumns((prev) => prev.filter((c) => c.id !== columnId));
+      setTasks((prev) => prev.filter((t) => t.column_id !== columnId));
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to delete column");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveColumn(columnId: string, direction: "left" | "right") {
+    const sorted = sortByPos(columns);
+    const index = sorted.findIndex((c) => c.id === columnId);
+    if (index === -1) return;
+    
+    const newIndex = direction === "left" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= sorted.length) return;
+
+    // Swap positions
+    const newColumns = [...sorted];
+    [newColumns[index], newColumns[newIndex]] = [newColumns[newIndex], newColumns[index]];
+    
+    // Update positions
+    const updates = newColumns.map((c, i) => ({ ...c, position: i + 1 }));
+    setColumns(updates);
+
+    // Save to database
+    try {
+      for (const col of updates) {
+        await sb.from("meeting_task_columns").update({ position: col.position }).eq("id", col.id);
+      }
+    } catch (e: unknown) {
+      console.error("Failed to update column positions:", e);
+      await loadData();
+    }
+  }
+
+
   const cols = sortByPos(columns);
   const statusOpts = sortByPos(statuses);
   const priorityOpts = sortByPos(priorities);
 
-  function openNewTask(colId: string) {
+  function openNewTask(colId?: string) {
     setEditingTaskId(null);
-    setTColumnId(colId);
+    setTColumnId(colId ?? cols[0]?.id ?? "");
     setTTitle("");
     setTStatus(statusOpts[0]?.name ?? "In Progress");
     setTPriority(priorityOpts[0]?.name ?? "Normal");
@@ -1159,7 +1256,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
   async function deleteTask() {
     if (!editingTaskId) return;
+    const ok = window.confirm("Delete this task? This cannot be undone.");
+    if (!ok) return;
+    
     setBusy(true);
+    setErr(null);
     try {
       await writeTaskEvent(editingTaskId, "deleted", {});
       const del = await sb.from("meeting_tasks").delete().eq("id", editingTaskId);
@@ -1173,6 +1274,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
       });
 
       setTaskOpen(false);
+      setEditingTaskId(null);
     } catch (e: unknown) {
       const error = e as Error;
       setErr(error?.message ?? "Failed to delete task");
@@ -2116,6 +2218,12 @@ async function selectPreviousSession(sessionId: string) {
                         </svg>
                       )}
                     </button>
+                    <Button variant="ghost" onClick={openColumnManager}>
+                      Manage Columns
+                    </Button>
+                    <Button variant="ghost" onClick={() => openNewTask()}>
+                      + New Task
+                    </Button>
                   </div>
                 }
               >
@@ -2184,9 +2292,6 @@ async function selectPreviousSession(sessionId: string) {
                                 await renameColumn(c.id, e.target.value);
                               }}
                             />
-                            <Button variant="ghost" onClick={() => openNewTask(c.id)}>
-                              +
-                            </Button>
                           </div>
 
                           <div className="space-y-2">
@@ -3273,6 +3378,86 @@ async function selectPreviousSession(sessionId: string) {
 
                   {recErr && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{recErr}</div>}
                 </div>
+              )}
+            </div>
+          </Modal>
+
+          {/* Column Manager Modal */}
+          <Modal
+            open={columnManagerOpen}
+            title="Manage Task Board Columns"
+            onClose={() => setColumnManagerOpen(false)}
+            footer={
+              <Button variant="ghost" onClick={() => setColumnManagerOpen(false)}>
+                Close
+              </Button>
+            }
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-600">Add New Column</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={newColumnName}
+                    onChange={(e) => setNewColumnName(e.target.value)}
+                    placeholder="Column name"
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter") void addColumn();
+                    }}
+                  />
+                  <Button onClick={addColumn} disabled={busy}>
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600 mb-2 block">Existing Columns</label>
+                <div className="space-y-2">
+                  {sortByPos(columns).map((col, index) => (
+                    <div key={col.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          onClick={() => moveColumn(col.id, "left")}
+                          disabled={index === 0 || busy}
+                          title="Move left"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          onClick={() => moveColumn(col.id, "right")}
+                          disabled={index === columns.length - 1 || busy}
+                          title="Move right"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="flex-1 font-medium">{col.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {tasks.filter((t) => t.column_id === col.id).length} tasks
+                      </div>
+                      <Button
+                        variant="ghost"
+                        onClick={() => deleteColumn(col.id)}
+                        disabled={busy}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {err && (
+                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>
               )}
             </div>
           </Modal>
