@@ -33,11 +33,13 @@ This PR addresses all four requested issues with the task board in the REI-Admin
 ```
 Updated 2024-01-15 by eac58416...
 ```
+_(This was the problem - showing user IDs instead of names)_
 
 ### After:
 ```
 Updated 2024-01-15 by Alan Moore
 ```
+_(Fixed - now showing full names from profiles)_
 
 **What Changed:**
 - Modified the `profileName` function to return full names from the profiles/attendees data
