@@ -12,10 +12,15 @@ create table if not exists public.profiles (
 );
 
 -- Automatically create profile rows on signup/user creation
+-- Drop existing function and trigger to allow idempotent creation
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
-security definer set search_path = public
+security definer
+set search_path = public
 as $$
 begin
   insert into public.profiles (id, full_name, role)
@@ -25,7 +30,6 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
 for each row execute procedure public.handle_new_user();
@@ -91,6 +95,20 @@ alter table public.kanban_columns enable row level security;
 alter table public.kanban_cards enable row level security;
 alter table public.leads enable row level security;
 
+-- Drop potentially existing policies first to avoid "already exists" errors
+drop policy if exists profiles_read_all on public.profiles;
+drop policy if exists profiles_update_own on public.profiles;
+
+drop policy if exists links_select on public.links;
+drop policy if exists links_insert on public.links;
+drop policy if exists links_update on public.links;
+drop policy if exists links_delete on public.links;
+
+drop policy if exists kanban_columns_all on public.kanban_columns;
+drop policy if exists kanban_cards_all on public.kanban_cards;
+
+drop policy if exists leads_all on public.leads;
+
 -- Profiles: user can read all profiles (internal team), update their own
 create policy "profiles_read_all"
 on public.profiles for select
@@ -100,8 +118,8 @@ using (true);
 create policy "profiles_update_own"
 on public.profiles for update
 to authenticated
-using (auth.uid() = id)
-with check (auth.uid() = id);
+using ((select auth.uid()) = id)
+with check ((select auth.uid()) = id);
 
 -- Links: any authenticated user can CRUD (internal)
 create policy "links_select"
