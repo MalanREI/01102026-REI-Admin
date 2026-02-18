@@ -457,8 +457,8 @@ function profileName(userId: string | null | undefined): string {
   // First try to find in profiles by id
   const p = profiles.find((x) => x.id === userId);
   if (p) {
-    const fn = firstNameFromFullName(p.full_name);
-    if (fn) return fn;
+    // Return full name if available
+    if (p.full_name?.trim()) return p.full_name.trim();
     
     const fe = firstNameFromEmail(p.email);
     if (fe) return fe;
@@ -467,8 +467,8 @@ function profileName(userId: string | null | undefined): string {
   // Try to find in attendees by user_id
   const attendee = attendees.find((a) => a.user_id === userId);
   if (attendee) {
-    const aFn = firstNameFromFullName(attendee.full_name);
-    if (aFn) return aFn;
+    // Return full name if available
+    if (attendee.full_name?.trim()) return attendee.full_name.trim();
     
     const aFe = firstNameFromEmail(attendee.email);
     if (aFe) return aFe;
@@ -481,8 +481,8 @@ function profileName(userId: string | null | undefined): string {
   if (userId.includes("@")) {
     const attendeeByEmail = attendees.find((a) => a.email?.toLowerCase() === userId.toLowerCase());
     if (attendeeByEmail) {
-      const aFn = firstNameFromFullName(attendeeByEmail.full_name);
-      if (aFn) return aFn;
+      // Return full name if available
+      if (attendeeByEmail.full_name?.trim()) return attendeeByEmail.full_name.trim();
       
       return attendeeByEmail.email;
     }
