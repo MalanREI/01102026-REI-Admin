@@ -3601,12 +3601,10 @@ function CalendarView({
       // Ensure dates are in correct order
       if (startDate <= endDate) {
         // Iterate through each day from start to end
-        let currentTime = startDate.getTime();
-        const endTime = endDate.getTime();
-        const oneDayMs = 24 * 60 * 60 * 1000;
+        // Use date manipulation to handle DST transitions correctly
+        const currentDate = new Date(startDate);
         
-        while (currentTime <= endTime) {
-          const currentDate = new Date(currentTime);
+        while (currentDate <= endDate) {
           const key = formatDateKey(currentDate);
           if (!itemsByDate.has(key)) {
             itemsByDate.set(key, { tasks: [], milestones: [] });
@@ -3614,8 +3612,8 @@ function CalendarView({
           const items = itemsByDate.get(key);
           if (items) items.tasks.push(task);
           
-          // Move to next day
-          currentTime += oneDayMs;
+          // Move to next day (handles DST correctly)
+          currentDate.setDate(currentDate.getDate() + 1);
         }
       }
     } else if (task.due_date) {
