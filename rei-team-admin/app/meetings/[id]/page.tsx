@@ -1100,7 +1100,8 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
   function openNewTask(colId?: string) {
     setEditingTaskId(null);
-    setTColumnId(colId ?? cols[0]?.id ?? "");
+    const defaultColId = sortByPos(columns)[0]?.id ?? "";
+    setTColumnId(colId ?? defaultColId);
     setTTitle("");
     setTStatus(statusOpts[0]?.name ?? "In Progress");
     setTPriority(priorityOpts[0]?.name ?? "Normal");
@@ -3582,6 +3583,7 @@ function CalendarView({
   priorityColor: (priority: string) => string;
   getOwnerColor: (item: { owner_id?: string | null; owner_email?: string | null }) => string;
 }) {
+  const MAX_VISIBLE_TASKS_PER_DAY = 3;
   const days = getMonthDays(year, month);
   const monthName = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   
@@ -3594,7 +3596,8 @@ function CalendarView({
       if (!itemsByDate.has(key)) {
         itemsByDate.set(key, { tasks: [], milestones: [] });
       }
-      itemsByDate.get(key)!.tasks.push(task);
+      const items = itemsByDate.get(key);
+      if (items) items.tasks.push(task);
     }
   });
   
@@ -3604,7 +3607,8 @@ function CalendarView({
       if (!itemsByDate.has(key)) {
         itemsByDate.set(key, { tasks: [], milestones: [] });
       }
-      itemsByDate.get(key)!.milestones.push(milestone);
+      const items = itemsByDate.get(key);
+      if (items) items.milestones.push(milestone);
     }
   });
   
@@ -3705,7 +3709,7 @@ function CalendarView({
                   ))}
                   
                   {/* Tasks */}
-                  {items.tasks.slice(0, 3).map((task) => (
+                  {items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => (
                     <div
                       key={task.id}
                       className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
@@ -3721,9 +3725,9 @@ function CalendarView({
                   ))}
                   
                   {/* Show count if more tasks */}
-                  {items.tasks.length > 3 && (
+                  {items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
                     <div className="text-xs text-gray-500 pl-1">
-                      +{items.tasks.length - 3} more
+                      +{items.tasks.length - MAX_VISIBLE_TASKS_PER_DAY} more
                     </div>
                   )}
                 </div>
