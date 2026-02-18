@@ -3598,18 +3598,25 @@ function CalendarView({
       const startDate = new Date(task.start_date);
       const endDate = new Date(task.due_date);
       
-      // Iterate through each day from start to end
-      const currentDate = new Date(startDate);
-      while (currentDate <= endDate) {
-        const key = formatDateKey(currentDate);
-        if (!itemsByDate.has(key)) {
-          itemsByDate.set(key, { tasks: [], milestones: [] });
-        }
-        const items = itemsByDate.get(key);
-        if (items) items.tasks.push(task);
+      // Ensure dates are in correct order
+      if (startDate <= endDate) {
+        // Iterate through each day from start to end
+        let currentTime = startDate.getTime();
+        const endTime = endDate.getTime();
+        const oneDayMs = 24 * 60 * 60 * 1000;
         
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
+        while (currentTime <= endTime) {
+          const currentDate = new Date(currentTime);
+          const key = formatDateKey(currentDate);
+          if (!itemsByDate.has(key)) {
+            itemsByDate.set(key, { tasks: [], milestones: [] });
+          }
+          const items = itemsByDate.get(key);
+          if (items) items.tasks.push(task);
+          
+          // Move to next day
+          currentTime += oneDayMs;
+        }
       }
     } else if (task.due_date) {
       // If only due_date is set, show it on that date
@@ -3739,9 +3746,13 @@ function CalendarView({
                   
                   {/* Tasks */}
                   {items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => {
+                    // Pre-calculate date keys for this task to avoid redundant formatting
+                    const taskStartKey = task.start_date ? formatDateKey(new Date(task.start_date)) : null;
+                    const taskEndKey = task.due_date ? formatDateKey(new Date(task.due_date)) : null;
+                    
                     // Determine if this is start, middle, or end of date range
-                    const isStartDate = task.start_date && formatDateKey(new Date(task.start_date)) === dateKey;
-                    const isEndDate = task.due_date && formatDateKey(new Date(task.due_date)) === dateKey;
+                    const isStartDate = taskStartKey === dateKey;
+                    const isEndDate = taskEndKey === dateKey;
                     const isMiddleDate = !isStartDate && !isEndDate;
                     
                     // Build indicator text
@@ -3756,6 +3767,11 @@ function CalendarView({
                       indicator = '▬ '; // Middle of range
                     }
                     
+                    // Format dates for tooltip
+                    const tooltipDates = task.start_date && task.due_date 
+                      ? `\nStart: ${new Date(task.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\nEnd: ${new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                      : '';
+                    
                     return (
                       <div
                         key={task.id}
@@ -3765,7 +3781,7 @@ function CalendarView({
                           borderLeftColor: getOwnerColor(task),
                         }}
                         onClick={() => onTaskClick(task.id)}
-                        title={`${task.title}${task.start_date && task.due_date ? `\nStart: ${task.start_date}\nEnd: ${task.due_date}` : ''}`}
+                        title={`${task.title}${tooltipDates}`}
                       >
                         <div className="font-medium truncate">{indicator}{task.title}</div>
                       </div>
