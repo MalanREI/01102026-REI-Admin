@@ -36,16 +36,14 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const { error } = await sb.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: fullName },
-        },
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, full_name: fullName }),
       });
-      if (error) throw error;
-      // Depending on Supabase email confirmation settings, user may need to confirm.
-      alert("Account created. If email confirmation is enabled, check your inbox.");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Signup failed");
+      alert("Account created. You can now sign in.");
       setMode("signin");
     } catch (err: unknown) {
       setError((err as Error)?.message ?? "Signup failed");
