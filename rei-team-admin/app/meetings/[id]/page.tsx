@@ -1314,6 +1314,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setBusy(true);
     setErr(null);
     try {
+      // Delete associated events FIRST to avoid FK trigger conflict
+      const evDel = await sb.from("meeting_task_events").delete().eq("task_id", editingTaskId);
+      if (evDel.error) throw evDel.error;
+
+      // Now delete the task itself
       const del = await sb.from("meeting_tasks").delete().eq("id", editingTaskId);
       if (del.error) throw del.error;
 
