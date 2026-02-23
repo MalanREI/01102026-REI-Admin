@@ -70,10 +70,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-2xl bg-white border shadow-sm p-6">
-        <h1 className="text-xl font-semibold">REI Team Admin</h1>
-        <p className="text-sm text-gray-600 mt-1">Sign in, create an account, or reset your password.</p>
+    <div className="min-h-screen bg-base flex items-center justify-center p-6">
+      <div className="w-full max-w-md rounded-2xl bg-surface border border-white/[0.06] shadow-2xl p-6">
+        <h1 className="text-xl font-semibold text-slate-100">REI Team Admin</h1>
+        <p className="text-sm text-slate-400 mt-1">Sign in, create an account, or reset your password.</p>
 
         <div className="mt-4">
           <Tabs
@@ -90,22 +90,22 @@ export default function LoginPage() {
         <form onSubmit={mode === "signin" ? onLogin : mode === "signup" ? onSignup : onForgot} className="mt-6 space-y-3">
           {mode === "signup" && (
             <div>
-              <label className="text-xs text-gray-600">Full name</label>
+              <label className="text-xs text-slate-400">Full name</label>
               <Input value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="Alan Moore" />
             </div>
           )}
           <div>
-            <label className="text-xs text-gray-600">Email</label>
+            <label className="text-xs text-slate-400">Email</label>
             <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
           </div>
           {mode !== "forgot" && (
             <div>
-              <label className="text-xs text-gray-600">Password</label>
+              <label className="text-xs text-slate-400">Password</label>
               <Input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
             </div>
           )}
 
-          {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{error}</div>}
+          {error && <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{error}</div>}
 
           <Button type="submit" disabled={busy} className="w-full">
             {busy
@@ -117,7 +117,7 @@ export default function LoginPage() {
                   : "Send reset email"}
           </Button>
 
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-slate-500">
             Admin tip: You can still create users in Supabase → Authentication → Users.
           </div>
         </form>

@@ -1462,15 +1462,15 @@ export default function SalesFunnelPage() {
     <PageShell>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Sales Funnel</h1>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="text-sm text-slate-400 mt-1">
           Cold-calling CRM: Companies → contacts → activity log + editable stages.
         </p>
       </div>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex w-full items-center gap-3">
-          <div className="flex items-center gap-1 rounded-2xl border bg-white p-1">
+          <div className="flex items-center gap-1 rounded-2xl border bg-surface p-1">
             <button
-              className={`px-3 py-2 rounded-xl text-sm ${viewType === "company" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              className={`px-3 py-2 rounded-xl text-sm ${viewType === "company" ? "bg-emerald-600 text-white" : "hover:bg-elevated"}`}
               onClick={() => {
                 setViewType("company");
                 setViewFilter("all");
@@ -1479,7 +1479,7 @@ export default function SalesFunnelPage() {
               Company
             </button>
             <button
-              className={`px-3 py-2 rounded-xl text-sm ${viewType === "contact" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              className={`px-3 py-2 rounded-xl text-sm ${viewType === "contact" ? "bg-emerald-600 text-white" : "hover:bg-elevated"}`}
               onClick={() => {
                 setViewType("contact");
                 setViewFilter("all");
@@ -1488,7 +1488,7 @@ export default function SalesFunnelPage() {
               Contact
             </button>
             <button
-              className={`px-3 py-2 rounded-xl text-sm ${viewType === "project" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              className={`px-3 py-2 rounded-xl text-sm ${viewType === "project" ? "bg-emerald-600 text-white" : "hover:bg-elevated"}`}
               onClick={() => {
                 setViewType("project");
                 setViewFilter("all");
@@ -1514,7 +1514,7 @@ export default function SalesFunnelPage() {
 
           <div className="min-w-[190px]">
             <select
-              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-surface"
               value={viewFilter}
               onChange={(e) => setViewFilter(e.target.value)}
             >
@@ -1554,9 +1554,9 @@ export default function SalesFunnelPage() {
               Add ▾
             </Button>
             {addMenuOpen ? (
-              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-white shadow-lg p-2 z-50">
+              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-surface shadow-2xl p-2 z-50">
                 <button
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-elevated text-sm"
                   onClick={() => {
                     setAddMenuOpen(false);
                     setAddCompanyOpen(true);
@@ -1565,7 +1565,7 @@ export default function SalesFunnelPage() {
                   Add Company
                 </button>
                 <button
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-elevated text-sm"
                   onClick={() => {
                     setAddMenuOpen(false);
                     setAddContactOpen(true);
@@ -1574,7 +1574,7 @@ export default function SalesFunnelPage() {
                   Add Contact
                 </button>
                 <button
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-elevated text-sm"
                   onClick={() => {
                     setAddMenuOpen(false);
                     setAddProjectOpen(true);
@@ -1583,7 +1583,7 @@ export default function SalesFunnelPage() {
                   Add Project
                 </button>
                 <button
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-elevated text-sm"
                   onClick={() => {
                     setAddMenuOpen(false);
                     setImportOpen(true);
@@ -1606,9 +1606,9 @@ export default function SalesFunnelPage() {
               Edit ▾
             </Button>
             {editMenuOpen ? (
-              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-white shadow-lg p-2 z-50">
+              <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-surface shadow-2xl p-2 z-50">
                 <button
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-elevated text-sm"
                   onClick={() => {
                     setEditMenuOpen(false);
                     setStagesOpen(true);
@@ -1617,7 +1617,7 @@ export default function SalesFunnelPage() {
                   Edit Stages
                 </button>
                 <button
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-elevated text-sm"
                   onClick={() => {
                     setEditMenuOpen(false);
                     setProjectsOpen(true);
@@ -1646,7 +1646,7 @@ export default function SalesFunnelPage() {
         }
       >
         {stages.length === 0 ? (
-          <div className="text-sm text-gray-600">No stages found. Add a stage below.</div>
+          <div className="text-sm text-slate-400">No stages found. Add a stage below.</div>
         ) : (
           <div className="overflow-x-auto">
             <div className="flex gap-3 min-w-[900px]">
@@ -1655,7 +1655,7 @@ export default function SalesFunnelPage() {
                 return (
                   <div
                     key={stage.id}
-                    className="w-[320px] shrink-0 rounded-2xl border bg-gray-50 p-3"
+                    className="w-[320px] shrink-0 rounded-2xl border bg-base p-3"
                     onDragOver={(e) => {
                       e.preventDefault();
                     }}
@@ -1684,7 +1684,7 @@ export default function SalesFunnelPage() {
                           return (
                             <div
                               key={c.id}
-                              className="rounded-2xl border bg-white p-3 shadow-sm hover:shadow transition cursor-pointer"
+                              className="rounded-2xl border bg-surface p-3 hover:shadow transition cursor-pointer"
                               draggable
                               onDragStart={(e) => {
                                 dragEntityIdRef.current = c.id;
@@ -1693,7 +1693,7 @@ export default function SalesFunnelPage() {
                               onClick={() => openCompany(c.id)}
                             >
                               <div className="font-medium">{c.name}</div>
-                              <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                              <div className="text-xs text-slate-400 mt-1 space-y-0.5">
                                 {c.website ? <div>🌐 {c.website}</div> : null}
                                 {c.phone ? <div>📞 {c.phone}</div> : null}
                                 {c.email ? <div>✉️ {c.email}</div> : null}
@@ -1710,7 +1710,7 @@ export default function SalesFunnelPage() {
                           return (
                             <div
                               key={c.id}
-                              className="rounded-2xl border bg-white p-3 shadow-sm hover:shadow transition cursor-pointer"
+                              className="rounded-2xl border bg-surface p-3 hover:shadow transition cursor-pointer"
                               draggable
                               onDragStart={(e) => {
                                 dragEntityIdRef.current = c.id;
@@ -1719,7 +1719,7 @@ export default function SalesFunnelPage() {
                               onClick={() => openContact(c.id)}
                             >
                               <div className="font-medium">{displayName || "(Unnamed contact)"}</div>
-                              <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                              <div className="text-xs text-slate-400 mt-1 space-y-0.5">
                                 {c.title ? <div>🏷️ {c.title}</div> : null}
                                 {c.company?.name ? <div>🏢 {c.company.name}</div> : null}
                                 {c.phone ? <div>📞 {c.phone}</div> : null}
@@ -1734,7 +1734,7 @@ export default function SalesFunnelPage() {
                         return (
                           <div
                             key={p.id}
-                            className="rounded-2xl border bg-white p-3 shadow-sm hover:shadow transition cursor-pointer"
+                            className="rounded-2xl border bg-surface p-3 hover:shadow transition cursor-pointer"
                             draggable
                             onDragStart={(e) => {
                               dragEntityIdRef.current = p.id;
@@ -1743,7 +1743,7 @@ export default function SalesFunnelPage() {
                             onClick={() => openProject(p.id)}
                           >
                             <div className="font-medium">{p.name}</div>
-                            <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                            <div className="text-xs text-slate-400 mt-1 space-y-0.5">
                               {p.company?.name ? <div>🏢 {p.company.name}</div> : null}
                               {p.website ? <div>🌐 {p.website}</div> : null}
                               {p.last_activity_at ? <div>🕒 {fmtDT(p.last_activity_at)}</div> : null}
@@ -1751,7 +1751,7 @@ export default function SalesFunnelPage() {
                           </div>
                         );
                       })}
-                      {list.length === 0 ? <div className="text-xs text-gray-500">Drop companies here</div> : null}
+                      {list.length === 0 ? <div className="text-xs text-slate-500">Drop companies here</div> : null}
                     </div>
                   </div>
                 );
@@ -1772,31 +1772,31 @@ export default function SalesFunnelPage() {
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <div className="text-xs text-gray-600 mb-1">Company name</div>
+            <div className="text-xs text-slate-400 mb-1">Company name</div>
             <Input value={newCompany.name} onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })} />
           </div>
           <div>
-            <div className="text-xs text-gray-600 mb-1">Website (optional)</div>
+            <div className="text-xs text-slate-400 mb-1">Website (optional)</div>
             <Input value={newCompany.website} onChange={(e) => setNewCompany({ ...newCompany, website: e.target.value })} />
           </div>
           <div className="md:col-span-2">
-            <div className="text-xs text-gray-600 mb-1">Company notes (optional)</div>
+            <div className="text-xs text-slate-400 mb-1">Company notes (optional)</div>
             <Textarea value={newCompany.notes} onChange={(e) => setNewCompany({ ...newCompany, notes: e.target.value })} />
           </div>
 
           <div className="md:col-span-2 mt-1">
-            <div className="text-xs font-semibold text-gray-700 mb-2">Main contact (shows on Kanban card)</div>
+            <div className="text-xs font-semibold text-slate-300 mb-2">Main contact (shows on Kanban card)</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
-                <div className="text-xs text-gray-600 mb-1">Full name</div>
+                <div className="text-xs text-slate-400 mb-1">Full name</div>
                 <Input value={newMainContact.full_name} onChange={(e) => setNewMainContact({ ...newMainContact, full_name: e.target.value })} />
               </div>
               <div>
-                <div className="text-xs text-gray-600 mb-1">Phone</div>
+                <div className="text-xs text-slate-400 mb-1">Phone</div>
                 <Input value={newMainContact.phone} onChange={(e) => setNewMainContact({ ...newMainContact, phone: e.target.value })} />
               </div>
               <div>
-                <div className="text-xs text-gray-600 mb-1">Email</div>
+                <div className="text-xs text-slate-400 mb-1">Email</div>
                 <Input value={newMainContact.email} onChange={(e) => setNewMainContact({ ...newMainContact, email: e.target.value })} />
               </div>
             </div>
@@ -1820,9 +1820,9 @@ export default function SalesFunnelPage() {
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="md:col-span-2">
-            <div className="text-xs text-gray-600 mb-1">Company</div>
+            <div className="text-xs text-slate-400 mb-1">Company</div>
             <select
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+              className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-gray-300"
               value={newContact.company_id}
               onChange={(e) => setNewContact({ ...newContact, company_id: e.target.value })}
             >
@@ -1838,23 +1838,23 @@ export default function SalesFunnelPage() {
             </select>
           </div>
           <div>
-            <div className="text-xs text-gray-600 mb-1">Full name</div>
+            <div className="text-xs text-slate-400 mb-1">Full name</div>
             <Input value={newContact.full_name} onChange={(e) => setNewContact({ ...newContact, full_name: e.target.value })} />
           </div>
           <div>
-            <div className="text-xs text-gray-600 mb-1">Title (optional)</div>
+            <div className="text-xs text-slate-400 mb-1">Title (optional)</div>
             <Input value={newContact.title} onChange={(e) => setNewContact({ ...newContact, title: e.target.value })} />
           </div>
           <div>
-            <div className="text-xs text-gray-600 mb-1">Phone</div>
+            <div className="text-xs text-slate-400 mb-1">Phone</div>
             <Input value={newContact.phone} onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })} />
           </div>
           <div>
-            <div className="text-xs text-gray-600 mb-1">Email</div>
+            <div className="text-xs text-slate-400 mb-1">Email</div>
             <Input value={newContact.email} onChange={(e) => setNewContact({ ...newContact, email: e.target.value })} />
           </div>
           <div className="md:col-span-2">
-            <div className="text-xs text-gray-600 mb-1">Notes (optional)</div>
+            <div className="text-xs text-slate-400 mb-1">Notes (optional)</div>
             <Textarea value={newContact.notes} onChange={(e) => setNewContact({ ...newContact, notes: e.target.value })} />
           </div>
           <div className="md:col-span-2 flex items-center gap-2">
@@ -1888,9 +1888,9 @@ export default function SalesFunnelPage() {
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="md:col-span-2">
-            <div className="text-xs text-gray-600 mb-1">Company (optional)</div>
+            <div className="text-xs text-slate-400 mb-1">Company (optional)</div>
             <select
-              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-surface"
               value={newProject.company_id}
               onChange={(e) => setNewProject((p) => ({ ...p, company_id: e.target.value }))}
             >
@@ -1904,12 +1904,12 @@ export default function SalesFunnelPage() {
           </div>
 
           <div className="md:col-span-2">
-            <div className="text-xs text-gray-600 mb-1">Project Name</div>
+            <div className="text-xs text-slate-400 mb-1">Project Name</div>
             <Input value={newProject.name} onChange={(e) => setNewProject((p) => ({ ...p, name: e.target.value }))} />
           </div>
 
           <div className="md:col-span-2">
-            <div className="text-xs text-gray-600 mb-1">Website</div>
+            <div className="text-xs text-slate-400 mb-1">Website</div>
             <Input
               value={newProject.website}
               onChange={(e) => setNewProject((p) => ({ ...p, website: e.target.value }))}
@@ -1918,7 +1918,7 @@ export default function SalesFunnelPage() {
           </div>
 
           <div className="md:col-span-2">
-            <div className="text-xs text-gray-600 mb-1">Notes</div>
+            <div className="text-xs text-slate-400 mb-1">Notes</div>
             <Textarea
               rows={4}
               value={newProject.notes}
@@ -1952,9 +1952,9 @@ export default function SalesFunnelPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <div className="text-xs text-gray-600 mb-1">Duplicate handling</div>
+              <div className="text-xs text-slate-400 mb-1">Duplicate handling</div>
               <select
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-gray-300"
                 value={importDupMode}
                 onChange={(e) => setImportDupMode(e.target.value as "skip" | "upsert")}
               >
@@ -1969,14 +1969,14 @@ export default function SalesFunnelPage() {
             </div>
           </div>
 
-          {importError ? <div className="text-sm text-red-600">{importError}</div> : null}
+          {importError ? <div className="text-sm text-red-400">{importError}</div> : null}
 
           {importRows.length ? (
-            <div className="text-sm text-gray-700">
+            <div className="text-sm text-slate-300">
               <div className="font-semibold mb-1">Preview (first 5 rows)</div>
               <div className="overflow-auto rounded-lg border">
                 <table className="min-w-full text-xs">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-base">
                     <tr>
                       {Object.keys(preview[0] ?? {}).slice(0, 8).map((h) => (
                         <th key={h} className="text-left px-2 py-2 border-b">
@@ -1987,7 +1987,7 @@ export default function SalesFunnelPage() {
                   </thead>
                   <tbody>
                     {preview.map((r, i) => (
-                      <tr key={i} className="odd:bg-white even:bg-gray-50">
+                      <tr key={i} className="odd:bg-surface even:bg-base">
                         {Object.keys(preview[0] ?? {})
                           .slice(0, 8)
                           .map((h) => (
@@ -2000,12 +2000,12 @@ export default function SalesFunnelPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="text-xs text-gray-500 mt-2">
+              <div className="text-xs text-slate-500 mt-2">
                 Expected headers include: Company, First Name, Last Name, Phone, Email, Notes. Optional: Website, Main/Primary, Stage.
               </div>
             </div>
           ) : (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-slate-500">
               Each row should be a contact. Company is required. If you include a column like <b>Main</b> or <b>Primary</b> with yes/true/1, that
               contact becomes the company’s main contact shown on the Kanban card.
             </div>
@@ -2017,7 +2017,7 @@ export default function SalesFunnelPage() {
       <Modal open={stagesOpen} onClose={() => setStagesOpen(false)} title="Edit Stages" maxWidthClass="max-w-4xl">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
           <div>
-            <div className="text-xs text-gray-600 mb-1">New stage name</div>
+            <div className="text-xs text-slate-400 mb-1">New stage name</div>
             <Input value={newStageName} onChange={(e) => setNewStageName(e.target.value)} />
           </div>
           <div>
@@ -2027,7 +2027,7 @@ export default function SalesFunnelPage() {
 
         <div className="mt-3 overflow-auto rounded-lg border">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-base">
               <tr>
                 <th className="text-left px-3 py-2 border-b">Stage</th>
                 <th className="text-left px-3 py-2 border-b">Order</th>
@@ -2036,7 +2036,7 @@ export default function SalesFunnelPage() {
             </thead>
             <tbody>
               {stages.map((s) => (
-                <tr key={s.id} className="odd:bg-white even:bg-gray-50">
+                <tr key={s.id} className="odd:bg-surface even:bg-base">
                   <td className="px-3 py-2 border-b">
                     <Input
                       defaultValue={s.name}
@@ -2070,7 +2070,7 @@ export default function SalesFunnelPage() {
               ))}
               {stages.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-3 text-gray-600" colSpan={3}>
+                  <td className="px-3 py-3 text-slate-400" colSpan={3}>
                     No stages found.
                   </td>
                 </tr>
@@ -2082,19 +2082,19 @@ export default function SalesFunnelPage() {
 
       {/* Edit Projects modal */}
       <Modal open={projectsOpen} onClose={() => setProjectsOpen(false)} title="Edit Projects" maxWidthClass="max-w-4xl">
-        <div className="text-sm text-gray-600 mb-3">
+        <div className="text-sm text-slate-400 mb-3">
           Manage projects (rename / delete). Project↔contact linking can be done inside a Project card.
         </div>
 
         <div className="space-y-2">
           {projectsBoard.length === 0 ? (
-            <div className="text-sm text-gray-600">No projects loaded. Switch to Project view, then click Refresh.</div>
+            <div className="text-sm text-slate-400">No projects loaded. Switch to Project view, then click Refresh.</div>
           ) : (
             projectsBoard.map((p) => (
-              <div key={p.id} className="rounded-xl border bg-white p-3 flex items-center gap-2">
+              <div key={p.id} className="rounded-xl border bg-surface p-3 flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{p.name}</div>
-                  <div className="text-xs text-gray-600 truncate">
+                  <div className="text-xs text-slate-400 truncate">
                     {p.company?.name ? `Company: ${p.company.name}` : "No company"}
                   </div>
                 </div>
@@ -2158,11 +2158,11 @@ export default function SalesFunnelPage() {
         maxWidthClass="max-w-5xl"
       >
         {!companyDetail ? (
-          <div className="text-sm text-gray-600">Loading...</div>
+          <div className="text-sm text-slate-400">Loading...</div>
         ) : (
           <>
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <div className="text-xs text-gray-600 mr-2">Panels:</div>
+              <div className="text-xs text-slate-400 mr-2">Panels:</div>
               <Button
                 variant="ghost"
                 onClick={() => setShowCompanyPane((v) => !v)}
@@ -2197,14 +2197,14 @@ export default function SalesFunnelPage() {
               {showCompanyPane ? (
                 <div className="space-y-3">
               <div>
-                <div className="text-xs text-gray-600 mb-1">Company name</div>
+                <div className="text-xs text-slate-400 mb-1">Company name</div>
                 <Input value={companyDetail.name} onChange={(e) => setCompanyDetail({ ...companyDetail, name: e.target.value })} />
               </div>
 
               <div>
-                <div className="text-xs text-gray-600 mb-1">Stage</div>
+                <div className="text-xs text-slate-400 mb-1">Stage</div>
                 <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-gray-300"
                   value={companyDetail.stage_id ?? ""}
                   onChange={(e) => setCompanyDetail({ ...companyDetail, stage_id: e.target.value })}
                 >
@@ -2217,7 +2217,7 @@ export default function SalesFunnelPage() {
               </div>
 
               <div>
-                <div className="text-xs text-gray-600 mb-1">Website</div>
+                <div className="text-xs text-slate-400 mb-1">Website</div>
                 <Input
                   value={companyDetail.website ?? ""}
                   onChange={(e) => setCompanyDetail({ ...companyDetail, website: e.target.value || null })}
@@ -2226,17 +2226,17 @@ export default function SalesFunnelPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="text-xs text-gray-600 mb-1">Phone</div>
+                  <div className="text-xs text-slate-400 mb-1">Phone</div>
                   <Input value={companyDetail.phone ?? ""} onChange={(e) => setCompanyDetail({ ...companyDetail, phone: e.target.value || null })} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-600 mb-1">Email</div>
+                  <div className="text-xs text-slate-400 mb-1">Email</div>
                   <Input value={companyDetail.email ?? ""} onChange={(e) => setCompanyDetail({ ...companyDetail, email: e.target.value || null })} />
                 </div>
               </div>
 
               <div>
-                <div className="text-xs text-gray-600 mb-1">Company notes</div>
+                <div className="text-xs text-slate-400 mb-1">Company notes</div>
                 <Textarea
                   value={companyDetail.notes ?? ""}
                   onChange={(e) => setCompanyDetail({ ...companyDetail, notes: e.target.value || null })}
@@ -2265,7 +2265,7 @@ export default function SalesFunnelPage() {
                 </Button>
               </div>
 
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-slate-500">
                 Created: {fmtDT(companyDetail.created_at)} <br />
                 Updated: {fmtDT(companyDetail.updated_at)} <br />
                 Last touch: {companyDetail.last_activity_at ? fmtDT(companyDetail.last_activity_at) : "—"}
@@ -2317,7 +2317,7 @@ export default function SalesFunnelPage() {
                     <button
                       key={ct.id}
                       className={[
-                        "text-left rounded-xl border bg-white p-3 shadow-sm hover:shadow transition",
+                        "text-left rounded-xl border bg-surface p-3 hover:shadow transition",
                         isSelected ? "ring-2 ring-gray-300" : "",
                       ].join(" ")}
                       onClick={() => {
@@ -2331,11 +2331,11 @@ export default function SalesFunnelPage() {
                           {ct.id === companyDetail.main_contact_id || ct.is_main ? <Pill>Main</Pill> : null}
                         </div>
                       </div>
-                      {sub ? <div className="text-xs text-gray-600 mt-1">{sub}</div> : null}
+                      {sub ? <div className="text-xs text-slate-400 mt-1">{sub}</div> : null}
                       {ct.last_activity_at ? (
-                        <div className="text-[11px] text-gray-500 mt-2">Last: {fmtDT(ct.last_activity_at)}</div>
+                        <div className="text-[11px] text-slate-500 mt-2">Last: {fmtDT(ct.last_activity_at)}</div>
                       ) : (
-                        <div className="text-[11px] text-gray-400 mt-2">No activity</div>
+                        <div className="text-[11px] text-slate-600 mt-2">No activity</div>
                       )}
 
                       <div className="mt-2 flex items-center gap-2">
@@ -2372,7 +2372,7 @@ export default function SalesFunnelPage() {
                   );
                 })}
 
-                {companyContacts.length === 0 ? <div className="text-sm text-gray-600">No contacts yet.</div> : null}
+                {companyContacts.length === 0 ? <div className="text-sm text-slate-400">No contacts yet.</div> : null}
               </div>
                 </div>
               ) : null}
@@ -2382,8 +2382,8 @@ export default function SalesFunnelPage() {
                 <div className="space-y-3">
               <div className="font-semibold">Activity Log</div>
 
-              <div className="rounded-xl border p-3 bg-gray-50">
-                <div className="text-xs text-gray-600 mb-2">
+              <div className="rounded-xl border p-3 bg-base">
+                <div className="text-xs text-slate-400 mb-2">
                   Hotkeys: <b>Ctrl/⌘ + V</b>=VM, <b>Ctrl/⌘ + C</b>=Call, <b>Ctrl/⌘ + T</b>=Text, <b>Ctrl/⌘ + E</b>=Email, <b>Ctrl/⌘ + N</b>=Note
                 </div>
 
@@ -2393,7 +2393,7 @@ export default function SalesFunnelPage() {
                       key={k}
                       className={[
                         "px-2 py-1 rounded-lg border text-xs",
-                        activityKind === k ? "bg-white shadow-sm" : "bg-gray-100",
+                        activityKind === k ? "bg-surface" : "bg-elevated",
                       ].join(" ")}
                       onClick={() => setActivityKind(k)}
                       type="button"
@@ -2426,7 +2426,7 @@ export default function SalesFunnelPage() {
                   </Button>
                 </div>
 
-                <div className="mt-2 text-xs text-gray-600">
+                <div className="mt-2 text-xs text-slate-400">
                   Posting to:{" "}
                   <b>
                     {(() => {
@@ -2439,9 +2439,9 @@ export default function SalesFunnelPage() {
                 </div>
 
                 <div className="mt-3">
-                  <div className="text-xs text-gray-600 mb-1">Move company stage from here</div>
+                  <div className="text-xs text-slate-400 mb-1">Move company stage from here</div>
                   <select
-                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-gray-300"
                     value={companyDetail.stage_id ?? ""}
                     onChange={async (e) => {
                       const sid = e.target.value;
@@ -2470,20 +2470,20 @@ export default function SalesFunnelPage() {
                       const tag = a.kind;
                       const isForSelected = selectedContactId ? a.contact_id === selectedContactId : !a.contact_id;
                       return (
-                        <div key={a.id} className="rounded-xl border bg-white p-3 shadow-sm">
+                        <div key={a.id} className="rounded-xl border bg-surface p-3">
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                               <Pill>{tag}</Pill>
                               {isForSelected ? <Pill>Selected</Pill> : null}
                             </div>
-                            <div className="text-[11px] text-gray-500">{fmtDT(a.created_at)}</div>
+                            <div className="text-[11px] text-slate-500">{fmtDT(a.created_at)}</div>
                           </div>
                           <div className="mt-2 text-sm">{a.summary}</div>
-                          <div className="mt-2 text-[11px] text-gray-500">By: {who}</div>
+                          <div className="mt-2 text-[11px] text-slate-500">By: {who}</div>
                         </div>
                       );
                     })}
-                  {activities.length === 0 ? <div className="text-sm text-gray-600">No activity yet.</div> : null}
+                  {activities.length === 0 ? <div className="text-sm text-slate-400">No activity yet.</div> : null}
                 </div>
               </div>
                 </div>
@@ -2508,12 +2508,12 @@ export default function SalesFunnelPage() {
         maxWidthClass="max-w-6xl"
       >
         {!contactDetail ? (
-          <div className="text-sm text-gray-600">Loading...</div>
+          <div className="text-sm text-slate-400">Loading...</div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-surface p-4">
               <div className="font-semibold text-lg">{cleanStr(contactDetail.full_name) || "Contact"}</div>
-              <div className="text-sm text-gray-600 mt-1 space-y-1">
+              <div className="text-sm text-slate-400 mt-1 space-y-1">
                 {contactDetail.title ? <div>🏷️ {contactDetail.title}</div> : null}
                 {contactDetail.phone ? <div>📞 {contactDetail.phone}</div> : null}
                 {contactDetail.email ? <div>✉️ {contactDetail.email}</div> : null}
@@ -2525,7 +2525,7 @@ export default function SalesFunnelPage() {
               </div>
 
               <div className="mt-4">
-                <div className="text-xs text-gray-600 mb-1">Notes</div>
+                <div className="text-xs text-slate-400 mb-1">Notes</div>
                 <Textarea
                   rows={6}
                   value={contactDetail.notes ?? ""}
@@ -2551,28 +2551,28 @@ export default function SalesFunnelPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-surface p-4">
               <div className="font-semibold">Projects</div>
-              <div className="text-sm text-gray-600 mb-2">Projects associated with this contact.</div>
+              <div className="text-sm text-slate-400 mb-2">Projects associated with this contact.</div>
               <div className="space-y-2">
                 {contactProjects.length ? (
                   contactProjects.map((p) => (
-                    <button key={p.id} className="w-full text-left rounded-xl border px-3 py-2 hover:bg-gray-50" onClick={() => openProject(p.id)}>
+                    <button key={p.id} className="w-full text-left rounded-xl border px-3 py-2 hover:bg-base" onClick={() => openProject(p.id)}>
                       <div className="font-medium">{p.name}</div>
-                      <div className="text-xs text-gray-600">{p.company?.name ? `Company: ${p.company.name}` : "No company"}</div>
+                      <div className="text-xs text-slate-400">{p.company?.name ? `Company: ${p.company.name}` : "No company"}</div>
                     </button>
                   ))
                 ) : (
-                  <div className="text-sm text-gray-600">No projects linked yet.</div>
+                  <div className="text-sm text-slate-400">No projects linked yet.</div>
                 )}
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-surface p-4">
               <div className="font-semibold mb-2">Activity</div>
               <div className="flex items-center gap-2 mb-2">
                 <select
-                  className="rounded-xl border px-3 py-2 text-sm bg-white"
+                  className="rounded-xl border px-3 py-2 text-sm bg-surface"
                   value={contactActivityKind}
                   onChange={(e) => setContactActivityKind(e.target.value as ActivityKind)}
                 >
@@ -2582,7 +2582,7 @@ export default function SalesFunnelPage() {
                   <option>Email</option>
                   <option>Note</option>
                 </select>
-                <div className="text-xs text-gray-600">Hotkeys: Ctrl/Cmd+C/V/T/E/N</div>
+                <div className="text-xs text-slate-400">Hotkeys: Ctrl/Cmd+C/V/T/E/N</div>
               </div>
 
               <Textarea
@@ -2601,7 +2601,7 @@ export default function SalesFunnelPage() {
                   contactActivities.map((a) => (
                     <div key={a.id} className="rounded-xl border p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs text-gray-600">
+                        <div className="text-xs text-slate-400">
                           <span className="font-medium">{a.kind}</span> · {fmtDT(a.created_at)}
                           {a.created_by_profile?.full_name ? ` · ${a.created_by_profile.full_name}` : ""}
                         </div>
@@ -2610,7 +2610,7 @@ export default function SalesFunnelPage() {
                     </div>
                   ))
                 ) : (
-                  <div className="text-sm text-gray-600">No activity yet.</div>
+                  <div className="text-sm text-slate-400">No activity yet.</div>
                 )}
               </div>
             </div>
@@ -2633,12 +2633,12 @@ export default function SalesFunnelPage() {
         maxWidthClass="max-w-6xl"
       >
         {!projectDetail ? (
-          <div className="text-sm text-gray-600">Loading...</div>
+          <div className="text-sm text-slate-400">Loading...</div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-surface p-4">
               <div className="font-semibold text-lg">{projectDetail.name}</div>
-              <div className="text-sm text-gray-600 mt-1 space-y-1">
+              <div className="text-sm text-slate-400 mt-1 space-y-1">
                 {projectDetail.company?.name ? (
                   <button className="text-left underline" onClick={() => openCompany(projectDetail.company!.id)}>
                     🏢 {projectDetail.company!.name}
@@ -2648,7 +2648,7 @@ export default function SalesFunnelPage() {
               </div>
 
               <div className="mt-4">
-                <div className="text-xs text-gray-600 mb-1">Notes</div>
+                <div className="text-xs text-slate-400 mb-1">Notes</div>
                 <Textarea
                   rows={6}
                   value={projectDetail.notes ?? ""}
@@ -2674,28 +2674,28 @@ export default function SalesFunnelPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-surface p-4">
               <div className="font-semibold">Contacts</div>
-              <div className="text-sm text-gray-600 mb-2">Contacts associated with this project.</div>
+              <div className="text-sm text-slate-400 mb-2">Contacts associated with this project.</div>
               <div className="space-y-2">
                 {projectContacts.length ? (
                   projectContacts.map((c) => (
-                    <button key={c.id} className="w-full text-left rounded-xl border px-3 py-2 hover:bg-gray-50" onClick={() => openContact(c.id)}>
+                    <button key={c.id} className="w-full text-left rounded-xl border px-3 py-2 hover:bg-base" onClick={() => openContact(c.id)}>
                       <div className="font-medium">{cleanStr(c.full_name) || "Contact"}</div>
-                      <div className="text-xs text-gray-600">{c.phone ? c.phone : ""} {c.email ? `· ${c.email}` : ""}</div>
+                      <div className="text-xs text-slate-400">{c.phone ? c.phone : ""} {c.email ? `· ${c.email}` : ""}</div>
                     </button>
                   ))
                 ) : (
-                  <div className="text-sm text-gray-600">No contacts linked yet.</div>
+                  <div className="text-sm text-slate-400">No contacts linked yet.</div>
                 )}
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-surface p-4">
               <div className="font-semibold mb-2">Activity</div>
               <div className="flex items-center gap-2 mb-2">
                 <select
-                  className="rounded-xl border px-3 py-2 text-sm bg-white"
+                  className="rounded-xl border px-3 py-2 text-sm bg-surface"
                   value={projectActivityKind}
                   onChange={(e) => setProjectActivityKind(e.target.value as ActivityKind)}
                 >
@@ -2705,7 +2705,7 @@ export default function SalesFunnelPage() {
                   <option>Email</option>
                   <option>Note</option>
                 </select>
-                <div className="text-xs text-gray-600">Hotkeys: Ctrl/Cmd+C/V/T/E/N</div>
+                <div className="text-xs text-slate-400">Hotkeys: Ctrl/Cmd+C/V/T/E/N</div>
               </div>
 
               <Textarea
@@ -2724,7 +2724,7 @@ export default function SalesFunnelPage() {
                   projectActivities.map((a) => (
                     <div key={a.id} className="rounded-xl border p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs text-gray-600">
+                        <div className="text-xs text-slate-400">
                           <span className="font-medium">{a.kind}</span> · {fmtDT(a.created_at)}
                           {a.created_by_profile?.full_name ? ` · ${a.created_by_profile.full_name}` : ""}
                         </div>
@@ -2733,7 +2733,7 @@ export default function SalesFunnelPage() {
                     </div>
                   ))
                 ) : (
-                  <div className="text-sm text-gray-600">No activity yet.</div>
+                  <div className="text-sm text-slate-400">No activity yet.</div>
                 )}
               </div>
             </div>

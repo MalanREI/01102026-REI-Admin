@@ -177,7 +177,7 @@ function DroppableColumn({ id, children }: { id: string; children: React.ReactNo
   return (
     <div
       ref={setNodeRef}
-      className={["rounded-2xl border bg-gray-50 p-3 min-h-[200px]", isOver ? "ring-2 ring-gray-300" : ""].join(
+      className={["rounded-2xl border bg-base p-3 min-h-[200px]", isOver ? "ring-2 ring-emerald-500/40" : ""].join(
         " "
       )}
     >
@@ -2058,20 +2058,20 @@ async function selectPreviousSession(sessionId: string) {
   return (
     <PageShell>
       {!meeting ? (
-        <div className="text-sm text-gray-600">Loading...</div>
+        <div className="text-sm text-slate-400">Loading...</div>
       ) : (
         <div className="space-y-6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-2xl font-semibold">{meeting.title}</h1>
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-slate-400">
                 {prettyDate(meeting.start_at)} • {meeting.duration_minutes} min
                 {meeting.location ? ` • ${meeting.location}` : ""}
               </div>
-              {meeting.rrule && <div className="text-xs text-gray-500 mt-1">Recurring: {meeting.rrule}</div>}
+              {meeting.rrule && <div className="text-xs text-slate-500 mt-1">Recurring: {meeting.rrule}</div>}
               {isRecording && (
                 <div className="mt-2 flex items-center gap-1.5 text-xs text-red-600 font-medium">
-                  <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="inline-block w-2 h-2 rounded-full bg-red-500/100 animate-pulse" />
                   Recording — {Math.floor(recSeconds / 60)}m {recSeconds % 60}s
                 </div>
               )}
@@ -2131,8 +2131,8 @@ async function selectPreviousSession(sessionId: string) {
             </div>
           </div>
 
-          {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
-          {info && <div className="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-2">{info}</div>}
+          {err && <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{err}</div>}
+          {info && <div className="text-sm text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-lg p-2">{info}</div>}
 
           <ResizableSidebar
             storageKey={`meetings:${meetingId}:agenda`}
@@ -2145,7 +2145,7 @@ async function selectPreviousSession(sessionId: string) {
                 <Card title="Agenda + Minutes">
 <div className="space-y-4">
                     {agenda.length === 0 ? (
-                      <div className="text-sm text-gray-600">No agenda topics yet.</div>
+                      <div className="text-sm text-slate-400">No agenda topics yet.</div>
                     ) : (
                       sortByPos(agenda).map((a) => (
                         <div key={a.id} className="rounded-xl border p-3">
@@ -2156,11 +2156,11 @@ async function selectPreviousSession(sessionId: string) {
                             </div>
                             {currentSession ? <Pill>Current</Pill> : <Pill>No session</Pill>}
                           </div>
-                          {a.description && <div className="text-xs text-gray-600 mt-1">{a.description}</div>}
+                          {a.description && <div className="text-xs text-slate-400 mt-1">{a.description}</div>}
 
                           <div className="mt-3 grid gap-2">
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Meeting minutes (current)</div>
+                              <div className="text-xs text-slate-500 mb-1">Meeting minutes (current)</div>
                               <Textarea
                                 rows={4}
                                 value={agendaNotes[a.id] ?? ""}
@@ -2170,8 +2170,8 @@ async function selectPreviousSession(sessionId: string) {
                               />
                             </div>
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Previous meeting minutes</div>
-                              <Textarea rows={3} value={prevAgendaNotes[a.id] ?? ""} readOnly className="bg-gray-50" />
+                              <div className="text-xs text-slate-500 mb-1">Previous meeting minutes</div>
+                              <Textarea rows={3} value={prevAgendaNotes[a.id] ?? ""} readOnly className="bg-base" />
                             </div>
                           </div>
                         </div>
@@ -2189,7 +2189,7 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="text-gray-500 hover:text-gray-700 transition-colors"
+                      className="text-slate-500 hover:text-slate-300 transition-colors"
                       onClick={() => setTasksCollapsed((v) => !v)}
                       title={tasksCollapsed ? "Expand" : "Collapse"}
                     >
@@ -2208,8 +2208,8 @@ async function selectPreviousSession(sessionId: string) {
                         type="button"
                         className={`px-3 py-1 text-sm ${
                           tasksView === "board"
-                            ? "bg-blue-500 text-white"
-                            : "bg-white text-gray-700 hover:bg-gray-50"
+                            ? "bg-blue-500/100 text-white"
+                            : "bg-surface text-slate-300 hover:bg-base"
                         }`}
                         onClick={() => setTasksView("board")}
                       >
@@ -2219,8 +2219,8 @@ async function selectPreviousSession(sessionId: string) {
                         type="button"
                         className={`px-3 py-1 text-sm ${
                           tasksView === "calendar"
-                            ? "bg-blue-500 text-white"
-                            : "bg-white text-gray-700 hover:bg-gray-50"
+                            ? "bg-blue-500/100 text-white"
+                            : "bg-surface text-slate-300 hover:bg-base"
                         }`}
                         onClick={() => setTasksView("calendar")}
                       >
@@ -2239,10 +2239,10 @@ async function selectPreviousSession(sessionId: string) {
                 {!tasksCollapsed && (
                 <>
                   {/* Filter bar */}
-                  <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                  <div className="mb-4 p-3 bg-base rounded-lg border">
                     <div className="grid gap-3 md:grid-cols-4">
                       <div>
-                        <label className="text-xs text-gray-600 mb-1 block">Status</label>
+                        <label className="text-xs text-slate-400 mb-1 block">Status</label>
                         <MultiSelectDropdown
                           label="Status"
                           options={statuses.map((s) => ({ value: s.name, label: s.name }))}
@@ -2251,7 +2251,7 @@ async function selectPreviousSession(sessionId: string) {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-600 mb-1 block">Owner</label>
+                        <label className="text-xs text-slate-400 mb-1 block">Owner</label>
                         <MultiSelectDropdown
                           label="Owner"
                           options={attendees.map((a) => ({
@@ -2263,7 +2263,7 @@ async function selectPreviousSession(sessionId: string) {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-600 mb-1 block">Priority</label>
+                        <label className="text-xs text-slate-400 mb-1 block">Priority</label>
                         <MultiSelectDropdown
                           label="Priority"
                           options={priorities.map((p) => ({ value: p.name, label: p.name }))}
@@ -2312,7 +2312,7 @@ async function selectPreviousSession(sessionId: string) {
                               return (
                                 <DraggableTaskCard key={t.id} id={t.id}>
                                   <div
-                                    className="rounded-xl border bg-white p-3 cursor-pointer select-none"
+                                    className="rounded-xl border bg-surface p-3 cursor-pointer select-none"
                                     style={{ borderLeft: `6px solid ${getOwnerColor(t)}` }}
                                     onClick={() => openEditTask(t.id)}
                                   >
@@ -2334,7 +2334,7 @@ async function selectPreviousSession(sessionId: string) {
                                     </div>
 
                                     {le && (
-                                      <div className="mt-2 text-xs text-gray-500">
+                                      <div className="mt-2 text-xs text-slate-500">
                                         Updated {prettyDate(le.created_at)} by {profileName(le.created_by ?? null)}
                                       </div>
                                     )}
@@ -2374,7 +2374,7 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="text-gray-500 hover:text-gray-700 transition-colors"
+                      className="text-slate-500 hover:text-slate-300 transition-colors"
                       onClick={() => setMilestonesCollapsed((v) => !v)}
                       title={milestonesCollapsed ? "Expand" : "Collapse"}
                     >
@@ -2397,10 +2397,10 @@ async function selectPreviousSession(sessionId: string) {
                 {!milestonesCollapsed && (
                   <>
                     {/* Filter bar */}
-                    <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                    <div className="mb-4 p-3 bg-base rounded-lg border">
                       <div className="grid gap-3 md:grid-cols-4">
                         <div>
-                          <label className="text-xs text-gray-600 mb-1 block">Status</label>
+                          <label className="text-xs text-slate-400 mb-1 block">Status</label>
                           <MultiSelectDropdown
                             label="Status"
                             options={[
@@ -2414,7 +2414,7 @@ async function selectPreviousSession(sessionId: string) {
                           />
                         </div>
                         <div>
-                          <label className="text-xs text-gray-600 mb-1 block">Owner</label>
+                          <label className="text-xs text-slate-400 mb-1 block">Owner</label>
                           <MultiSelectDropdown
                             label="Owner"
                             options={attendees.map((a) => ({
@@ -2426,7 +2426,7 @@ async function selectPreviousSession(sessionId: string) {
                           />
                         </div>
                         <div>
-                          <label className="text-xs text-gray-600 mb-1 block">Priority</label>
+                          <label className="text-xs text-slate-400 mb-1 block">Priority</label>
                           <MultiSelectDropdown
                             label="Priority"
                             options={priorities.map((p) => ({ value: p.name, label: p.name }))}
@@ -2447,17 +2447,17 @@ async function selectPreviousSession(sessionId: string) {
 
                     <div className="space-y-3">
                     {filteredMilestones.length === 0 ? (
-                      <div className="text-sm text-gray-600">No milestones match filters.</div>
+                      <div className="text-sm text-slate-400">No milestones match filters.</div>
                     ) : (
                       sortMilestonesByTargetDate(filteredMilestones).map((m) => (
                         <div
                           key={m.id}
-                          className="rounded-xl border bg-white p-3 cursor-pointer"
+                          className="rounded-xl border bg-surface p-3 cursor-pointer"
                           style={{ borderLeft: `6px solid ${getOwnerColor(m)}` }}
                           onClick={() => openEditMilestone(m.id)}
                         >
                           <div className="text-sm font-semibold">{m.title}</div>
-                          {m.description && <div className="text-xs text-gray-600 mt-1">{m.description}</div>}
+                          {m.description && <div className="text-xs text-slate-400 mt-1">{m.description}</div>}
                           <div className="mt-2 flex flex-wrap gap-2">
                             <span 
                               className="rounded-full px-2 py-0.5 text-xs font-medium text-white"
@@ -2483,7 +2483,7 @@ async function selectPreviousSession(sessionId: string) {
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="text-gray-500 hover:text-gray-700 transition-colors"
+                      className="text-slate-500 hover:text-slate-300 transition-colors"
                       onClick={() => setNotesCollapsed((v) => !v)}
                       title={notesCollapsed ? "Expand" : "Collapse"}
                     >
@@ -2507,10 +2507,10 @@ async function selectPreviousSession(sessionId: string) {
                   <>
                     {/* Filter bar */}
                     {availableNoteCategories.length > 0 && (
-                      <div className="mb-3 p-3 bg-gray-50 rounded-lg border">
+                      <div className="mb-3 p-3 bg-base rounded-lg border">
                         <div className="grid gap-3 md:grid-cols-2">
                           <div>
-                            <label className="text-xs text-gray-600 mb-1 block">Category</label>
+                            <label className="text-xs text-slate-400 mb-1 block">Category</label>
                             <MultiSelectDropdown
                               label="Category"
                               options={availableNoteCategories.map((cat) => ({ value: cat, label: cat }))}
@@ -2532,12 +2532,12 @@ async function selectPreviousSession(sessionId: string) {
 
                     <div className="space-y-3">
                     {filteredNotes.length === 0 ? (
-                      <div className="text-sm text-gray-600">No notes match filter.</div>
+                      <div className="text-sm text-slate-400">No notes match filter.</div>
                     ) : (
                       sortByPos(filteredNotes).map((n) => (
                         <div
                           key={n.id}
-                          className="rounded-xl border bg-white p-3 cursor-pointer"
+                          className="rounded-xl border bg-surface p-3 cursor-pointer"
                           onClick={() => openEditNote(n.id)}
                         >
                           <div className="flex items-center justify-between">
@@ -2545,7 +2545,7 @@ async function selectPreviousSession(sessionId: string) {
                             {n.category && <Pill>{n.category}</Pill>}
                           </div>
                           {n.content && (
-                            <div className="text-xs text-gray-600 mt-2 whitespace-pre-wrap line-clamp-3">
+                            <div className="text-xs text-slate-400 mt-2 whitespace-pre-wrap line-clamp-3">
                               {n.content}
                             </div>
                           )}
@@ -2585,11 +2585,11 @@ async function selectPreviousSession(sessionId: string) {
               <div className="rounded-xl border p-3">
                 {!titleEditMode ? (
                   <div className="relative">
-                    <div className="text-center text-xl md:text-2xl font-semibold leading-tight tracking-tight text-gray-900">
+                    <div className="text-center text-xl md:text-2xl font-semibold leading-tight tracking-tight text-slate-100">
                       {tTitle || "Untitled task"}
                     </div>
                     <button
-                      className="absolute right-0 top-0 rounded-lg border px-2 py-1 text-sm hover:bg-gray-50"
+                      className="absolute right-0 top-0 rounded-lg border px-2 py-1 text-sm hover:bg-base"
                       onClick={() => setTitleEditMode(true)}
                       aria-label="Edit title"
                       type="button"
@@ -2599,23 +2599,23 @@ async function selectPreviousSession(sessionId: string) {
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    <label className="text-xs text-gray-600">Title</label>
+                    <label className="text-xs text-slate-400">Title</label>
                     <Input
                       value={tTitle}
                       onChange={(e) => setTTitle(e.target.value)}
                       onBlur={() => setTitleEditMode(false)}
                       autoFocus
                     />
-                    <div className="text-xs text-gray-500">Click outside the field to finish editing.</div>
+                    <div className="text-xs text-slate-500">Click outside the field to finish editing.</div>
                   </div>
                 )}
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <label className="text-xs text-gray-600">Status</label>
+                  <label className="text-xs text-slate-400">Status</label>
                   <select
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     style={{ 
                       backgroundColor: statusColor(tStatus), 
                       color: 'white',
@@ -2649,9 +2649,9 @@ async function selectPreviousSession(sessionId: string) {
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-600">Priority</label>
+                  <label className="text-xs text-slate-400">Priority</label>
                   <select
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     style={{ 
                       backgroundColor: priorityColor(tPriority), 
                       color: 'white',
@@ -2685,8 +2685,8 @@ async function selectPreviousSession(sessionId: string) {
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-600">Owner</label>
-                  <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tOwner} onChange={(e) => setTOwner(e.target.value)}>
+                  <label className="text-xs text-slate-400">Owner</label>
+                  <select className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200" value={tOwner} onChange={(e) => setTOwner(e.target.value)}>
                     <option value="">Unassigned</option>
                     {(attendees ?? []).map((a) => {
                       const email = String(a.email || "").trim();
@@ -2705,14 +2705,14 @@ async function selectPreviousSession(sessionId: string) {
                         className="w-4 h-4 rounded border"
                         style={{ backgroundColor: tOwner.startsWith("email:") ? attendeeColor(tOwner.slice(6)) : ownerColor(tOwner) }}
                       />
-                      <span className="text-xs text-gray-500">Owner color</span>
+                      <span className="text-xs text-slate-500">Owner color</span>
                     </div>
                   )}
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-600">Column</label>
-                  <select className="w-full rounded-lg border px-3 py-2 text-sm" value={tColumnId} onChange={(e) => setTColumnId(e.target.value)}>
+                  <label className="text-xs text-slate-400">Column</label>
+                  <select className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200" value={tColumnId} onChange={(e) => setTColumnId(e.target.value)}>
                     {cols.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -2722,23 +2722,23 @@ async function selectPreviousSession(sessionId: string) {
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-600">Start date</label>
+                  <label className="text-xs text-slate-400">Start date</label>
                   <Input type="date" value={tStart} onChange={(e) => setTStart(e.target.value)} />
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-600">Due date</label>
+                  <label className="text-xs text-slate-400">Due date</label>
                   <Input type="date" value={tDue} onChange={(e) => setTDue(e.target.value)} />
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="text-xs text-gray-600">Notes</label>
+                  <label className="text-xs text-slate-400">Notes</label>
                   <Textarea rows={5} value={tNotes} onChange={(e) => setTNotes(e.target.value)} />
                 </div>
 
                 {editingTaskId && (
                   <div className="md:col-span-2">
-                    <label className="text-xs text-gray-600">Add comment</label>
+                    <label className="text-xs text-slate-400">Add comment</label>
                     <div className="grid gap-2">
                       <Textarea rows={3} value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Type a comment..." />
                       <div className="flex justify-end">
@@ -2754,9 +2754,9 @@ async function selectPreviousSession(sessionId: string) {
               <div>
                 <div className="text-sm font-semibold mb-2">Activity log</div>
             
-                <div className="max-h-56 overflow-auto rounded-xl border bg-gray-50">
+                <div className="max-h-56 overflow-auto rounded-xl border bg-base">
                   {tEvents.length === 0 ? (
-                    <div className="p-3 text-sm text-gray-600">No events yet.</div>
+                    <div className="p-3 text-sm text-slate-400">No events yet.</div>
                   ) : (
                     <div className="divide-y">
                       {tEvents.map((e) => (
@@ -2764,22 +2764,22 @@ async function selectPreviousSession(sessionId: string) {
                           <div className="flex items-center justify-between">
                             <div className="font-medium">
                               {e.event_type}{" "}
-                              <span className="text-xs text-gray-500 font-normal">
+                              <span className="text-xs text-slate-500 font-normal">
                                 by {profileName(e.created_by ?? null)}
                               </span>
                             </div>
             
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-slate-500">
                               {prettyDate(e.created_at)}
                             </div>
                           </div>
             
                           {e.event_type === "comment" ? (
-                            <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">
+                            <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap">
                               {e.payload?.text ?? ""}
                             </div>
                           ) : (
-                            <div className="mt-2 text-sm text-gray-800">
+                            <div className="mt-2 text-sm text-slate-200">
                               {e.event_type === "updated" && e.payload?.changes ? (
                                 <ul className="list-disc pl-5 space-y-1">
                                   {Object.entries(e.payload.changes).map(([k, v]) => (
@@ -2821,14 +2821,14 @@ async function selectPreviousSession(sessionId: string) {
   }
 >
 
-            <div className="text-sm text-gray-600 mb-3">Edit agenda topic fields below. (Next: drag reorder + add/remove.)</div>
+            <div className="text-sm text-slate-400 mb-3">Edit agenda topic fields below. (Next: drag reorder + add/remove.)</div>
 
             <div className="space-y-3">
               {sortByPos(agenda).map((a) => (
                 <div key={a.id} className="rounded-xl border p-3">
                   <div className="grid gap-2 md:grid-cols-3">
                     <div>
-                      <label className="text-xs text-gray-600">Code</label>
+                      <label className="text-xs text-slate-400">Code</label>
                       <Input
                         value={a.code ?? ""}
                         onChange={async (e) => {
@@ -2840,7 +2840,7 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
 
                     <div className="md:col-span-2">
-                      <label className="text-xs text-gray-600">Title</label>
+                      <label className="text-xs text-slate-400">Title</label>
                       <Input
                         value={a.title}
                         onChange={async (e) => {
@@ -2852,7 +2852,7 @@ async function selectPreviousSession(sessionId: string) {
                     </div>
 
                     <div className="md:col-span-3">
-                      <label className="text-xs text-gray-600">Description</label>
+                      <label className="text-xs text-slate-400">Description</label>
                       <Textarea
                         rows={2}
                         value={a.description ?? ""}
@@ -2880,13 +2880,13 @@ async function selectPreviousSession(sessionId: string) {
               </Button>
             }
           >
-            <div className="text-sm text-gray-600 mb-3">
+            <div className="text-sm text-slate-400 mb-3">
               Choose which meeting minutes session to email. (PDF must be generated first.)
             </div>
 
             <div className="space-y-2">
               {prevSessions.length === 0 && !currentSession ? (
-                <div className="text-sm text-gray-600">No sessions found.</div>
+                <div className="text-sm text-slate-400">No sessions found.</div>
               ) : (
                 [
                   ...(currentSession ? [currentSession] : []),
@@ -2896,11 +2896,11 @@ async function selectPreviousSession(sessionId: string) {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold">{prettyDate(s.started_at)}</div>
-                        <div className="text-xs text-gray-600">
+                        <div className="text-xs text-slate-400">
                           {s.ended_at ? `Ended ${prettyDate(s.ended_at)}` : "(In progress / not concluded)"}
                         </div>
                         {s.ai_status && s.ai_status !== "done" && (
-                          <div className="text-xs text-gray-600 mt-1">
+                          <div className="text-xs text-slate-400 mt-1">
                             Status: {String(s.ai_status)}
                             {s.ai_status === "error" && s.ai_error ? ` — ${String(s.ai_error)}` : ""}
                           </div>
@@ -2944,26 +2944,26 @@ async function selectPreviousSession(sessionId: string) {
           >
             <div className="space-y-2">
               {prevSessions.length === 0 ? (
-                <div className="text-sm text-gray-600">No previous sessions found.</div>
+                <div className="text-sm text-slate-400">No previous sessions found.</div>
               ) : (
                 prevSessions.map((s) => (
                   <button
                     key={s.id}
-                    className="w-full text-left rounded-xl border p-3 hover:bg-gray-50"
+                    className="w-full text-left rounded-xl border p-3 hover:bg-base"
                     onClick={() => selectPreviousSession(s.id)}
                     type="button"
                   >
                     <div className="font-semibold">{prettyDate(s.started_at)}</div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-slate-400">
                       {s.ended_at ? `Ended ${prettyDate(s.ended_at)}` : "(In progress / not concluded)"}
                     </div>
                     {s.ai_status && s.ai_status !== "done" && (
-                      <div className="text-xs text-gray-600 mt-1">
+                      <div className="text-xs text-slate-400 mt-1">
                         Status: {String(s.ai_status)}
                         {s.ai_status === "error" && s.ai_error ? ` — ${String(s.ai_error)}` : ""}
                       </div>
                     )}
-                    <div className="text-xs text-gray-500 mt-1 flex items-center justify-between">
+                    <div className="text-xs text-slate-500 mt-1 flex items-center justify-between">
                       <span />
                       <button
                         type="button"
@@ -2994,7 +2994,7 @@ async function selectPreviousSession(sessionId: string) {
               </Button>
             }
           >
-            <div className="text-sm text-gray-600 mb-3">
+            <div className="text-sm text-slate-400 mb-3">
               This controls the list of Status values available for tasks in this meeting.
             </div>
 
@@ -3030,7 +3030,7 @@ async function selectPreviousSession(sessionId: string) {
               </Button>
             }
           >
-            <div className="text-sm text-gray-600 mb-3">
+            <div className="text-sm text-slate-400 mb-3">
               This controls the list of Priority values available for tasks and milestones in this meeting.
             </div>
 
@@ -3066,7 +3066,7 @@ async function selectPreviousSession(sessionId: string) {
               </Button>
             }
           >
-            <div className="text-sm text-gray-600 mb-3">
+            <div className="text-sm text-slate-400 mb-3">
               Manage the list of attendees for this meeting. These attendees are used in task/milestone owners and meeting notes recipients.
             </div>
 
@@ -3082,7 +3082,7 @@ async function selectPreviousSession(sessionId: string) {
                     <Input 
                       value={a.email} 
                       disabled
-                      className="bg-gray-50"
+                      className="bg-base"
                     />
                   </div>
                   <input
@@ -3113,7 +3113,7 @@ async function selectPreviousSession(sessionId: string) {
               </Button>
             }
           >
-            <div className="text-sm text-gray-600 mb-3">
+            <div className="text-sm text-slate-400 mb-3">
               Manage predefined categories for notes. Categories from existing notes are automatically included.
             </div>
 
@@ -3158,18 +3158,18 @@ async function selectPreviousSession(sessionId: string) {
           >
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-gray-600">Title *</label>
+                <label className="text-xs text-slate-400">Title *</label>
                 <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} />
               </div>
               <div>
-                <label className="text-xs text-gray-600">Description</label>
+                <label className="text-xs text-slate-400">Description</label>
                 <Textarea rows={3} value={mDescription} onChange={(e) => setMDescription(e.target.value)} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-600">Status</label>
+                  <label className="text-xs text-slate-400">Status</label>
                   <select
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     value={mStatus}
                     onChange={(e) => setMStatus(e.target.value)}
                   >
@@ -3180,9 +3180,9 @@ async function selectPreviousSession(sessionId: string) {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">Priority</label>
+                  <label className="text-xs text-slate-400">Priority</label>
                   <select
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     style={{ 
                       backgroundColor: priorityColor(mPriority), 
                       color: 'white',
@@ -3217,9 +3217,9 @@ async function selectPreviousSession(sessionId: string) {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-600">Owner</label>
+                  <label className="text-xs text-slate-400">Owner</label>
                   <select
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     value={mOwner}
                     onChange={(e) => setMOwner(e.target.value)}
                   >
@@ -3247,12 +3247,12 @@ async function selectPreviousSession(sessionId: string) {
                         className="w-4 h-4 rounded border"
                         style={{ backgroundColor: mOwner.startsWith("email:") ? attendeeColor(mOwner.slice(6)) : ownerColor(mOwner) }}
                       />
-                      <span className="text-xs text-gray-500">Owner color</span>
+                      <span className="text-xs text-slate-500">Owner color</span>
                     </div>
                   )}
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">Target Date</label>
+                  <label className="text-xs text-slate-400">Target Date</label>
                   <Input type="date" value={mTargetDate} onChange={(e) => setMTargetDate(e.target.value)} />
                 </div>
               </div>
@@ -3282,13 +3282,13 @@ async function selectPreviousSession(sessionId: string) {
           >
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-gray-600">Title *</label>
+                <label className="text-xs text-slate-400">Title *</label>
                 <Input value={nTitle} onChange={(e) => setNTitle(e.target.value)} />
               </div>
               <div>
-                <label className="text-xs text-gray-600">Category (optional)</label>
+                <label className="text-xs text-slate-400">Category (optional)</label>
                 <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                   value={nCategory}
                   onChange={(e) => setNCategory(e.target.value)}
                 >
@@ -3301,7 +3301,7 @@ async function selectPreviousSession(sessionId: string) {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-600">Content</label>
+                <label className="text-xs text-slate-400">Content</label>
                 <Textarea rows={8} value={nContent} onChange={(e) => setNContent(e.target.value)} />
               </div>
             </div>
@@ -3324,15 +3324,15 @@ async function selectPreviousSession(sessionId: string) {
             }
           >
             <div className="space-y-3">
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-slate-400">
                 Choose how often the system should email reminders to attendees. If a minutes PDF exists for the latest concluded session, the email can include the PDF link.
                 (This requires Vercel Cron + SMTP, and the Supabase migration included below.)
               </div>
 
               <div>
-                <label className="text-xs text-gray-600">Reminder frequency</label>
+                <label className="text-xs text-slate-400">Reminder frequency</label>
                 <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                   value={reminderFreq}
                   onChange={(e) => setReminderFreq(e.target.value as "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly")}
                 >
@@ -3362,12 +3362,12 @@ async function selectPreviousSession(sessionId: string) {
           >
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-700">
+                <div className="text-sm text-slate-300">
                   {currentSession ? (
                     <>
                       Session started: <span className="font-semibold">{prettyDate(currentSession.started_at)}</span>
                       {currentSession.ended_at ? (
-                        <span className="ml-2 text-xs text-gray-500">(Ended)</span>
+                        <span className="ml-2 text-xs text-slate-500">(Ended)</span>
                       ) : null}
                     </>
                   ) : (
@@ -3381,12 +3381,12 @@ async function selectPreviousSession(sessionId: string) {
               </div>
 
               {recMin ? (
-                <div className="text-sm text-gray-600">Collapsed. Expand to start/stop recording.</div>
+                <div className="text-sm text-slate-400">Collapsed. Expand to start/stop recording.</div>
               ) : (
                 <div className="space-y-3">
-                  <div className="rounded-xl border p-3 bg-gray-50">
+                  <div className="rounded-xl border p-3 bg-base">
                     <div className="text-sm">Duration: {Math.floor(recSeconds / 60)}m {recSeconds % 60}s</div>
-                    <div className="text-xs text-gray-500">Auto-stops at 2 hours.</div>
+                    <div className="text-xs text-slate-500">Auto-stops at 2 hours.</div>
                   </div>
 
                   <div className="flex gap-2">
@@ -3407,7 +3407,7 @@ async function selectPreviousSession(sessionId: string) {
                     )}
                   </div>
 
-                  {recErr && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{recErr}</div>}
+                  {recErr && <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{recErr}</div>}
                 </div>
               )}
             </div>
@@ -3426,7 +3426,7 @@ async function selectPreviousSession(sessionId: string) {
           >
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-gray-600">Add New Column</label>
+                <label className="text-xs text-slate-400">Add New Column</label>
                 <div className="flex gap-2">
                   <Input
                     value={newColumnName}
@@ -3443,14 +3443,14 @@ async function selectPreviousSession(sessionId: string) {
               </div>
 
               <div>
-                <label className="text-xs text-gray-600 mb-2 block">Existing Columns</label>
+                <label className="text-xs text-slate-400 mb-2 block">Existing Columns</label>
                 <div className="space-y-2">
                   {sortByPos(columns).map((col, index) => (
-                    <div key={col.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                    <div key={col.id} className="flex items-center gap-2 p-2 bg-base rounded-lg">
                       <div className="flex gap-1">
                         <button
                           type="button"
-                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="p-1 hover:bg-white/[0.08] rounded disabled:opacity-30 disabled:cursor-not-allowed"
                           onClick={() => moveColumn(col.id, "left")}
                           disabled={index === 0 || busy}
                           title="Move left"
@@ -3461,7 +3461,7 @@ async function selectPreviousSession(sessionId: string) {
                         </button>
                         <button
                           type="button"
-                          className="p-1 hover:bg-gray-200 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="p-1 hover:bg-white/[0.08] rounded disabled:opacity-30 disabled:cursor-not-allowed"
                           onClick={() => moveColumn(col.id, "right")}
                           disabled={index === columns.length - 1 || busy}
                           title="Move right"
@@ -3472,7 +3472,7 @@ async function selectPreviousSession(sessionId: string) {
                         </button>
                       </div>
                       <div className="flex-1 font-medium">{col.name}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-slate-500">
                         {tasks.filter((t) => t.column_id === col.id).length} tasks
                       </div>
                       <Button
@@ -3488,7 +3488,7 @@ async function selectPreviousSession(sessionId: string) {
               </div>
 
               {err && (
-                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>
+                <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{err}</div>
               )}
             </div>
           </Modal>
@@ -3692,34 +3692,40 @@ function CalendarView({
           </Button>
         </div>
       </div>
-
-      {/* Day name headers */}
-      <div>
-        <div className="grid grid-cols-7">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-            <div key={day} className="text-center text-xs font-semibold text-gray-600 dark:text-gray-400 py-2">
-              {day}
-            </div>
-          ))}
-        </div>
-
-        {/* Week rows */}
-        {weeks.map((week, weekIdx) => {
-          const lanes = computeWeekLanes(week);
-          const isExpanded = expandedWeeks.has(weekIdx);
-          const visibleLanes = isExpanded ? lanes : lanes.slice(0, MAX_BARS_PER_WEEK);
-          const hiddenBarCount = isExpanded
-            ? 0
-            : lanes.slice(MAX_BARS_PER_WEEK).reduce((sum, lane) => sum + lane.length, 0);
-
+      
+      {/* Calendar Grid */}
+      <div className="grid grid-cols-7 gap-2">
+        {/* Day headers */}
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <div key={day} className="text-center text-xs font-semibold text-slate-400 py-2">
+            {day}
+          </div>
+        ))}
+        
+        {/* Calendar days */}
+        {days.map((date, idx) => {
+          const dateKey = formatDateKey(date);
+          const items = itemsByDate.get(dateKey);
+          const isCurrent = isCurrentMonth(date);
+          const isNow = isToday(date);
+          
           return (
-            <div key={weekIdx} className="border-b dark:border-gray-700">
-              {/* Day numbers row */}
-              <div className="grid grid-cols-7">
-                {week.map((date, dayIdx) => {
-                  const isCurrent = isCurrentMonth(date);
-                  const isNow = isToday(date);
-                  return (
+            <div
+              key={idx}
+              className={`min-h-24 border rounded-lg p-2 ${
+                isCurrent ? 'bg-surface' : 'bg-base'
+              } ${isNow ? 'ring-2 ring-emerald-500' : ''}`}
+            >
+              <div className={`text-xs font-semibold mb-1 ${
+                isNow ? 'text-blue-600' : isCurrent ? 'text-slate-100' : 'text-slate-600'
+              }`}>
+                {date.getDate()}
+              </div>
+              
+              {items && (
+                <div className="space-y-1">
+                  {/* Milestones */}
+                  {items.milestones.map((milestone) => (
                     <div
                       key={dayIdx}
                       className={`px-2 pt-1 pb-0.5 text-xs font-semibold border-r last:border-r-0 dark:border-gray-700 ${
@@ -3799,6 +3805,13 @@ function CalendarView({
                     }
                     return null;
                   })}
+                  
+                  {/* Show count if more tasks */}
+                  {items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
+                    <div className="text-xs text-slate-500 pl-1">
+                      +{items.tasks.length - MAX_VISIBLE_TASKS_PER_DAY} more
+                    </div>
+                  )}
                 </div>
               ))}
 

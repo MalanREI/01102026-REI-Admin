@@ -3,9 +3,9 @@ import { ReactNode, useEffect, useState, useRef } from "react";
 
 export function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
-    <section className="rounded-2xl bg-white shadow-sm border p-4">
+    <section className="rounded-2xl bg-surface border border-white/[0.06] p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">{title}</h2>
+        <h2 className="text-base font-semibold text-slate-100">{title}</h2>
         {right}
       </div>
       {children}
@@ -18,8 +18,8 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={[
-        "w-full rounded-lg border px-3 py-2 text-sm outline-none",
-        "focus:ring-2 focus:ring-gray-300",
+        "w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 outline-none",
+        "focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/50",
         props.className ?? "",
       ].join(" ")}
     />
@@ -31,8 +31,8 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
     <textarea
       {...props}
       className={[
-        "w-full rounded-lg border px-3 py-2 text-sm outline-none",
-        "focus:ring-2 focus:ring-gray-300",
+        "w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 outline-none",
+        "focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/50",
         props.className ?? "",
       ].join(" ")}
     />
@@ -41,16 +41,16 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 
 export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" }) {
   const variant = props.variant ?? "primary";
-  const base = "rounded-lg px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed";
+  const base = "rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
   const styles =
     variant === "primary"
-      ? "bg-gray-900 text-white hover:bg-black"
-      : "bg-transparent hover:bg-gray-100 border";
+      ? "bg-emerald-600 text-white hover:bg-emerald-500"
+      : "bg-transparent text-slate-300 hover:bg-white/[0.06] border border-white/10";
   return <button {...props} className={[base, styles, props.className ?? ""].join(" ")} />;
 }
 
 export function Pill({ children }: { children: ReactNode }) {
-  return <span className="rounded-full border bg-gray-50 px-2 py-0.5 text-xs">{children}</span>;
+  return <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs text-slate-400">{children}</span>;
 }
 
 export function Modal({
@@ -82,18 +82,18 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={onClose}>
       <div
         className={[
           "w-full",
           maxWidthClass ?? "max-w-2xl",
-          "rounded-2xl bg-white border shadow-lg overflow-hidden",
+          "rounded-2xl bg-surface border border-white/[0.06] shadow-2xl overflow-hidden",
         ].join(" ")}
         style={{ maxHeight: "90vh" }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b bg-white">
-          <div className="text-base md:text-lg font-semibold text-gray-900 text-center flex-1">{title}</div>
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.06]">
+          <div className="text-base md:text-lg font-semibold text-slate-100 text-center flex-1">{title}</div>
           <Button variant="ghost" onClick={onClose} aria-label="Close modal" className="shrink-0">
             Close
           </Button>
@@ -103,7 +103,7 @@ export function Modal({
           {children}
         </div>
 
-        {footer && <div className="px-5 py-4 border-t bg-white flex justify-end gap-2">{footer}</div>}
+        {footer && <div className="px-5 py-4 border-t border-white/[0.06] flex justify-end gap-2">{footer}</div>}
       </div>
     </div>
   );
@@ -119,7 +119,7 @@ export function Tabs({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="inline-flex rounded-xl border bg-white p-1">
+    <div className="inline-flex rounded-xl border border-white/10 bg-surface p-1">
       {tabs.map((t) => {
         const active = t.value === value;
         return (
@@ -127,8 +127,8 @@ export function Tabs({
             key={t.value}
             onClick={() => onChange(t.value)}
             className={[
-              "px-3 py-1.5 text-sm rounded-lg",
-              active ? "bg-gray-900 text-white" : "hover:bg-gray-50",
+              "px-3 py-1.5 text-sm rounded-lg font-medium transition-colors",
+              active ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]",
             ].join(" ")}
           >
             {t.label}
@@ -164,7 +164,7 @@ export function Dropdown({
     <div className="relative inline-block" ref={dropdownRef}>
       <div onClick={() => setOpen(!open)}>{trigger}</div>
       {open && (
-        <div className="absolute right-0 mt-1 w-56 rounded-lg border bg-white shadow-lg z-50">
+        <div className="absolute right-0 mt-1 w-56 rounded-lg border border-white/10 bg-surface shadow-xl z-50">
           <div className="py-1">
             {items.map((item, idx) => (
               <button
@@ -176,7 +176,7 @@ export function Dropdown({
                   }
                 }}
                 disabled={item.disabled}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-white/[0.06] hover:text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {item.label}
               </button>
@@ -249,31 +249,31 @@ export function MultiSelectDropdown({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full text-left rounded border px-2 py-1 text-xs bg-white hover:bg-gray-50"
+        className="w-full text-left rounded border border-white/10 px-2 py-1 text-xs bg-base text-slate-300 hover:bg-white/[0.04]"
       >
         {label}: {summary}
       </button>
       {open && (
-        <div className="absolute left-0 mt-1 w-full min-w-[200px] rounded-lg border bg-white shadow-lg z-50 max-h-80 overflow-auto">
-          <div className="p-2 border-b bg-gray-50 flex gap-2">
+        <div className="absolute left-0 mt-1 w-full min-w-[200px] rounded-lg border border-white/10 bg-surface shadow-xl z-50 max-h-80 overflow-auto">
+          <div className="p-2 border-b border-white/[0.06] bg-elevated flex gap-2">
             <button
               type="button"
               onClick={handleSelectAll}
-              className="text-xs px-2 py-1 rounded hover:bg-gray-200"
+              className="text-xs px-2 py-1 rounded text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
             >
               All
             </button>
             <button
               type="button"
               onClick={handleSelectNone}
-              className="text-xs px-2 py-1 rounded hover:bg-gray-200"
+              className="text-xs px-2 py-1 rounded text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
             >
               None
             </button>
             <button
               type="button"
               onClick={handleInvertSelection}
-              className="text-xs px-2 py-1 rounded hover:bg-gray-200"
+              className="text-xs px-2 py-1 rounded text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
             >
               Invert
             </button>
@@ -282,7 +282,7 @@ export function MultiSelectDropdown({
             {options.map((opt) => (
               <label
                 key={opt.value}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 cursor-pointer"
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/[0.06] cursor-pointer"
               >
                 <input
                   type="checkbox"

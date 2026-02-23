@@ -106,7 +106,7 @@ export default function HomePage() {
       <div className="max-w-6xl space-y-6">
         <h1 className="text-2xl font-semibold">Home</h1>
 
-        {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{error}</div>}
+        {error && <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{error}</div>}
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={widgetOrder} strategy={verticalListSortingStrategy}>
@@ -123,20 +123,20 @@ export default function HomePage() {
                       }
                     >
                       {loading ? (
-                        <div className="text-sm text-gray-600">Loading...</div>
+                        <div className="text-sm text-slate-400">Loading...</div>
                       ) : items.length === 0 ? (
-                        <div className="text-sm text-gray-600">No links yet.</div>
+                        <div className="text-sm text-slate-400">No links yet.</div>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {items.map((l) => (
-                            <div key={l.id} className="rounded-2xl border bg-white p-4 shadow-sm">
+                            <div key={l.id} className="rounded-2xl border border-white/[0.06] bg-surface p-4">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <a href={l.url} target="_blank" className="font-medium hover:underline break-words">
                                     {l.title}
                                   </a>
-                                  {l.purpose && <div className="text-sm text-gray-600 mt-1 break-words">{l.purpose}</div>}
-                                  <div className="text-xs text-gray-400 mt-2">{new Date(l.created_at).toLocaleString()}</div>
+                                  {l.purpose && <div className="text-sm text-slate-400 mt-1 break-words">{l.purpose}</div>}
+                                  <div className="text-xs text-slate-500 mt-2">{new Date(l.created_at).toLocaleString()}</div>
                                 </div>
                                 <Button variant="ghost" onClick={() => remove(l.id)}>
                                   Delete
@@ -173,15 +173,15 @@ export default function HomePage() {
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-600">Title</label>
+              <label className="text-xs text-slate-400">Title</label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Team Drive Folder" />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Link</label>
+              <label className="text-xs text-slate-400">Link</label>
               <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
             </div>
             <div className="md:col-span-2">
-              <label className="text-xs text-gray-600">Purpose</label>
+              <label className="text-xs text-slate-400">Purpose</label>
               <Textarea value={purpose} onChange={(e) => setPurpose(e.target.value)} rows={3} placeholder="Why this link matters..." />
             </div>
           </div>
@@ -201,7 +201,7 @@ function Widget({ id, children }: { id: string; children: React.ReactNode }) {
     <div ref={setNodeRef} style={style} className={isDragging ? "opacity-60" : ""}>
       <div className="mb-2 flex items-center justify-end">
         <button
-          className="text-xs text-gray-500 hover:text-gray-900"
+          className="text-xs text-slate-500 hover:text-slate-100"
           {...attributes}
           {...listeners}
           title="Drag to move"
@@ -256,12 +256,12 @@ function KpiWidget({ sb }: { sb: ReturnType<typeof supabaseBrowser> }) {
         </Button>
       }
     >
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-slate-400">
         This widget is the foundation for a full dashboard (filters, hide/show, views). Next step: break down by status, owners, dates, and funnel stage.
       </div>
-      {err && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+      {err && <div className="mt-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{err}</div>}
       {loading ? (
-        <div className="mt-4 text-sm text-gray-600">Loading...</div>
+        <div className="mt-4 text-sm text-slate-400">Loading...</div>
       ) : (
         <div className="mt-4 grid grid-cols-3 gap-3">
           <Stat label="Links" value={stats?.links ?? 0} />
@@ -275,8 +275,8 @@ function KpiWidget({ sb }: { sb: ReturnType<typeof supabaseBrowser> }) {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="text-xs text-gray-500">{label}</div>
+    <div className="rounded-2xl border border-white/[0.06] bg-surface p-4">
+      <div className="text-xs text-slate-500">{label}</div>
       <div className="text-2xl font-semibold mt-1">{value}</div>
     </div>
   );
