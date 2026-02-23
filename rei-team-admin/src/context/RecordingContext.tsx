@@ -18,6 +18,8 @@ type RecordingActions = {
     meetingId: string;
     sessionId: string;
     meetingTitle: string;
+    audioDeviceId?: string;
+    includeSystemAudio?: boolean;
   }) => Promise<void>;
   stopRecordingAndUpload: () => Promise<{ recordingPath: string } | null>;
   concludeMeeting: () => Promise<void>;
@@ -249,8 +251,15 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
 
       mediaRecorderRef.current = null;
 
-      // Stop the audio stream
+      // Stop the audio stream (including any extra tracks from system audio capture)
       if (streamRef.current) {
+        const anyStream = streamRef.current as MediaStream & { _cleanupTracks?: MediaStreamTrack[]; _audioContext?: AudioContext };
+        if (anyStream._cleanupTracks) {
+          anyStream._cleanupTracks.forEach((t: MediaStreamTrack) => t.stop());
+        }
+        if (anyStream._audioContext) {
+          anyStream._audioContext.close().catch(() => {});
+        }
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       }
@@ -298,11 +307,52 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const startRecording = useCallback(
-    async ({ meetingId, sessionId, meetingTitle }: { meetingId: string; sessionId: string; meetingTitle: string }) => {
+    async ({ meetingId, sessionId, meetingTitle, audioDeviceId, includeSystemAudio }: {
+      meetingId: string; sessionId: string; meetingTitle: string;
+      audioDeviceId?: string; includeSystemAudio?: boolean;
+    }) => {
       setRecErr(null);
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mr = new MediaRecorder(stream);
+        // 1. Get microphone stream
+        const micConstraints: MediaTrackConstraints | boolean = audioDeviceId
+          ? { deviceId: { exact: audioDeviceId } }
+          : true;
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints });
+
+        let finalStream: MediaStream;
+
+        if (includeSystemAudio) {
+          try {
+            // 2. Get system audio via getDisplayMedia
+            const displayStream = await navigator.mediaDevices.getDisplayMedia({
+              audio: true,
+              video: false,
+            });
+
+            // 3. Merge both audio streams using AudioContext
+            const audioCtx = new AudioContext();
+            const micSource = audioCtx.createMediaStreamSource(micStream);
+            const displaySource = audioCtx.createMediaStreamSource(displayStream);
+            const destination = audioCtx.createMediaStreamDestination();
+
+            micSource.connect(destination);
+            displaySource.connect(destination);
+
+            finalStream = destination.stream;
+
+            // Store all original tracks for cleanup
+            const allTracks = [...micStream.getTracks(), ...displayStream.getTracks()];
+            (finalStream as MediaStream & { _cleanupTracks?: MediaStreamTrack[]; _audioContext?: AudioContext })._cleanupTracks = allTracks;
+            (finalStream as MediaStream & { _cleanupTracks?: MediaStreamTrack[]; _audioContext?: AudioContext })._audioContext = audioCtx;
+          } catch (e) {
+            console.warn("System audio capture failed, falling back to mic only:", e);
+            finalStream = micStream;
+          }
+        } else {
+          finalStream = micStream;
+        }
+
+        const mr = new MediaRecorder(finalStream);
 
         chunksRef.current = [];
         lastUploadedPathRef.current = null;
@@ -312,7 +362,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
 
         // Store stream reference separately — do NOT stop tracks on
         // MediaRecorder stop so we can reuse the stream across segment rotations.
-        streamRef.current = stream;
+        streamRef.current = finalStream;
 
         mr.start(1000);
         mediaRecorderRef.current = mr;

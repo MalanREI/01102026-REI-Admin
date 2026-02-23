@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -310,6 +310,18 @@ export default function MeetingDetailPage() {
   const [attendeePresence, setAttendeePresence] = useState<Record<string, boolean>>({});
   const [guestNames, setGuestNames] = useState<string[]>([]);
   const [guestInput, setGuestInput] = useState("");
+  // Audio device selection
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState<string>('');
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [includeSystemAudio, setIncludeSystemAudio] = useState(false);
+  const [systemAudioSupported] = useState(() => {
+    return typeof navigator !== 'undefined' &&
+           typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+  });
+  const testStreamRef = useRef<MediaStream | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
   const nextSessionNumber = useMemo(() => {
     if (currentSession?.session_number) return currentSession.session_number;
     const finalized = prevSessions.filter((s) => s.ended_at && s.pdf_path);
@@ -375,6 +387,83 @@ export default function MeetingDetailPage() {
     stopRecordingAndUpload: globalStopAndUpload,
     concludeMeeting: globalConcludeMeeting,
   } = useRecording();
+
+  // Audio device enumeration and preview functions
+  const loadAudioDevices = useCallback(async () => {
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tempStream.getTracks().forEach(t => t.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter(d => d.kind === 'audioinput');
+      setAudioDevices(mics);
+
+      const saved = localStorage.getItem('rei_preferred_mic');
+      if (saved && mics.some(m => m.deviceId === saved)) {
+        setSelectedMicId(saved);
+      } else if (mics.length > 0) {
+        setSelectedMicId(mics[0].deviceId);
+      }
+    } catch (e) {
+      console.error('Failed to enumerate audio devices:', e);
+    }
+  }, []);
+
+  const stopAudioPreview = useCallback(() => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    animFrameRef.current = null;
+    if (testStreamRef.current) {
+      testStreamRef.current.getTracks().forEach(t => t.stop());
+      testStreamRef.current = null;
+    }
+    analyserRef.current = null;
+    setAudioLevel(0);
+  }, []);
+
+  const startAudioPreview = useCallback((deviceId: string) => {
+    stopAudioPreview();
+
+    navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: { exact: deviceId } }
+    }).then(stream => {
+      testStreamRef.current = stream;
+
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      function tick() {
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((sum, v) => sum + v, 0) / dataArray.length;
+        setAudioLevel(avg / 255);
+        animFrameRef.current = requestAnimationFrame(tick);
+      }
+      tick();
+    }).catch(e => {
+      console.error('Audio preview failed:', e);
+    });
+  }, [stopAudioPreview]);
+
+  useEffect(() => {
+    if (startMeetingOpen) {
+      loadAudioDevices();
+    } else {
+      stopAudioPreview();
+    }
+    return () => stopAudioPreview();
+  }, [startMeetingOpen, loadAudioDevices, stopAudioPreview]);
+
+  useEffect(() => {
+    if (startMeetingOpen && selectedMicId) {
+      localStorage.setItem('rei_preferred_mic', selectedMicId);
+      startAudioPreview(selectedMicId);
+    }
+  }, [selectedMicId, startMeetingOpen, startAudioPreview]);
 
   // Derive available note categories from existing notes + predefined categories
   const availableNoteCategories = useMemo(() => {
@@ -1907,6 +1996,29 @@ async function selectPreviousSession(sessionId: string) {
     await loadPreviousSessions();
   }
 
+  async function deleteSession(sessionId: string) {
+    if (!confirm("Delete this session? This will remove the session record and any associated PDF. This cannot be undone.")) return;
+
+    try {
+      const session = prevSessions.find(s => s.id === sessionId);
+      if (session?.pdf_path) {
+        await sb.storage.from('meeting-minutes-pdfs').remove([session.pdf_path]);
+      }
+
+      const { error } = await sb
+        .from("meeting_minutes_sessions")
+        .delete()
+        .eq("id", sessionId);
+
+      if (error) throw error;
+
+      setPrevSessions(prev => prev.filter(s => s.id !== sessionId));
+      setInfo("Session deleted.");
+    } catch (e: unknown) {
+      setErr((e as Error)?.message ?? "Failed to delete session");
+    }
+  }
+
   async function saveReminderSettings() {
     if (!meeting) return;
     setBusy(true);
@@ -3019,6 +3131,17 @@ async function selectPreviousSession(sessionId: string) {
                             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                           }}
                         />
+                        <button
+                          type="button"
+                          className="text-xs text-slate-500 hover:text-red-400 transition-colors ml-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteSession(s.id);
+                          }}
+                          title="Delete session"
+                        >
+                          ✕
+                        </button>
                       </div>
                     </div>
                     <button
@@ -3522,10 +3645,14 @@ async function selectPreviousSession(sessionId: string) {
                       await sb.from("meeting_session_attendees").insert(attendanceRows);
                     }
 
+                    stopAudioPreview();
+
                     await globalStartRecording({
                       meetingId,
                       sessionId: session.id,
                       meetingTitle: sessionTitle,
+                      audioDeviceId: selectedMicId || undefined,
+                      includeSystemAudio,
                     });
                     setStartMeetingOpen(false);
                   } catch (e: unknown) {
@@ -3546,6 +3673,80 @@ async function selectPreviousSession(sessionId: string) {
                 <div className="text-sm text-slate-300">
                   {meeting?.start_at ? prettyDate(meeting.start_at) : "—"} · Starting now: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
+              </div>
+
+              {/* Audio Setup */}
+              <div>
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  Audio Setup
+                </div>
+
+                {audioDevices.length === 0 ? (
+                  <div className="text-sm text-slate-400">Loading audio devices...</div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Mic selector */}
+                    <div>
+                      <label className="text-xs text-slate-400 mb-1 block">Microphone</label>
+                      <select
+                        className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
+                        value={selectedMicId}
+                        onChange={(e) => setSelectedMicId(e.target.value)}
+                      >
+                        {audioDevices.map(d => (
+                          <option key={d.deviceId} value={d.deviceId}>
+                            {d.label || `Microphone ${d.deviceId.slice(0, 8)}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Audio level meter */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs text-slate-400">Level</span>
+                        <span className={`w-2 h-2 rounded-full ${audioLevel > 0.05 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+                        {audioLevel > 0.05 && <span className="text-xs text-emerald-400">Receiving audio</span>}
+                      </div>
+                      <div className="w-full h-2 bg-base rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-75"
+                          style={{
+                            width: `${Math.min(100, audioLevel * 100 * 2)}%`,
+                            background: audioLevel > 0.7 ? '#ef4444' : audioLevel > 0.4 ? '#f59e0b' : '#10b981',
+                          }}
+                        />
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        Speak to test your microphone. The bar should move when you talk.
+                      </div>
+                    </div>
+
+                    {/* System audio toggle for virtual meetings */}
+                    {systemAudioSupported && (
+                      <div className="mt-3 p-3 rounded-lg border border-white/10 bg-white/[0.02]">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={includeSystemAudio}
+                            onChange={(e) => setIncludeSystemAudio(e.target.checked)}
+                            className="rounded"
+                          />
+                          <div>
+                            <div className="text-sm text-slate-200">
+                              Capture system audio (for virtual meetings)
+                            </div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              Enable this if you&apos;re on Google Meet, Zoom, or Teams to capture
+                              other participants&apos; audio through your speakers. Chrome will ask
+                              you to select which tab or screen to share.
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Attendees */}
