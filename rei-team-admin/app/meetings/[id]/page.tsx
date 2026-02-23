@@ -2615,7 +2615,7 @@ async function selectPreviousSession(sessionId: string) {
                 <div>
                   <label className="text-xs text-slate-400">Status</label>
                   <select
-                    className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     style={{ 
                       backgroundColor: statusColor(tStatus), 
                       color: 'white',
@@ -2651,7 +2651,7 @@ async function selectPreviousSession(sessionId: string) {
                 <div>
                   <label className="text-xs text-slate-400">Priority</label>
                   <select
-                    className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     style={{ 
                       backgroundColor: priorityColor(tPriority), 
                       color: 'white',
@@ -3182,7 +3182,7 @@ async function selectPreviousSession(sessionId: string) {
                 <div>
                   <label className="text-xs text-slate-400">Priority</label>
                   <select
-                    className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                     style={{ 
                       backgroundColor: priorityColor(mPriority), 
                       color: 'white',
