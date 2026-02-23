@@ -72,6 +72,7 @@ type MinutesSession = {
   pdf_path?: string | null;
   ai_status?: string | null;
   ai_error?: string | null;
+  session_number?: number | null;
 };
 
 type TaskEventPayload = {
@@ -310,11 +311,10 @@ export default function MeetingDetailPage() {
   const [guestNames, setGuestNames] = useState<string[]>([]);
   const [guestInput, setGuestInput] = useState("");
   const nextSessionNumber = useMemo(() => {
-    const completedSessions = prevSessions.filter(
-      (s) => s.ended_at && (s.pdf_path || s.ai_status === 'done')
-    );
-    return completedSessions.length + 1;
-  }, [prevSessions]);
+    if (currentSession?.session_number) return currentSession.session_number;
+    const finalized = prevSessions.filter((s) => s.ended_at && s.pdf_path);
+    return finalized.length + 1;
+  }, [prevSessions, currentSession]);
 
   // Column manager modal
   const [columnManagerOpen, setColumnManagerOpen] = useState(false);
@@ -857,7 +857,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at")
+      .select("id,started_at,ended_at,session_number")
       .eq("meeting_id", meetingId)
       .order("started_at", { ascending: false })
       .limit(2);
@@ -967,16 +967,33 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     const created = await sb
       .from("meeting_minutes_sessions")
       .insert({ meeting_id: meetingId, created_by: userId })
-      .select("id,started_at,ended_at")
+      .select("id,started_at,ended_at,session_number")
       .single();
     if (created.error) throw created.error;
 
+    // Calculate session number based on finalized sessions (those with pdf_path and ended_at)
+    const countRes = await sb
+      .from("meeting_minutes_sessions")
+      .select("id", { count: 'exact' })
+      .eq("meeting_id", meetingId)
+      .not("pdf_path", "is", null)
+      .not("ended_at", "is", null);
+
+    const sessionNum = (countRes.count ?? 0) + 1;
+
+    await sb
+      .from("meeting_minutes_sessions")
+      .update({ session_number: sessionNum })
+      .eq("id", created.data.id);
+
+    const sessionData = { ...created.data, session_number: sessionNum } as MinutesSession;
+
     setPrevSession(currentSession);
-    setCurrentSession(created.data as MinutesSession);
+    setCurrentSession(sessionData);
     setPrevAgendaNotes(agendaNotes);
     setAgendaNotes({});
 
-    return created.data as MinutesSession;
+    return sessionData;
   }
 
   async function onNewMinutes() {
@@ -1641,7 +1658,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error,session_number")
       .eq("meeting_id", meetingId)
       .order("started_at", { ascending: false });
 
@@ -1693,7 +1710,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
           await loadAgendaNotes(pollSessionId, true);
           const s2 = await sb
             .from("meeting_minutes_sessions")
-            .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+            .select("id,started_at,ended_at,pdf_path,ai_status,ai_error,session_number")
             .eq("meeting_id", meetingId)
             .order("started_at", { ascending: false });
           if (!s2.error) {
@@ -1778,7 +1795,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
             await loadAgendaNotes(pollSessionId, true);
             const s2 = await sb
               .from("meeting_minutes_sessions")
-              .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+              .select("id,started_at,ended_at,pdf_path,ai_status,ai_error,session_number")
               .eq("meeting_id", meetingId)
               .order("started_at", { ascending: false });
             if (!s2.error) {
@@ -1820,7 +1837,7 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
   async function loadPreviousSessions() {
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error,email_status,email_sent_at")
+      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error,email_status,email_sent_at,session_number")
       .eq("meeting_id", meetingId)
       .order("started_at", { ascending: false })
       .limit(50);
@@ -1874,12 +1891,20 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 async function selectPreviousSession(sessionId: string) {
     const s = await sb
       .from("meeting_minutes_sessions")
-      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+      .select("id,started_at,ended_at,pdf_path,ai_status,ai_error,session_number")
       .eq("id", sessionId)
       .single();
     if (!s.error) setPrevSession(s.data as MinutesSession);
     await loadAgendaNotes(sessionId, false);
     setPrevMeetingsOpen(false);
+  }
+
+  async function updateSessionNumber(sessionId: string, newNumber: number) {
+    await sb
+      .from("meeting_minutes_sessions")
+      .update({ session_number: newNumber })
+      .eq("id", sessionId);
+    await loadPreviousSessions();
   }
 
   async function saveReminderSettings() {
@@ -2966,13 +2991,38 @@ async function selectPreviousSession(sessionId: string) {
                 <div className="text-sm text-slate-400">No previous sessions found.</div>
               ) : (
                 prevSessions.map((s) => (
-                  <button
+                  <div
                     key={s.id}
                     className="w-full text-left rounded-xl border p-3 hover:bg-base"
-                    onClick={() => selectPreviousSession(s.id)}
-                    type="button"
                   >
-                    <div className="font-semibold">{prettyDate(s.started_at)}</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="flex-1 text-left"
+                        onClick={() => selectPreviousSession(s.id)}
+                        type="button"
+                      >
+                        <div className="font-semibold">{prettyDate(s.started_at)}</div>
+                      </button>
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-xs text-slate-400">Session #</span>
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-12 text-xs border rounded px-1 py-0.5 text-center"
+                          value={s.session_number ?? ""}
+                          placeholder="—"
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (val > 0) void updateSessionNumber(s.id, val);
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      className="w-full text-left"
+                      onClick={() => selectPreviousSession(s.id)}
+                      type="button"
+                    >
                     <div className="text-xs text-slate-400">
                       {s.ended_at ? `Ended ${prettyDate(s.ended_at)}` : "(In progress / not concluded)"}
                     </div>
@@ -2996,7 +3046,8 @@ async function selectPreviousSession(sessionId: string) {
                         {s.pdf_path ? "Link" : s.ai_status === "error" ? "No PDF" : "Processing"}
                       </button>
                     </div>
-                  </button>
+                    </button>
+                  </div>
                 ))
               )}
             </div>
