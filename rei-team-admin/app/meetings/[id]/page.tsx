@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -17,6 +17,7 @@ import { Button, Card, Input, Modal, Pill, Textarea, Dropdown, MultiSelectDropdo
 import { prettyDate } from "@/src/lib/format";
 import { PageShell } from "@/src/components/PageShell";
 import ResizableSidebar from "@/src/components/ResizableSidebar";
+import { useRecording } from "@/src/context/RecordingContext";
 
 export const dynamic = 'force-dynamic';
 
@@ -352,13 +353,16 @@ export default function MeetingDetailPage() {
   // Recording
   const [recOpen, setRecOpen] = useState(false);
   const [recMin, setRecMin] = useState(true);
-  const [recBusy, setRecBusy] = useState(false);
-  const [recErr, setRecErr] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recSeconds, setRecSeconds] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
-  const tickRef = useRef<number | null>(null);
+
+  const {
+    isRecording,
+    recSeconds,
+    recBusy,
+    recErr,
+    startRecording: globalStartRecording,
+    stopRecordingAndUpload: globalStopAndUpload,
+    concludeMeeting: globalConcludeMeeting,
+  } = useRecording();
 
   // Derive available note categories from existing notes + predefined categories
   const availableNoteCategories = useMemo(() => {
@@ -974,12 +978,86 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setBusy(true);
     setErr(null);
     try {
-      await ensureCurrentSession();
+      const session = await ensureCurrentSession();
+      await globalStartRecording({
+        meetingId,
+        sessionId: session.id,
+        meetingTitle: meeting?.title ?? "Meeting",
+      });
       setRecOpen(true);
       setRecMin(true);
     } catch (e: unknown) {
       const error = e as Error;
       setErr(error?.message ?? "Failed to start minutes");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startMeeting() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await ensureCurrentSession();
+      await startRecording();
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to start meeting");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function endMeeting() {
+    if (!currentSession?.id) return;
+    setBusy(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      if (isRecording) {
+        await stopRecordingAndUpload();
+      }
+
+      const res = await fetch("/api/meetings/ai/conclude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          meetingId,
+          sessionId: currentSession.id,
+          referenceLink: minutesReferenceLink || null,
+        }),
+      });
+
+      interface EndMeetingResponse {
+        error?: string;
+        hasRecording?: boolean;
+      }
+      const j = await res.json().catch((): EndMeetingResponse => ({}));
+      if (!res.ok) throw new Error(j?.error || "Failed to end meeting");
+
+      const s = await sb
+        .from("meeting_minutes_sessions")
+        .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+        .eq("meeting_id", meetingId)
+        .order("started_at", { ascending: false });
+
+      if (!s.error) {
+        const sessions = (s.data as MinutesSession[]) ?? [];
+        const current = sessions.find((x) => !x.ended_at) ?? null;
+        const prev = sessions.find((x) => !!x.ended_at) ?? null;
+        setCurrentSession(current);
+        setPrevSession(prev);
+        setPrevSessions(sessions.filter((x) => !!x.ended_at));
+      }
+
+      if (j.hasRecording) {
+        setInfo("Meeting ended successfully! Click 'Process Recording' to generate AI minutes.");
+      } else {
+        setInfo("Meeting ended successfully!");
+      }
+    } catch (e: unknown) {
+      const error = e as Error;
+      setErr(error?.message ?? "Failed to end meeting");
     } finally {
       setBusy(false);
     }
@@ -1314,6 +1392,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setBusy(true);
     setErr(null);
     try {
+      // Delete associated events FIRST to avoid FK trigger conflict
+      const evDel = await sb.from("meeting_task_events").delete().eq("task_id", editingTaskId);
+      if (evDel.error) throw evDel.error;
+
+      // Now delete the task itself
       const del = await sb.from("meeting_tasks").delete().eq("id", editingTaskId);
       if (del.error) throw del.error;
 
@@ -1594,144 +1677,14 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     }
   }
 
-  async function startRecording() {
-    setRecErr(null);
-    try {
-      if (!currentSession?.id) throw new Error("Start meeting minutes first.");
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-
-      chunksRef.current = [];
-      mr.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      mr.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-      };
-
-      mr.start(1000);
-      mediaRecorderRef.current = mr;
-
-      setIsRecording(true);
-      setRecSeconds(0);
-
-      // IMPORTANT: Vercel serverless requests have a practical payload limit.
-      // Keep segments small so uploads don't silently fail on longer meetings.
-      // Can be overridden in Vercel with NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS.
-      const segmentSeconds = Math.max(60, Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "240"));
-      tickRef.current = window.setInterval(() => {
-        setRecSeconds((s) => {
-          const next = s + 1;
-
-          // Safety cap (2 hours)
-          if (next >= 7200) setTimeout(() => stopRecordingAndUpload(), 0);
-
-          // Auto-segment to keep recordings small enough for transcription on long meetings.
-          // This uploads the segment and immediately starts a new one.
-          if (segmentSeconds && next > 0 && next % segmentSeconds === 0) {
-            setTimeout(() => void rotateRecordingSegment(), 0);
-          }
-
-          return next;
-        });
-      }, 1000);
-
-      setRecMin(true);
-    } catch (e: unknown) {
-      const error = e as Error;
-      setRecErr(error?.message ?? "Could not start recording");
-    }
-  }
-
-  async function rotateRecordingSegment() {
-    if (!mediaRecorderRef.current) return;
-    // Stop current recorder, upload, then immediately start a new recording segment.
-    const up = await stopRecordingAndUpload();
-    if (up) {
-      // Restart recording automatically (best-effort)
-      await startRecording();
-    }
-  }
-
-  async function stopRecordingAndUpload(): Promise<{ recordingPath: string } | null> {
-    if (!mediaRecorderRef.current) return null;
-    setRecBusy(true);
-    setRecErr(null);
-
-    try {
-      const mr = mediaRecorderRef.current;
-
-      // Wait for the "stop" event so the last chunk flushes before we build the blob.
-      const stopped = new Promise<void>((resolve) => {
-        const prev = mr.onstop;
-        // Use a function (not an arrow) and call the previous handler with the correct `this`
-        // to satisfy TS' MediaRecorder event handler typing.
-        mr.onstop = function (ev: Event) {
-          try {
-            if (typeof prev === "function") prev.call(mr, ev);
-          } finally {
-            resolve();
-          }
-        };
-      });
-
-      mr.stop();
-      await stopped;
-
-      mediaRecorderRef.current = null;
-      setIsRecording(false);
-      if (tickRef.current) window.clearInterval(tickRef.current);
-
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-
-      // Upload recording through the server route (so buckets are env-configured)
-      const form = new FormData();
-      form.append("meetingId", meetingId);
-      form.append("sessionId", currentSession!.id);
-      form.append("durationSeconds", String(recSeconds));
-      // Best-effort userId (server route accepts missing userId as well).
-      try {
-        const u = await sb.auth.getUser();
-        const uid = u.data?.user?.id || "";
-        if (uid) form.append("userId", uid);
-      } catch {
-        // ignore
-      }
-      form.append("file", blob, "recording.webm");
-
-      const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
-      interface UploadResponse {
-        error?: string;
-        recordingPath?: string;
-      }
-      const upJson = await upRes.json().catch((): UploadResponse => ({}));
-      if (!upRes.ok) throw new Error(upJson?.error || "Recording upload failed");
-
-      const rp = String(upJson?.recordingPath || "");
-      if (!rp) throw new Error("Recording upload failed (no path returned)");
-
-      setRecMin(true);
-
-      return { recordingPath: rp };
-    } catch (e: unknown) {
-      const error = e as Error;
-      setRecErr(error?.message ?? "Upload failed");
-      return null;
-    } finally {
-      setRecBusy(false);
-    }
-  }
-
   async function concludeMeeting() {
   if (!currentSession?.id) return;
   setBusy(true);
   setErr(null);
   setInfo(null);
   try {
-    if (isRecording) {
-      await stopRecordingAndUpload();
-    }
+    // Stop and upload recording if active, then reset recording state
+    await globalConcludeMeeting();
 
     const res = await fetch("/api/meetings/ai/conclude", {
       method: "POST",
@@ -2193,13 +2146,9 @@ async function selectPreviousSession(sessionId: string) {
               </div>
               {meeting.rrule && <div className="text-xs text-gray-500 mt-1">Recurring: {meeting.rrule}</div>}
               {isRecording && (
-                <div className="mt-2">
-                  <button
-                    className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
-                    onClick={() => setRecOpen(true)}
-                  >
-                    ● Recording… click to open controls
-                  </button>
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                  <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  Recording — {Math.floor(recSeconds / 60)}m {recSeconds % 60}s
                 </div>
               )}
             </div>
@@ -2226,6 +2175,21 @@ async function selectPreviousSession(sessionId: string) {
                   { label: "Conclude meeting", onClick: concludeMeeting, disabled: busy },
                 ]}
               />
+              {/* Meeting action buttons */}
+              {!currentSession ? (
+                <Button onClick={() => void startMeeting()} disabled={busy}>
+                  Start Meeting
+                </Button>
+              ) : (
+                <Button onClick={() => void endMeeting()} disabled={busy}>
+                  End Meeting
+                </Button>
+              )}
+              {prevSession && prevSession.ai_status === "ready" && (
+                <Button variant="ghost" onClick={() => void processRecording()} disabled={busy}>
+                  Process Recording
+                </Button>
+              )}
               
               {/* View dropdown */}
               <Dropdown
@@ -3510,11 +3474,17 @@ async function selectPreviousSession(sessionId: string) {
 
                   <div className="flex gap-2">
                     {!isRecording ? (
-                      <Button onClick={() => void startRecording()} disabled={!currentSession || !!currentSession.ended_at || recBusy}>
+                      <Button
+                        onClick={() => {
+                          if (!currentSession) return;
+                          void globalStartRecording({ meetingId, sessionId: currentSession.id, meetingTitle: meeting?.title ?? "Meeting" });
+                        }}
+                        disabled={!currentSession || !!currentSession.ended_at || recBusy}
+                      >
                         Start recording
                       </Button>
                     ) : (
-                      <Button onClick={() => void stopRecordingAndUpload()} disabled={recBusy}>
+                      <Button onClick={() => void globalStopAndUpload()} disabled={recBusy}>
                         {recBusy ? "Uploading..." : "Stop + Upload"}
                       </Button>
                     )}

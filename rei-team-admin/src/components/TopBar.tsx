@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import { Button, Modal, Input } from "@/src/components/ui";
+import { useRecording } from "@/src/context/RecordingContext";
 
 export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const sb = useMemo(() => supabaseBrowser(), []);
@@ -14,6 +16,8 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const [p2, setP2] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const { isRecording, recSeconds, activeMeetingId, activeMeetingTitle } = useRecording();
 
   useEffect(() => {
     const load = async () => {
@@ -56,6 +60,19 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
           </Button>
           <div className="text-sm text-gray-600">REI Ops</div>
         </div>
+
+        {/* Global recording indicator */}
+        {isRecording && activeMeetingId && (
+          <Link
+            href={`/meetings/${activeMeetingId}`}
+            className="flex items-center gap-1.5 rounded-full bg-red-50 border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+          >
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            {activeMeetingTitle ?? "Recording"}
+            &nbsp;·&nbsp;
+            {Math.floor(recSeconds / 60)}m {recSeconds % 60}s
+          </Link>
+        )}
 
         <div className="relative">
           <button
