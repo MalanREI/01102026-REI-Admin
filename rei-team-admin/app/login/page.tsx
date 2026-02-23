@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import { Button, Input, Tabs } from "@/src/components/ui";
+import { APP_NAME } from "@/src/config/app.config";
 
 export const dynamic = 'force-dynamic';
 
@@ -72,7 +73,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-base flex items-center justify-center p-6">
       <div className="w-full max-w-md rounded-2xl bg-surface border border-white/[0.06] shadow-2xl p-6">
-        <h1 className="text-xl font-semibold text-slate-100">REI Team Admin</h1>
+        <h1 className="text-xl font-semibold text-slate-100">{APP_NAME}</h1>
         <p className="text-sm text-slate-400 mt-1">Sign in, create an account, or reset your password.</p>
 
         <div className="mt-4">

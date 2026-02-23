@@ -309,7 +309,12 @@ export default function MeetingDetailPage() {
   const [attendeePresence, setAttendeePresence] = useState<Record<string, boolean>>({});
   const [guestNames, setGuestNames] = useState<string[]>([]);
   const [guestInput, setGuestInput] = useState("");
-  const nextSessionNumber = useMemo(() => prevSessions.length + (currentSession ? 1 : 0) + 1, [prevSessions, currentSession]);
+  const nextSessionNumber = useMemo(() => {
+    const completedSessions = prevSessions.filter(
+      (s) => s.ended_at && (s.pdf_path || s.ai_status === 'done')
+    );
+    return completedSessions.length + 1;
+  }, [prevSessions]);
 
   // Column manager modal
   const [columnManagerOpen, setColumnManagerOpen] = useState(false);
@@ -3441,6 +3446,28 @@ async function selectPreviousSession(sessionId: string) {
                   try {
                     const session = await ensureCurrentSession();
                     const sessionTitle = `${meeting?.title ?? "Meeting"} #${nextSessionNumber}`;
+
+                    // Save attendance data for this session
+                    const attendanceRows = [
+                      ...attendees.map(a => ({
+                        session_id: session.id,
+                        email: a.email,
+                        full_name: a.full_name || null,
+                        is_present: !!attendeePresence[a.email],
+                        is_guest: false,
+                      })),
+                      ...guestNames.map(name => ({
+                        session_id: session.id,
+                        email: null,
+                        full_name: name,
+                        is_present: true,
+                        is_guest: true,
+                      })),
+                    ];
+                    if (attendanceRows.length) {
+                      await sb.from("meeting_session_attendees").insert(attendanceRows);
+                    }
+
                     await globalStartRecording({
                       meetingId,
                       sessionId: session.id,
