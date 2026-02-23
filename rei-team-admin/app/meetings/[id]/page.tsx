@@ -492,13 +492,6 @@ function formatAttendeeLabel(fullName: string | null | undefined, email: string)
   return nameFromEmail(email);
 }
 
-function firstNameFromFullName(fullName: string | null | undefined): string | null {
-  const s = (fullName ?? "").trim();
-  if (!s) return null;
-  const parts = s.split(/\s+/).filter(Boolean);
-  return parts[0] ?? null;
-}
-
 function firstNameFromEmail(email: string | null | undefined): string | null {
   const s = (email ?? "").trim();
   if (!s || !s.includes("@")) return null;
@@ -989,75 +982,6 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     } catch (e: unknown) {
       const error = e as Error;
       setErr(error?.message ?? "Failed to start minutes");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function startMeeting() {
-    setBusy(true);
-    setErr(null);
-    try {
-      await ensureCurrentSession();
-      await startRecording();
-    } catch (e: unknown) {
-      const error = e as Error;
-      setErr(error?.message ?? "Failed to start meeting");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function endMeeting() {
-    if (!currentSession?.id) return;
-    setBusy(true);
-    setErr(null);
-    setInfo(null);
-    try {
-      if (isRecording) {
-        await stopRecordingAndUpload();
-      }
-
-      const res = await fetch("/api/meetings/ai/conclude", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          meetingId,
-          sessionId: currentSession.id,
-          referenceLink: minutesReferenceLink || null,
-        }),
-      });
-
-      interface EndMeetingResponse {
-        error?: string;
-        hasRecording?: boolean;
-      }
-      const j = await res.json().catch((): EndMeetingResponse => ({}));
-      if (!res.ok) throw new Error(j?.error || "Failed to end meeting");
-
-      const s = await sb
-        .from("meeting_minutes_sessions")
-        .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
-        .eq("meeting_id", meetingId)
-        .order("started_at", { ascending: false });
-
-      if (!s.error) {
-        const sessions = (s.data as MinutesSession[]) ?? [];
-        const current = sessions.find((x) => !x.ended_at) ?? null;
-        const prev = sessions.find((x) => !!x.ended_at) ?? null;
-        setCurrentSession(current);
-        setPrevSession(prev);
-        setPrevSessions(sessions.filter((x) => !!x.ended_at));
-      }
-
-      if (j.hasRecording) {
-        setInfo("Meeting ended successfully! Click 'Process Recording' to generate AI minutes.");
-      } else {
-        setInfo("Meeting ended successfully!");
-      }
-    } catch (e: unknown) {
-      const error = e as Error;
-      setErr(error?.message ?? "Failed to end meeting");
     } finally {
       setBusy(false);
     }
@@ -2171,25 +2095,18 @@ async function selectPreviousSession(sessionId: string) {
               <Dropdown
                 trigger={<Button>Meeting ▾</Button>}
                 items={[
-                  { label: "New meeting minutes", onClick: onNewMinutes, disabled: busy },
-                  { label: "Conclude meeting", onClick: concludeMeeting, disabled: busy },
+                  {
+                    label: currentSession && !currentSession.ended_at ? "Start New Session" : "Start Meeting",
+                    onClick: onNewMinutes,
+                    disabled: busy,
+                  },
+                  {
+                    label: "End Meeting",
+                    onClick: concludeMeeting,
+                    disabled: busy || !currentSession || !!currentSession.ended_at,
+                  },
                 ]}
               />
-              {/* Meeting action buttons */}
-              {!currentSession ? (
-                <Button onClick={() => void startMeeting()} disabled={busy}>
-                  Start Meeting
-                </Button>
-              ) : (
-                <Button onClick={() => void endMeeting()} disabled={busy}>
-                  End Meeting
-                </Button>
-              )}
-              {prevSession && prevSession.ai_status === "ready" && (
-                <Button variant="ghost" onClick={() => void processRecording()} disabled={busy}>
-                  Process Recording
-                </Button>
-              )}
               
               {/* View dropdown */}
               <Dropdown
