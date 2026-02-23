@@ -89,6 +89,8 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const segmentTimerRef = useRef<number | null>(null);
   const lastUploadedPathRef = useRef<string | null>(null);
   const isRotatingRef = useRef(false);
+  /** Minimum allowed segment length to avoid excessively small uploads. */
+  const MIN_SEGMENT_SECONDS = 60;
 
   // Keep refs so callbacks can read current values without stale closures.
   const recSecondsRef = useRef(0);
@@ -181,7 +183,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
       const meetingId = activeMeetingIdRef.current;
       const sessionId = activeSessionIdRef.current;
       const segSec = Math.max(
-        60,
+        MIN_SEGMENT_SECONDS,
         Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "240")
       );
 
@@ -272,9 +274,14 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
         throw new Error("No active meeting/session for upload.");
       }
 
-      // If all data was already uploaded via segment rotation and nothing remains
-      if (blob.size === 0 && lastUploadedPathRef.current) {
-        return { recordingPath: lastUploadedPathRef.current };
+      // If all data was already uploaded via segment rotation and nothing remains,
+      // return the last successful path. A zero-size blob with no prior upload
+      // indicates an error (e.g., no audio was ever captured).
+      if (blob.size === 0) {
+        if (lastUploadedPathRef.current) {
+          return { recordingPath: lastUploadedPathRef.current };
+        }
+        throw new Error("Recording produced no audio data");
       }
 
       const path = await uploadSegment(blob, currentMeetingId, currentSessionId, currentSeconds);
@@ -318,7 +325,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
         recSecondsRef.current = 0;
 
         const segmentSeconds = Math.max(
-          60,
+          MIN_SEGMENT_SECONDS,
           Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "240")
         );
 
