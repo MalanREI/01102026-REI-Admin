@@ -3009,11 +3009,14 @@ async function selectPreviousSession(sessionId: string) {
                           type="number"
                           min={1}
                           className="w-12 text-xs border rounded px-1 py-0.5 text-center"
-                          value={s.session_number ?? ""}
+                          defaultValue={s.session_number ?? ""}
                           placeholder="—"
-                          onChange={(e) => {
+                          onBlur={(e) => {
                             const val = parseInt(e.target.value, 10);
                             if (val > 0) void updateSessionNumber(s.id, val);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                           }}
                         />
                       </div>
