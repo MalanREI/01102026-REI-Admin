@@ -96,6 +96,29 @@ type OngoingNoteRow = {
   category: string | null;
 };
 
+type MilestoneData = {
+  title?: string;
+  target_date?: string;
+  status?: string;
+  priority?: string;
+  owner_name?: string;
+  owner_id?: string;
+  description?: string;
+};
+
+type OngoingNoteData = {
+  title?: string;
+  content?: string;
+  category?: string;
+};
+
+type AttendanceData = {
+  email?: string;
+  full_name?: string;
+  is_present?: boolean;
+  is_guest?: boolean;
+};
+
 async function buildPdf(opts: {
   meetingTitle: string;
   meetingDateLabel: string;
@@ -487,7 +510,10 @@ async function buildPdf(opts: {
       rightY = y;
     }
 
-    const h = drawCategory(useLeft ? MARGIN_X : MARGIN_X + taskColW + taskColGap, useLeft ? leftY : rightY, cat, items);
+    // Recalculate position after potential page break
+    const drawX = leftY >= rightY ? MARGIN_X : MARGIN_X + taskColW + taskColGap;
+    const drawY = leftY >= rightY ? leftY : rightY;
+    const h = drawCategory(drawX, drawY, cat, items);
     if (useLeft) leftY -= h + 10;
     else rightY -= h + 10;
   }
@@ -857,7 +883,7 @@ export async function POST(req: Request) {
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
 
-    const milestones = (milestonesRes.data ?? []).map((m: { title?: string; target_date?: string; status?: string; priority?: string; owner_name?: string; owner_id?: string; description?: string }) => ({
+    const milestones = (milestonesRes.data ?? []).map((m: MilestoneData) => ({
       title: String(m.title ?? ""),
       target_date: m.target_date ? String(m.target_date) : null,
       status: String(m.status ?? "Pending"),
@@ -873,7 +899,7 @@ export async function POST(req: Request) {
       .eq("meeting_id", meetingId)
       .order("position", { ascending: true });
 
-    const ongoingNotes = (ongoingNotesRes.data ?? []).map((n: { title?: string; content?: string; category?: string }) => ({
+    const ongoingNotes = (ongoingNotesRes.data ?? []).map((n: OngoingNoteData) => ({
       title: String(n.title ?? ""),
       content: n.content ? String(n.content) : null,
       category: n.category ? String(n.category) : null,
@@ -885,7 +911,7 @@ export async function POST(req: Request) {
       .select("email,full_name,is_present,is_guest")
       .eq("session_id", sessionId);
 
-    const attendanceData: AttendanceRow[] = (attendanceRes.data ?? []).map((a: { email?: string; full_name?: string; is_present?: boolean; is_guest?: boolean }) => ({
+    const attendanceData: AttendanceRow[] = (attendanceRes.data ?? []).map((a: AttendanceData) => ({
       full_name: a.full_name ? String(a.full_name) : null,
       email: a.email ? String(a.email) : null,
       is_present: Boolean(a.is_present),
