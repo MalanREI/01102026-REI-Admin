@@ -3747,40 +3747,46 @@ function CalendarView({
                     const taskStartKey = task.start_date ? formatDateKey(new Date(task.start_date)) : null;
                     const taskEndKey = task.due_date ? formatDateKey(new Date(task.due_date)) : null;
                     
-                    // Determine if this is start, middle, or end of date range
+                    // Determine span type
+                    const isMultiDay = !!(task.start_date && task.due_date && taskStartKey !== taskEndKey);
                     const isStartDate = taskStartKey === dateKey;
                     const isEndDate = taskEndKey === dateKey;
-                    const isMiddleDate = !isStartDate && !isEndDate;
-                    
-                    // Build indicator text
-                    let indicator = '';
-                    if (isStartDate && isEndDate) {
-                      indicator = '◆ '; // Single day task
-                    } else if (isStartDate) {
-                      indicator = '▶ '; // Start of range
-                    } else if (isEndDate) {
-                      indicator = '◀ '; // End of range
-                    } else if (isMiddleDate) {
-                      indicator = '▬ '; // Middle of range
-                    }
+                    // For tasks starting before this view, treat the first day of the view as the label cell
+                    const firstViewKey = formatDateKey(days[0]);
+                    const startsBeforeView = !!taskStartKey && taskStartKey < firstViewKey;
+                    const showLabel = !isMultiDay || isStartDate || (startsBeforeView && dateKey === firstViewKey);
                     
                     // Format dates for tooltip
                     const tooltipDates = task.start_date && task.due_date 
                       ? `\nStart: ${new Date(task.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\nEnd: ${new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                       : '';
                     
+                    if (isMultiDay && !showLabel) {
+                      // Continuation bar: colored block with no repeated label
+                      return (
+                        <div
+                          key={task.id}
+                          className={`h-5 cursor-pointer hover:opacity-80 ${isEndDate ? 'rounded-r' : ''}`}
+                          style={{ backgroundColor: `${statusColor(task.status)}30` }}
+                          onClick={() => onTaskClick(task.id)}
+                          title={`${task.title}${tooltipDates}`}
+                        />
+                      );
+                    }
+                    
                     return (
                       <div
                         key={task.id}
-                        className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
+                        className="text-xs p-1 cursor-pointer hover:opacity-80 border-l-2"
                         style={{
                           backgroundColor: `${statusColor(task.status)}20`,
                           borderLeftColor: getOwnerColor(task),
+                          borderRadius: isMultiDay ? '4px 0 0 4px' : '4px',
                         }}
                         onClick={() => onTaskClick(task.id)}
                         title={`${task.title}${tooltipDates}`}
                       >
-                        <div className="font-medium truncate">{indicator}{task.title}</div>
+                        <div className="font-medium truncate">{task.title}</div>
                       </div>
                     );
                   })}
