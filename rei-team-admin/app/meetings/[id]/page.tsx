@@ -314,7 +314,7 @@ export default function MeetingDetailPage() {
       (s) => s.ended_at && (s.pdf_path || s.ai_status === 'done')
     );
     return completedSessions.length + 1;
-  }, [prevSessions, currentSession]);
+  }, [prevSessions]);
 
   // Column manager modal
   const [columnManagerOpen, setColumnManagerOpen] = useState(false);

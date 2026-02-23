@@ -500,10 +500,8 @@ async function buildPdf(opts: {
     }
 
     const useLeft = leftY >= rightY;
-    const x = useLeft ? MARGIN_X : MARGIN_X + taskColW + taskColGap;
-    const yTop = useLeft ? leftY : rightY;
 
-    if (yTop - 80 < BOTTOM) {
+    if ((useLeft ? leftY : rightY) - 80 < BOTTOM) {
       newPage();
       drawSectionHeader("ACTIVE TASKS (cont.)");
       leftY = y;
