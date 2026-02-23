@@ -34,6 +34,45 @@ export function useRecording(): RecordingContextValue {
   return ctx;
 }
 
+/**
+ * Upload a blob to the recording API. Returns the storage path or null on failure.
+ * This is a pure helper — no state side-effects.
+ */
+async function uploadSegment(
+  blob: Blob,
+  meetingId: string,
+  sessionId: string,
+  durationSeconds: number
+): Promise<string | null> {
+  try {
+    const form = new FormData();
+    form.append("meetingId", meetingId);
+    form.append("sessionId", sessionId);
+    form.append("durationSeconds", String(durationSeconds));
+    try {
+      const sb = supabaseBrowser();
+      const u = await sb.auth.getUser();
+      const uid = u.data?.user?.id || "";
+      if (uid) form.append("userId", uid);
+    } catch {
+      // ignore auth errors during upload
+    }
+    form.append("file", blob, `segment_${Date.now()}.webm`);
+
+    const res = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      console.error("Segment upload failed:", j?.error || res.statusText);
+      return null;
+    }
+    const j = await res.json().catch(() => ({}));
+    return j?.recordingPath || null;
+  } catch (e) {
+    console.error("Segment upload error:", e);
+    return null;
+  }
+}
+
 export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const [isRecording, setIsRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -46,6 +85,10 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const tickRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const segmentTimerRef = useRef<number | null>(null);
+  const lastUploadedPathRef = useRef<string | null>(null);
+  const isRotatingRef = useRef(false);
 
   // Keep refs so callbacks can read current values without stale closures.
   const recSecondsRef = useRef(0);
@@ -66,11 +109,14 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   // Cleanup on unmount (app close)
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
       }
       if (tickRef.current) clearInterval(tickRef.current);
+      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
     };
   }, []);
 
@@ -86,6 +132,90 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isRecording]);
 
+  /**
+   * Rotate segment: stop current MediaRecorder, start a new one on the same
+   * audio stream, and upload the harvested chunks in the background.
+   * isRecording / recSeconds / tick timer are NOT touched — the user sees
+   * uninterrupted recording throughout.
+   */
+  const rotateSegment = useCallback(async () => {
+    if (isRotatingRef.current) return;
+    const mr = mediaRecorderRef.current;
+    const stream = streamRef.current;
+    if (!mr || mr.state === "inactive" || !stream || !stream.active) return;
+
+    isRotatingRef.current = true;
+    try {
+      // 1. Redirect old recorder's final flush to a temp array
+      const finalFlushChunks: BlobPart[] = [];
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) finalFlushChunks.push(e.data);
+      };
+
+      // 2. Harvest chunks accumulated so far
+      const segmentChunks = chunksRef.current;
+      chunksRef.current = [];
+
+      // 3. Stop old recorder
+      const stopped = new Promise<void>((resolve) => {
+        mr.onstop = () => resolve();
+      });
+      mr.stop();
+
+      // 4. Start new recorder immediately on same stream (minimises gap)
+      const newMr = new MediaRecorder(stream);
+      newMr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      newMr.start(1000);
+      mediaRecorderRef.current = newMr;
+
+      // 5. Wait for old recorder's final flush to complete
+      await stopped;
+
+      // 6. Combine old chunks + final flush and upload in background
+      const allOldChunks = [...segmentChunks, ...finalFlushChunks];
+      if (allOldChunks.length === 0) return;
+
+      const blob = new Blob(allOldChunks, { type: "audio/webm" });
+      const meetingId = activeMeetingIdRef.current;
+      const sessionId = activeSessionIdRef.current;
+      const segSec = Math.max(
+        60,
+        Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "240")
+      );
+
+      if (meetingId && sessionId) {
+        const path = await uploadSegment(blob, meetingId, sessionId, segSec);
+        if (path) {
+          lastUploadedPathRef.current = path;
+        } else {
+          console.warn("Segment upload failed; recording continues.");
+        }
+      }
+    } catch (e) {
+      console.error("Segment rotation error:", e);
+      // Attempt recovery: ensure a recorder is still running
+      if (
+        (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") &&
+        streamRef.current?.active
+      ) {
+        try {
+          const recovery = new MediaRecorder(streamRef.current);
+          recovery.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+          };
+          recovery.start(1000);
+          mediaRecorderRef.current = recovery;
+        } catch (e2) {
+          console.error("Failed to recover recorder after rotation error:", e2);
+        }
+      }
+    } finally {
+      isRotatingRef.current = false;
+    }
+  }, []);
+
   const stopRecordingAndUpload = useCallback(async (): Promise<{ recordingPath: string } | null> => {
     if (!mediaRecorderRef.current) return null;
     setRecBusy(true);
@@ -93,6 +223,12 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const mr = mediaRecorderRef.current;
+
+      // Stop segment rotation timer
+      if (segmentTimerRef.current) {
+        window.clearInterval(segmentTimerRef.current);
+        segmentTimerRef.current = null;
+      }
 
       // Wait for the "stop" event so the last chunk flushes before building the blob.
       const stopped = new Promise<void>((resolve) => {
@@ -110,10 +246,24 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
       await stopped;
 
       mediaRecorderRef.current = null;
+
+      // Stop the audio stream
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+
+      // Stop tick timer
+      if (tickRef.current) {
+        window.clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+
       setIsRecording(false);
-      if (tickRef.current) window.clearInterval(tickRef.current);
 
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      chunksRef.current = [];
+
       const currentMeetingId = activeMeetingIdRef.current;
       const currentSessionId = activeSessionIdRef.current;
       const currentSeconds = recSecondsRef.current;
@@ -122,32 +272,15 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
         throw new Error("No active meeting/session for upload.");
       }
 
-      const form = new FormData();
-      form.append("meetingId", currentMeetingId);
-      form.append("sessionId", currentSessionId);
-      form.append("durationSeconds", String(currentSeconds));
-      try {
-        const sb = supabaseBrowser();
-        const u = await sb.auth.getUser();
-        const uid = u.data?.user?.id || "";
-        if (uid) form.append("userId", uid);
-      } catch {
-        // ignore
+      // If all data was already uploaded via segment rotation and nothing remains
+      if (blob.size === 0 && lastUploadedPathRef.current) {
+        return { recordingPath: lastUploadedPathRef.current };
       }
-      form.append("file", blob, "recording.webm");
 
-      const upRes = await fetch("/api/meetings/ai/upload-recording", { method: "POST", body: form });
-      interface UploadResponse {
-        error?: string;
-        recordingPath?: string;
-      }
-      const upJson = await upRes.json().catch((): UploadResponse => ({}));
-      if (!upRes.ok) throw new Error(upJson?.error || "Recording upload failed");
+      const path = await uploadSegment(blob, currentMeetingId, currentSessionId, currentSeconds);
+      if (!path) throw new Error("Recording upload failed");
 
-      const rp = String(upJson?.recordingPath || "");
-      if (!rp) throw new Error("Recording upload failed (no path returned)");
-
-      return { recordingPath: rp };
+      return { recordingPath: path };
     } catch (e: unknown) {
       const error = e as Error;
       setRecErr(error?.message ?? "Upload failed");
@@ -165,12 +298,14 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
         const mr = new MediaRecorder(stream);
 
         chunksRef.current = [];
+        lastUploadedPathRef.current = null;
         mr.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
         };
-        mr.onstop = () => {
-          stream.getTracks().forEach((t) => t.stop());
-        };
+
+        // Store stream reference separately — do NOT stop tracks on
+        // MediaRecorder stop so we can reuse the stream across segment rotations.
+        streamRef.current = stream;
 
         mr.start(1000);
         mediaRecorderRef.current = mr;
@@ -187,6 +322,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
           Number(process.env.NEXT_PUBLIC_RECORDING_SEGMENT_SECONDS || "240")
         );
 
+        // Elapsed-time tick (also enforces 2-hour safety cap)
         tickRef.current = window.setInterval(() => {
           setRecSeconds((s) => {
             const next = s + 1;
@@ -199,39 +335,21 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
               }), 0);
             }
 
-            // Auto-segment to keep recordings small enough for transcription on long meetings.
-            if (segmentSeconds && next > 0 && next % segmentSeconds === 0) {
-              setTimeout(
-                () =>
-                  void (async () => {
-                    const up = await stopRecordingAndUpload();
-                    if (up) {
-                      // Read current meeting info from refs to avoid stale closures
-                      const currentMeetingId = activeMeetingIdRef.current;
-                      const currentSessionId = activeSessionIdRef.current;
-                      const currentTitle = activeMeetingTitleRef.current;
-                      if (currentMeetingId && currentSessionId && currentTitle) {
-                        await startRecording({
-                          meetingId: currentMeetingId,
-                          sessionId: currentSessionId,
-                          meetingTitle: currentTitle,
-                        });
-                      }
-                    }
-                  })(),
-                0
-              );
-            }
-
             return next;
           });
         }, 1000);
+
+        // Segment rotation on a separate timer — does NOT touch
+        // isRecording / recSeconds / tick, so the UI stays stable.
+        segmentTimerRef.current = window.setInterval(() => {
+          void rotateSegment();
+        }, segmentSeconds * 1000);
       } catch (e: unknown) {
         const error = e as Error;
         setRecErr(error?.message ?? "Could not start recording");
       }
     },
-    [stopRecordingAndUpload]
+    [stopRecordingAndUpload, rotateSegment]
   );
 
   const concludeMeeting = useCallback(async () => {
@@ -246,6 +364,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
     setIsRecording(false);
     setRecSeconds(0);
     recSecondsRef.current = 0;
+    lastUploadedPathRef.current = null;
   }, [isRecording, stopRecordingAndUpload]);
 
   const clearError = useCallback(() => setRecErr(null), []);
