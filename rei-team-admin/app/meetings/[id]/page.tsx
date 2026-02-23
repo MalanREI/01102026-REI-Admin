@@ -3656,6 +3656,28 @@ function CalendarView({
     onYearChange(today.getFullYear());
   };
 
+  const MAX_VISIBLE_TASKS_PER_DAY = 3;
+
+  const itemsByDate = useMemo(() => {
+    const map = new Map<string, { milestones: Milestone[]; tasks: Task[] }>();
+    milestones.forEach((m) => {
+      if (m.target_date) {
+        const key = formatDateKey(new Date(m.target_date));
+        if (!map.has(key)) map.set(key, { milestones: [], tasks: [] });
+        map.get(key)!.milestones.push(m);
+      }
+    });
+    tasks.forEach((t) => {
+      const effectiveDate = t.due_date || t.start_date;
+      if (effectiveDate) {
+        const key = formatDateKey(new Date(effectiveDate));
+        if (!map.has(key)) map.set(key, { milestones: [], tasks: [] });
+        map.get(key)!.tasks.push(t);
+      }
+    });
+    return map;
+  }, [tasks, milestones]);
+
   const isCurrentMonth = (date: Date) => date.getMonth() === month;
   const isToday = (date: Date) => isSameDay(date, new Date());
 
@@ -3727,108 +3749,41 @@ function CalendarView({
                   {/* Milestones */}
                   {items.milestones.map((milestone) => (
                     <div
-                      key={dayIdx}
-                      className={`px-2 pt-1 pb-0.5 text-xs font-semibold border-r last:border-r-0 dark:border-gray-700 ${
-                        isCurrent ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'
-                      }`}
+                      key={milestone.id}
+                      className="text-xs px-1 py-0.5 rounded truncate cursor-pointer hover:opacity-80 border-l-2"
+                      style={{
+                        backgroundColor: `${priorityColor(milestone.priority)}20`,
+                        borderLeftColor: priorityColor(milestone.priority),
+                      }}
+                      onClick={() => onMilestoneClick(milestone.id)}
+                      title={milestone.title}
                     >
-                      <span
-                        className={`inline-flex items-center justify-center w-6 h-6 rounded-full ${
-                          isNow
-                            ? 'bg-blue-500 text-white'
-                            : isCurrent
-                            ? 'text-gray-900 dark:text-gray-100'
-                            : 'text-gray-400 dark:text-gray-500'
-                        }`}
-                      >
-                        {date.getDate()}
-                      </span>
+                      🎯 {milestone.title}
                     </div>
-                  );
-                })}
-              </div>
-
-              {/* Bar lanes */}
-              {visibleLanes.map((lane, laneIdx) => (
-                <div key={laneIdx} className="grid grid-cols-7" style={{ minHeight: '22px' }}>
-                  {lane.map((bar) => {
-                    if (bar.type === 'milestone' && bar.milestone) {
-                      return (
-                        <div
-                          key={`m-${bar.milestone.id}`}
-                          className="text-xs px-1 py-0.5 mx-0.5 my-0.5 rounded cursor-pointer hover:opacity-80 truncate border-l-2 dark:text-gray-100"
-                          style={{
-                            gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`,
-                            backgroundColor: `${priorityColor(bar.milestone.priority)}20`,
-                            borderLeftColor: priorityColor(bar.milestone.priority),
-                          }}
-                          onClick={() => onMilestoneClick(bar.milestone!.id)}
-                          title={bar.milestone.title}
-                        >
-                          🎯 {bar.milestone.title}
-                        </div>
-                      );
-                    }
-
-                    if (bar.type === 'task' && bar.task) {
-                      const task = bar.task;
-                      const tooltipDates =
-                        task.start_date && task.due_date
-                          ? `\nStart: ${new Date(task.start_date).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}\nEnd: ${new Date(task.due_date).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}`
-                          : '';
-
-                      return (
-                        <div
-                          key={`t-${task.id}`}
-                          className={`text-xs px-1 py-0.5 my-0.5 cursor-pointer hover:opacity-80 truncate dark:text-gray-100 ${
-                            bar.isStart ? 'ml-0.5 rounded-l border-l-2' : ''
-                          } ${bar.isEnd ? 'mr-0.5 rounded-r' : ''}`}
-                          style={{
-                            gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`,
-                            backgroundColor: `${statusColor(task.status)}30`,
-                            borderLeftColor: bar.isStart ? getOwnerColor(task) : undefined,
-                          }}
-                          onClick={() => onTaskClick(task.id)}
-                          title={`${task.title}${tooltipDates}`}
-                        >
-                          {bar.showLabel ? task.title : '\u00A0'}
-                        </div>
-                      );
-                    }
-                    return null;
-                  })}
-                  
-                  {/* Show count if more tasks */}
-                  {items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
-                    <div className="text-xs text-slate-500 pl-1">
-                      +{items.tasks.length - MAX_VISIBLE_TASKS_PER_DAY} more
-                    </div>
-                  )}
+                  ))}
                 </div>
-              ))}
-
-              {/* See more / see less toggle */}
-              {lanes.length > MAX_BARS_PER_WEEK && (
-                <button
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline pl-2 py-0.5"
-                  onClick={() => toggleWeekExpanded(weekIdx)}
-                >
-                  {isExpanded
-                    ? 'show less'
-                    : `+${hiddenBarCount} more`}
-                </button>
               )}
 
-              {/* Minimum height spacer when no items */}
-              {lanes.length === 0 && <div style={{ minHeight: '22px' }} />}
+              {/* Tasks */}
+              {items && items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => (
+                <div
+                  key={task.id}
+                  className="text-xs px-1 py-0.5 rounded truncate cursor-pointer hover:opacity-80 border-l-2 dark:text-gray-100"
+                  style={{
+                    backgroundColor: `${statusColor(task.status)}30`,
+                    borderLeftColor: getOwnerColor(task),
+                  }}
+                  onClick={() => onTaskClick(task.id)}
+                  title={task.title}
+                >
+                  {task.title}
+                </div>
+              ))}
+              {items && items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
+                <div className="text-xs text-slate-500 pl-1">
+                  +{items.tasks.length - MAX_VISIBLE_TASKS_PER_DAY} more
+                </div>
+              )}
             </div>
           );
         })}
