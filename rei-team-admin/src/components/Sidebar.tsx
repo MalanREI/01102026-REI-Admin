@@ -15,7 +15,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           {!collapsed && (
             <div>
               <div className="text-lg font-semibold text-slate-100">{APP_NAME}</div>
-              <div className="text-xs text-slate-500">Internal team workspace</div>
+              <div className="text-xs text-slate-500">REI Ops</div>
             </div>
           )}
           <Button variant="ghost" onClick={onToggle} aria-label="Toggle sidebar">

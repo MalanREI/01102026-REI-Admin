@@ -383,7 +383,7 @@ export default function MeetingsPage() {
                 <div key={m.id} className="rounded-2xl border border-white/[0.06] bg-surface p-4">
                   <div className="flex items-start justify-between gap-3">
                     <Link href={`/meetings/${m.id}`} className="flex-1 hover:opacity-90">
-                      <div className="text-base font-semibold">{m.title}</div>
+                      <div className="text-base font-semibold text-slate-100">{m.title}</div>
                       <div className="mt-1 text-sm text-slate-400">
                         {prettyDate(m.start_at)} • {m.duration_minutes} min
                       </div>

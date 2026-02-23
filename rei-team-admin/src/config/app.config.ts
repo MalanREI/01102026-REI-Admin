@@ -1,4 +1,4 @@
-export const APP_NAME = "REI Team Admin";
+export const APP_NAME = "Alan's Workspace";
 
 export const NAV_ITEMS = [
   { label: "Home", href: "/home" },
