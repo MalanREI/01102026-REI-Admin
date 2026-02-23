@@ -3524,67 +3524,114 @@ function CalendarView({
   priorityColor: (priority: string) => string;
   getOwnerColor: (item: { owner_id?: string | null; owner_email?: string | null }) => string;
 }) {
-  const MAX_VISIBLE_TASKS_PER_DAY = 3;
+  const MAX_BARS_PER_WEEK = 3;
+  const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
   const days = getMonthDays(year, month);
   const monthName = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  
-  // Group tasks and milestones by date
-  const itemsByDate = new Map<string, { tasks: Task[]; milestones: Milestone[] }>();
-  
-  tasks.forEach((task) => {
-    // If task has both start_date and due_date, show it on all days in between
-    if (task.start_date && task.due_date) {
-      const startDate = new Date(task.start_date);
-      const endDate = new Date(task.due_date);
-      
-      // Ensure dates are in correct order
-      if (startDate <= endDate) {
-        // Iterate through each day from start to end
-        // Use date manipulation to handle DST transitions correctly
-        const currentDate = new Date(startDate);
-        
-        while (currentDate <= endDate) {
-          const key = formatDateKey(currentDate);
-          if (!itemsByDate.has(key)) {
-            itemsByDate.set(key, { tasks: [], milestones: [] });
-          }
-          const items = itemsByDate.get(key);
-          if (items) items.tasks.push(task);
-          
-          // Move to next day (handles DST correctly)
-          currentDate.setDate(currentDate.getDate() + 1);
+
+  // Split days into week rows
+  const weeks: Date[][] = [];
+  for (let i = 0; i < days.length; i += 7) {
+    weeks.push(days.slice(i, i + 7));
+  }
+
+  // Compute bar lanes for a given week
+  type WeekBar = {
+    type: 'task' | 'milestone';
+    task?: Task;
+    milestone?: Milestone;
+    startCol: number;
+    endCol: number;
+    showLabel: boolean;
+    isStart: boolean;
+    isEnd: boolean;
+  };
+
+  function computeWeekLanes(week: Date[]): WeekBar[][] {
+    const weekStartKey = formatDateKey(week[0]);
+    const weekEndKey = formatDateKey(week[6]);
+    const weekKeys = week.map(formatDateKey);
+
+    const allBars: WeekBar[] = [];
+
+    // Process tasks
+    tasks.forEach((task) => {
+      const effectiveStart = task.start_date || task.due_date;
+      const effectiveEnd = task.due_date || task.start_date;
+      if (!effectiveStart && !effectiveEnd) return;
+
+      const startKey = effectiveStart!;
+      const endKey = effectiveEnd!;
+
+      // Skip if task does not overlap this week
+      if (endKey < weekStartKey || startKey > weekEndKey) return;
+
+      const startCol = startKey <= weekStartKey ? 0 : weekKeys.indexOf(startKey);
+      const endCol = endKey >= weekEndKey ? 6 : weekKeys.indexOf(endKey);
+      if (startCol < 0 || endCol < 0 || startCol > endCol) return;
+
+      const isStart = startKey >= weekStartKey;
+      const isEnd = endKey <= weekEndKey;
+
+      allBars.push({
+        type: 'task',
+        task,
+        startCol,
+        endCol,
+        showLabel: isStart || startCol === 0,
+        isStart,
+        isEnd,
+      });
+    });
+
+    // Process milestones (single-day)
+    milestones.forEach((milestone) => {
+      if (!milestone.target_date) return;
+      if (milestone.target_date < weekStartKey || milestone.target_date > weekEndKey) return;
+      const col = weekKeys.indexOf(milestone.target_date);
+      if (col < 0) return;
+
+      allBars.push({
+        type: 'milestone',
+        milestone,
+        startCol: col,
+        endCol: col,
+        showLabel: true,
+        isStart: true,
+        isEnd: true,
+      });
+    });
+
+    // Sort: longer bars first, then by start column
+    allBars.sort((a, b) => {
+      const spanA = a.endCol - a.startCol;
+      const spanB = b.endCol - b.startCol;
+      if (spanB !== spanA) return spanB - spanA;
+      return a.startCol - b.startCol;
+    });
+
+    // Greedy lane assignment
+    const lanes: WeekBar[][] = [];
+    allBars.forEach((bar) => {
+      let placed = false;
+      for (let i = 0; i < lanes.length; i++) {
+        const hasOverlap = lanes[i].some(
+          (existing) => !(bar.endCol < existing.startCol || bar.startCol > existing.endCol)
+        );
+        if (!hasOverlap) {
+          lanes[i].push(bar);
+          placed = true;
+          break;
         }
       }
-    } else if (task.due_date) {
-      // If only due_date is set, show it on that date
-      const key = task.due_date;
-      if (!itemsByDate.has(key)) {
-        itemsByDate.set(key, { tasks: [], milestones: [] });
+      if (!placed) {
+        lanes.push([bar]);
       }
-      const items = itemsByDate.get(key);
-      if (items) items.tasks.push(task);
-    } else if (task.start_date) {
-      // If only start_date is set, show it on that date
-      const key = task.start_date;
-      if (!itemsByDate.has(key)) {
-        itemsByDate.set(key, { tasks: [], milestones: [] });
-      }
-      const items = itemsByDate.get(key);
-      if (items) items.tasks.push(task);
-    }
-  });
-  
-  milestones.forEach((milestone) => {
-    if (milestone.target_date) {
-      const key = milestone.target_date;
-      if (!itemsByDate.has(key)) {
-        itemsByDate.set(key, { tasks: [], milestones: [] });
-      }
-      const items = itemsByDate.get(key);
-      if (items) items.milestones.push(milestone);
-    }
-  });
-  
+    });
+
+    return lanes;
+  }
+
   const goToPrevMonth = () => {
     if (month === 0) {
       onMonthChange(11);
@@ -3593,7 +3640,7 @@ function CalendarView({
       onMonthChange(month - 1);
     }
   };
-  
+
   const goToNextMonth = () => {
     if (month === 11) {
       onMonthChange(0);
@@ -3602,16 +3649,28 @@ function CalendarView({
       onMonthChange(month + 1);
     }
   };
-  
+
   const goToToday = () => {
     const today = new Date();
     onMonthChange(today.getMonth());
     onYearChange(today.getFullYear());
   };
-  
+
   const isCurrentMonth = (date: Date) => date.getMonth() === month;
   const isToday = (date: Date) => isSameDay(date, new Date());
-  
+
+  const toggleWeekExpanded = (weekIdx: number) => {
+    setExpandedWeeks((prev) => {
+      const next = new Set(prev);
+      if (next.has(weekIdx)) {
+        next.delete(weekIdx);
+      } else {
+        next.add(weekIdx);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-3">
       {/* Calendar Header */}
@@ -3633,112 +3692,130 @@ function CalendarView({
           </Button>
         </div>
       </div>
-      
-      {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-2">
-        {/* Day headers */}
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-          <div key={day} className="text-center text-xs font-semibold text-gray-600 py-2">
-            {day}
-          </div>
-        ))}
-        
-        {/* Calendar days */}
-        {days.map((date, idx) => {
-          const dateKey = formatDateKey(date);
-          const items = itemsByDate.get(dateKey);
-          const isCurrent = isCurrentMonth(date);
-          const isNow = isToday(date);
-          
+
+      {/* Day name headers */}
+      <div>
+        <div className="grid grid-cols-7">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+            <div key={day} className="text-center text-xs font-semibold text-gray-600 dark:text-gray-400 py-2">
+              {day}
+            </div>
+          ))}
+        </div>
+
+        {/* Week rows */}
+        {weeks.map((week, weekIdx) => {
+          const lanes = computeWeekLanes(week);
+          const isExpanded = expandedWeeks.has(weekIdx);
+          const visibleLanes = isExpanded ? lanes : lanes.slice(0, MAX_BARS_PER_WEEK);
+          const hiddenBarCount = isExpanded
+            ? 0
+            : lanes.slice(MAX_BARS_PER_WEEK).reduce((sum, lane) => sum + lane.length, 0);
+
           return (
-            <div
-              key={idx}
-              className={`min-h-24 border rounded-lg p-2 ${
-                isCurrent ? 'bg-white' : 'bg-gray-50'
-              } ${isNow ? 'ring-2 ring-blue-500' : ''}`}
-            >
-              <div className={`text-xs font-semibold mb-1 ${
-                isNow ? 'text-blue-600' : isCurrent ? 'text-gray-900' : 'text-gray-400'
-              }`}>
-                {date.getDate()}
-              </div>
-              
-              {items && (
-                <div className="space-y-1">
-                  {/* Milestones */}
-                  {items.milestones.map((milestone) => (
+            <div key={weekIdx} className="border-b dark:border-gray-700">
+              {/* Day numbers row */}
+              <div className="grid grid-cols-7">
+                {week.map((date, dayIdx) => {
+                  const isCurrent = isCurrentMonth(date);
+                  const isNow = isToday(date);
+                  return (
                     <div
-                      key={milestone.id}
-                      className="text-xs p-1 rounded cursor-pointer hover:opacity-80 border-l-2"
-                      style={{
-                        backgroundColor: `${priorityColor(milestone.priority)}20`,
-                        borderLeftColor: priorityColor(milestone.priority),
-                      }}
-                      onClick={() => onMilestoneClick(milestone.id)}
-                      title={milestone.title}
+                      key={dayIdx}
+                      className={`px-2 pt-1 pb-0.5 text-xs font-semibold border-r last:border-r-0 dark:border-gray-700 ${
+                        isCurrent ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'
+                      }`}
                     >
-                      <div className="font-medium truncate">🎯 {milestone.title}</div>
+                      <span
+                        className={`inline-flex items-center justify-center w-6 h-6 rounded-full ${
+                          isNow
+                            ? 'bg-blue-500 text-white'
+                            : isCurrent
+                            ? 'text-gray-900 dark:text-gray-100'
+                            : 'text-gray-400 dark:text-gray-500'
+                        }`}
+                      >
+                        {date.getDate()}
+                      </span>
                     </div>
-                  ))}
-                  
-                  {/* Tasks */}
-                  {items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => {
-                    // Pre-calculate date keys for this task to avoid redundant formatting
-                    const taskStartKey = task.start_date ? formatDateKey(new Date(task.start_date)) : null;
-                    const taskEndKey = task.due_date ? formatDateKey(new Date(task.due_date)) : null;
-                    
-                    // Determine span type
-                    const isMultiDay = !!(task.start_date && task.due_date && taskStartKey !== taskEndKey);
-                    const isStartDate = taskStartKey === dateKey;
-                    const isEndDate = taskEndKey === dateKey;
-                    // For tasks starting before this view, treat the first day of the view as the label cell
-                    const firstViewKey = formatDateKey(days[0]);
-                    const startsBeforeView = !!taskStartKey && taskStartKey < firstViewKey;
-                    const showLabel = !isMultiDay || isStartDate || (startsBeforeView && dateKey === firstViewKey);
-                    
-                    // Format dates for tooltip
-                    const tooltipDates = task.start_date && task.due_date 
-                      ? `\nStart: ${new Date(task.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\nEnd: ${new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                      : '';
-                    
-                    if (isMultiDay && !showLabel) {
-                      // Continuation bar: colored block with no repeated label
+                  );
+                })}
+              </div>
+
+              {/* Bar lanes */}
+              {visibleLanes.map((lane, laneIdx) => (
+                <div key={laneIdx} className="grid grid-cols-7" style={{ minHeight: '22px' }}>
+                  {lane.map((bar) => {
+                    if (bar.type === 'milestone' && bar.milestone) {
                       return (
                         <div
-                          key={task.id}
-                          className={`h-5 cursor-pointer hover:opacity-80 ${isEndDate ? 'rounded-r' : ''}`}
-                          style={{ backgroundColor: `${statusColor(task.status)}30` }}
-                          onClick={() => onTaskClick(task.id)}
-                          title={`${task.title}${tooltipDates}`}
-                        />
+                          key={`m-${bar.milestone.id}`}
+                          className="text-xs px-1 py-0.5 mx-0.5 my-0.5 rounded cursor-pointer hover:opacity-80 truncate border-l-2 dark:text-gray-100"
+                          style={{
+                            gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`,
+                            backgroundColor: `${priorityColor(bar.milestone.priority)}20`,
+                            borderLeftColor: priorityColor(bar.milestone.priority),
+                          }}
+                          onClick={() => onMilestoneClick(bar.milestone!.id)}
+                          title={bar.milestone.title}
+                        >
+                          🎯 {bar.milestone.title}
+                        </div>
                       );
                     }
-                    
-                    return (
-                      <div
-                        key={task.id}
-                        className="text-xs p-1 cursor-pointer hover:opacity-80 border-l-2"
-                        style={{
-                          backgroundColor: `${statusColor(task.status)}20`,
-                          borderLeftColor: getOwnerColor(task),
-                          borderRadius: isMultiDay ? '4px 0 0 4px' : '4px',
-                        }}
-                        onClick={() => onTaskClick(task.id)}
-                        title={`${task.title}${tooltipDates}`}
-                      >
-                        <div className="font-medium truncate">{task.title}</div>
-                      </div>
-                    );
+
+                    if (bar.type === 'task' && bar.task) {
+                      const task = bar.task;
+                      const tooltipDates =
+                        task.start_date && task.due_date
+                          ? `\nStart: ${new Date(task.start_date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}\nEnd: ${new Date(task.due_date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}`
+                          : '';
+
+                      return (
+                        <div
+                          key={`t-${task.id}`}
+                          className={`text-xs px-1 py-0.5 my-0.5 cursor-pointer hover:opacity-80 truncate dark:text-gray-100 ${
+                            bar.isStart ? 'ml-0.5 rounded-l border-l-2' : ''
+                          } ${bar.isEnd ? 'mr-0.5 rounded-r' : ''}`}
+                          style={{
+                            gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`,
+                            backgroundColor: `${statusColor(task.status)}30`,
+                            borderLeftColor: bar.isStart ? getOwnerColor(task) : undefined,
+                          }}
+                          onClick={() => onTaskClick(task.id)}
+                          title={`${task.title}${tooltipDates}`}
+                        >
+                          {bar.showLabel ? task.title : '\u00A0'}
+                        </div>
+                      );
+                    }
+                    return null;
                   })}
-                  
-                  {/* Show count if more tasks */}
-                  {items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
-                    <div className="text-xs text-gray-500 pl-1">
-                      +{items.tasks.length - MAX_VISIBLE_TASKS_PER_DAY} more
-                    </div>
-                  )}
                 </div>
+              ))}
+
+              {/* See more / see less toggle */}
+              {lanes.length > MAX_BARS_PER_WEEK && (
+                <button
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline pl-2 py-0.5"
+                  onClick={() => toggleWeekExpanded(weekIdx)}
+                >
+                  {isExpanded
+                    ? 'show less'
+                    : `+${hiddenBarCount} more`}
+                </button>
               )}
+
+              {/* Minimum height spacer when no items */}
+              {lanes.length === 0 && <div style={{ minHeight: '22px' }} />}
             </div>
           );
         })}
