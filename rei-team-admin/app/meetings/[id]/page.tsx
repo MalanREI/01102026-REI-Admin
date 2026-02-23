@@ -3693,9 +3693,9 @@ async function selectPreviousSession(sessionId: string) {
                         value={selectedMicId}
                         onChange={(e) => setSelectedMicId(e.target.value)}
                       >
-                        {audioDevices.map(d => (
+                        {audioDevices.map((d, i) => (
                           <option key={d.deviceId} value={d.deviceId}>
-                            {d.label || `Microphone ${d.deviceId.slice(0, 8)}`}
+                            {d.label || `Microphone ${i + 1}`}
                           </option>
                         ))}
                       </select>

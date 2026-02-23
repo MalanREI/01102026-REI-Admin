@@ -3,6 +3,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
 
+type StreamWithCleanup = MediaStream & {
+  _cleanupTracks?: MediaStreamTrack[];
+  _audioContext?: AudioContext;
+};
+
 type RecordingState = {
   isRecording: boolean;
   recSeconds: number;
@@ -253,7 +258,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
 
       // Stop the audio stream (including any extra tracks from system audio capture)
       if (streamRef.current) {
-        const anyStream = streamRef.current as MediaStream & { _cleanupTracks?: MediaStreamTrack[]; _audioContext?: AudioContext };
+        const anyStream = streamRef.current as StreamWithCleanup;
         if (anyStream._cleanupTracks) {
           anyStream._cleanupTracks.forEach((t: MediaStreamTrack) => t.stop());
         }
@@ -342,8 +347,8 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
 
             // Store all original tracks for cleanup
             const allTracks = [...micStream.getTracks(), ...displayStream.getTracks()];
-            (finalStream as MediaStream & { _cleanupTracks?: MediaStreamTrack[]; _audioContext?: AudioContext })._cleanupTracks = allTracks;
-            (finalStream as MediaStream & { _cleanupTracks?: MediaStreamTrack[]; _audioContext?: AudioContext })._audioContext = audioCtx;
+            (finalStream as StreamWithCleanup)._cleanupTracks = allTracks;
+            (finalStream as StreamWithCleanup)._audioContext = audioCtx;
           } catch (e) {
             console.warn("System audio capture failed, falling back to mic only:", e);
             finalStream = micStream;
