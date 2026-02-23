@@ -17,7 +17,7 @@ export function PageShell({ children }: { children: ReactNode }) {
   }, [sidebarCollapsed]);
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-base">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((v) => !v)} />
       <div className="flex-1 min-w-0">
         <TopBar onToggleSidebar={() => setSidebarCollapsed((v) => !v)} />

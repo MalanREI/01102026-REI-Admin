@@ -9,13 +9,13 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   const pathname = usePathname();
 
   return (
-    <aside className={["h-screen border-r bg-white p-4 flex flex-col", collapsed ? "w-16" : "w-64"].join(" ")}>
+    <aside className={["h-screen border-r border-white/[0.06] bg-surface p-4 flex flex-col", collapsed ? "w-16" : "w-64"].join(" ")}>
       <div className="mb-6">
         <div className="flex items-center justify-between gap-2">
           {!collapsed && (
             <div>
-              <div className="text-lg font-semibold">{APP_NAME}</div>
-              <div className="text-xs text-gray-500">Internal team workspace</div>
+              <div className="text-lg font-semibold text-slate-100">{APP_NAME}</div>
+              <div className="text-xs text-slate-500">Internal team workspace</div>
             </div>
           )}
           <Button variant="ghost" onClick={onToggle} aria-label="Toggle sidebar">
@@ -32,8 +32,10 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
               key={item.href}
               href={item.href}
               className={[
-                "block rounded px-3 py-2 text-sm",
-                active ? "bg-gray-100 font-medium" : "hover:bg-gray-50",
+                "block rounded-lg px-3 py-2 text-sm transition-colors",
+                active
+                  ? "bg-emerald-500/10 text-emerald-400 font-medium"
+                  : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
               ].join(" ")}
             >
               {collapsed ? item.label.slice(0, 1) : item.label}

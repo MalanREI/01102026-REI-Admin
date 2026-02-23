@@ -52,20 +52,20 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-white">
+    <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-surface">
       <div className="h-14 px-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={onToggleSidebar} aria-label="Toggle sidebar">
             ☰
           </Button>
-          <div className="text-sm text-gray-600">REI Ops</div>
+          <div className="text-sm text-slate-400">REI Ops</div>
         </div>
 
         {/* Global recording indicator */}
         {isRecording && activeMeetingId && (
           <Link
             href={`/meetings/${activeMeetingId}`}
-            className="flex items-center gap-1.5 rounded-full bg-red-50 border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+            className="flex items-center gap-1.5 rounded-full bg-red-500/10 border border-red-500/20 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20"
           >
             <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" />
             {activeMeetingTitle ?? "Recording"}
@@ -76,7 +76,7 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
 
         <div className="relative">
           <button
-            className="h-9 w-9 rounded-full border bg-gray-50 text-sm font-semibold"
+            className="h-9 w-9 rounded-full border border-white/10 bg-elevated text-sm font-semibold text-slate-300"
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="Open profile menu"
           >
@@ -84,14 +84,14 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 mt-2 w-56 rounded-xl border bg-white shadow-lg p-2">
+            <div className="absolute right-0 mt-2 w-56 rounded-xl border border-white/10 bg-surface shadow-2xl p-2">
               <div className="px-2 py-1.5">
-                <div className="text-xs text-gray-500">Signed in as</div>
-                <div className="text-sm font-medium truncate">{email || ""}</div>
+                <div className="text-xs text-slate-500">Signed in as</div>
+                <div className="text-sm font-medium text-slate-200 truncate">{email || ""}</div>
               </div>
-              <div className="my-2 border-t" />
+              <div className="my-2 border-t border-white/[0.06]" />
               <button
-                className="w-full text-left rounded-lg px-2 py-2 text-sm hover:bg-gray-50"
+                className="w-full text-left rounded-lg px-2 py-2 text-sm text-slate-300 hover:bg-white/[0.06]"
                 onClick={() => {
                   setMenuOpen(false);
                   setPwdOpen(true);
@@ -99,7 +99,7 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
               >
                 Update password
               </button>
-              <button className="w-full text-left rounded-lg px-2 py-2 text-sm hover:bg-gray-50" onClick={signOut}>
+              <button className="w-full text-left rounded-lg px-2 py-2 text-sm text-slate-300 hover:bg-white/[0.06]" onClick={signOut}>
                 Sign out
               </button>
             </div>
@@ -127,14 +127,14 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
       >
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-gray-600">New password</label>
+            <label className="text-xs text-slate-400">New password</label>
             <Input type="password" value={p1} onChange={(e) => setP1(e.target.value)} />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Confirm new password</label>
+            <label className="text-xs text-slate-400">Confirm new password</label>
             <Input type="password" value={p2} onChange={(e) => setP2(e.target.value)} />
           </div>
-          {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+          {err && <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{err}</div>}
         </div>
       </Modal>
     </header>

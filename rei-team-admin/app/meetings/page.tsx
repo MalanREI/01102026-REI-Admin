@@ -350,12 +350,12 @@ export default function MeetingsPage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Meetings</h1>
-            <p className="text-sm text-gray-600">Create meetings, manage agenda + tasks, and record minutes.</p>
+            <p className="text-sm text-slate-400">Create meetings, manage agenda + tasks, and record minutes.</p>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="text-xs rounded-full border bg-white px-2 py-1 hover:bg-gray-50"
+              className="text-xs rounded-full border border-white/10 bg-surface px-2 py-1 hover:bg-white/[0.06] text-slate-300"
               onClick={() => setShowArchived((v) => !v)}
             >
               {showArchived ? "Showing Archived" : "Hiding Archived"}
@@ -374,22 +374,22 @@ export default function MeetingsPage() {
 
         <Card title="Your meetings">
           {loading ? (
-            <div className="text-sm text-gray-600">Loading...</div>
+            <div className="text-sm text-slate-400">Loading...</div>
           ) : meetings.length === 0 ? (
-            <div className="text-sm text-gray-600">No meetings yet. Click “Add meeting”.</div>
+            <div className="text-sm text-slate-400">No meetings yet. Click “Add meeting”.</div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {meetings.map((m) => (
-                <div key={m.id} className="rounded-2xl border bg-white p-4">
+                <div key={m.id} className="rounded-2xl border border-white/[0.06] bg-surface p-4">
                   <div className="flex items-start justify-between gap-3">
                     <Link href={`/meetings/${m.id}`} className="flex-1 hover:opacity-90">
                       <div className="text-base font-semibold">{m.title}</div>
-                      <div className="mt-1 text-sm text-gray-600">
+                      <div className="mt-1 text-sm text-slate-400">
                         {prettyDate(m.start_at)} • {m.duration_minutes} min
                       </div>
-                      {m.location && <div className="text-sm text-gray-600">{m.location}</div>}
-                      {m.rrule && <div className="mt-2 text-xs text-gray-500">Recurring: {m.rrule}</div>}
-                      {m.archived && <div className="mt-2 text-xs text-gray-500">Archived</div>}
+                      {m.location && <div className="text-sm text-slate-400">{m.location}</div>}
+                      {m.rrule && <div className="mt-2 text-xs text-slate-500">Recurring: {m.rrule}</div>}
+                      {m.archived && <div className="mt-2 text-xs text-slate-500">Archived</div>}
                     </Link>
 
                     <div className="flex flex-col items-end gap-2">
@@ -450,25 +450,25 @@ export default function MeetingsPage() {
         >
           <div className="grid gap-3 md:grid-cols-2">
             <div className="md:col-span-2">
-              <label className="text-xs text-gray-600">Meeting name</label>
+              <label className="text-xs text-slate-400">Meeting name</label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Operations Weekly" />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Date/time</label>
+              <label className="text-xs text-slate-400">Date/time</label>
               <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Duration (minutes)</label>
+              <label className="text-xs text-slate-400">Duration (minutes)</label>
               <Input type="number" min={15} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Location</label>
+              <label className="text-xs text-slate-400">Location</label>
               <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Zoom / Office" />
             </div>
             <div>
-              <label className="text-xs text-gray-600">Frequency</label>
+              <label className="text-xs text-slate-400">Frequency</label>
               <select
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200"
                 value={freq}
                 onChange={(e) => setFreq(e.target.value)}
               >
@@ -479,7 +479,7 @@ export default function MeetingsPage() {
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="text-xs text-gray-600">
+              <label className="text-xs text-slate-400">
                 Attendees (email-only OR “Name &lt;email&gt;” OR “Name, email”)
               </label>
               <Textarea
@@ -488,17 +488,17 @@ export default function MeetingsPage() {
                 onChange={(e) => setAttendees(e.target.value)}
                 placeholder={'Alan M. <alan@...>\nNate G., nate@...\nbraden@...'}
               />
-              <div className="mt-1 text-xs text-gray-500">
+              <div className="mt-1 text-xs text-slate-500">
                 These are used for (1) sending minutes/invites and (2) task owner assignment.
               </div>
             </div>
             <div className="md:col-span-2">
-              <label className="text-xs text-gray-600">Default agenda topics (editable later)</label>
+              <label className="text-xs text-slate-400">Default agenda topics (editable later)</label>
               <Textarea rows={6} value={agendaSeed} onChange={(e) => setAgendaSeed(e.target.value)} />
             </div>
           </div>
           {err && (
-            <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>
+            <div className="mt-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{err}</div>
           )}
         </Modal>
       </div>
