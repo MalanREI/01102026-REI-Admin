@@ -74,18 +74,52 @@ type TaskRow = {
   columnName: string;
 };
 
+type AttendanceRow = {
+  full_name: string | null;
+  email: string | null;
+  is_present: boolean;
+  is_guest: boolean;
+};
+
+type MilestoneRow = {
+  title: string;
+  target_date: string | null;
+  status: string;
+  priority: string;
+  owner_name: string;
+  description: string | null;
+};
+
+type OngoingNoteRow = {
+  title: string;
+  content: string | null;
+  category: string | null;
+};
+
 async function buildPdf(opts: {
   meetingTitle: string;
   meetingDateLabel: string;
+  meetingTimeLabel: string;
+  meetingLocation: string;
   infoRows: Array<[string, string]>;
   attendeesValue: string;
   agenda: AgendaPdfRow[];
   tasks: TaskRow[];
   referenceLink?: string | null;
+  attendanceData: AttendanceRow[];
+  milestones: MilestoneRow[];
+  ongoingNotes: OngoingNoteRow[];
 }) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  // Green color palette
+  const GREEN_DARK = rgb(0.18, 0.49, 0.20);
+  const GREEN_LIGHT = rgb(0.91, 0.96, 0.91);
+  const GREEN_ACCENT = rgb(0.26, 0.63, 0.28);
+  const TEXT_DARK = rgb(0.1, 0.1, 0.1);
+  const TEXT_GRAY = rgb(0.45, 0.45, 0.45);
 
   // US Letter portrait
   const PAGE_W = 612;
@@ -133,22 +167,72 @@ async function buildPdf(opts: {
     });
   };
 
-  // ===== HEADER (centered) =====
-  const headerTitle = opts.meetingTitle;
-  const headerDate = opts.meetingDateLabel;
+  /** Draws a green filled rectangle with white bold text as a section header. */
+  const drawSectionHeader = (label: string) => {
+    const barH = 24;
+    ensureSpace(barH + 10);
+    page.drawRectangle({
+      x: MARGIN_X,
+      y: y - barH,
+      width: CONTENT_W,
+      height: barH,
+      color: GREEN_DARK,
+    });
+    drawText(label, MARGIN_X + 10, y - 17, 11, true, rgb(1, 1, 1));
+    y -= barH + 8;
+  };
 
-  const titleSize = 16;
+  /** Draws a small colored badge for milestone/task statuses. */
+  const drawStatusBadge = (status: string, x: number, yPos: number) => {
+    const normalized = status.toLowerCase().trim();
+    let bgColor: RGB;
+    if (normalized === "completed" || normalized === "complete" || normalized === "done") {
+      bgColor = rgb(0.18, 0.49, 0.20);
+    } else if (normalized === "in progress" || normalized === "in-progress" || normalized === "active") {
+      bgColor = rgb(0.16, 0.38, 0.70);
+    } else if (normalized === "delayed" || normalized === "overdue" || normalized === "blocked") {
+      bgColor = rgb(0.80, 0.26, 0.18);
+    } else {
+      bgColor = rgb(0.55, 0.55, 0.55);
+    }
+    const textW = font.widthOfTextAtSize(status, 8);
+    const padX = 6;
+    const badgeW = textW + padX * 2;
+    const badgeH = 14;
+    page.drawRectangle({
+      x,
+      y: yPos - 3,
+      width: badgeW,
+      height: badgeH,
+      color: bgColor,
+    });
+    page.drawText(status, { x: x + padX, y: yPos, size: 8, font, color: rgb(1, 1, 1) });
+    return badgeW;
+  };
+
+  // ===== HEADER =====
+  const headerTitle = opts.meetingTitle;
+  const titleSize = 18;
   const dateSize = 11;
 
   const titleW = bold.widthOfTextAtSize(headerTitle, titleSize);
-  const dateW = font.widthOfTextAtSize(`- ${headerDate}`, dateSize);
+  const dateStr = opts.meetingDateLabel + (opts.meetingTimeLabel ? "  •  " + opts.meetingTimeLabel : "");
+  const dateW = font.widthOfTextAtSize(dateStr, dateSize);
 
-  ensureSpace(40);
+  ensureSpace(50);
+  drawText(headerTitle, (PAGE_W - titleW) / 2, y, titleSize, true, GREEN_DARK);
+  y -= 18;
+  drawText(dateStr, (PAGE_W - dateW) / 2, y, dateSize, false, TEXT_GRAY);
+  y -= 14;
 
-  drawText(headerTitle, (PAGE_W - titleW) / 2, y, titleSize, true, rgb(0.2, 0.5, 0.2));
-  drawText(`- ${headerDate}`, (PAGE_W - dateW) / 2, y - 15, dateSize, false, rgb(0.1, 0.1, 0.1));
-  y -= 30;
-  drawHr(y);
+  // Green accent bar
+  page.drawRectangle({
+    x: MARGIN_X,
+    y: y - 3,
+    width: CONTENT_W,
+    height: 3,
+    color: GREEN_ACCENT,
+  });
   y -= 18;
 
   // ===== INFO TABLE =====
@@ -158,8 +242,6 @@ async function buildPdf(opts: {
   const labelW = 110;
 
   const rows: Array<[string, string]> = [...opts.infoRows, ["ATTENDEES", opts.attendeesValue]];
-
-  // Calculate table height. Attendees may wrap; we keep it to one line in table and full list in footer if needed.
   const tableH = rows.length * rowH;
 
   ensureSpace(tableH + 14);
@@ -184,7 +266,8 @@ async function buildPdf(opts: {
       });
     }
 
-    page.drawRectangle({ x: tableX, y: ry, width: labelW, height: rowH, color: rgb(0.95, 0.95, 0.95) });
+    // Light green header for the label column
+    page.drawRectangle({ x: tableX, y: ry, width: labelW, height: rowH, color: GREEN_LIGHT });
     page.drawLine({
       start: { x: tableX + labelW, y: ry },
       end: { x: tableX + labelW, y: ry + rowH },
@@ -193,15 +276,114 @@ async function buildPdf(opts: {
     });
 
     const [lab, val] = rows[i]!;
-    drawText(lab, tableX + 8, ry + 7, 10, true);
-    drawText(clampText(val, 120), tableX + labelW + 8, ry + 7, 10, false);
+    drawText(lab, tableX + 8, ry + 7, 10, true, GREEN_DARK);
+    drawText(clampText(val, 120), tableX + labelW + 8, ry + 7, 10, false, TEXT_DARK);
   }
 
   y -= tableH + 22;
 
+  // ===== ATTENDANCE =====
+  drawSectionHeader("ATTENDANCE");
+
+  const present = opts.attendanceData.filter((a) => a.is_present && !a.is_guest);
+  const absent = opts.attendanceData.filter((a) => !a.is_present && !a.is_guest);
+  const guests = opts.attendanceData.filter((a) => a.is_guest);
+
+  if (opts.attendanceData.length === 0) {
+    ensureSpace(20);
+    drawText("No attendance data recorded.", MARGIN_X + 10, y, 9, false, TEXT_GRAY);
+    y -= 20;
+  } else {
+    const drawAttendeeList = (label: string, items: AttendanceRow[], dotColor: RGB) => {
+      if (items.length === 0) return;
+      ensureSpace(20);
+      drawText(label, MARGIN_X + 10, y, 9, true, TEXT_DARK);
+      y -= 14;
+      for (const att of items) {
+        ensureSpace(14);
+        // Colored dot indicator
+        page.drawCircle({ x: MARGIN_X + 18, y: y + 3, size: 3, color: dotColor });
+        const name = (att.full_name ?? "").trim() || (att.email ?? "").trim() || "Unknown";
+        drawText(name, MARGIN_X + 28, y, 9, false, TEXT_DARK);
+        y -= 14;
+      }
+      y -= 4;
+    };
+
+    drawAttendeeList("Present", present, rgb(0.18, 0.49, 0.20));
+    drawAttendeeList("Absent", absent, TEXT_GRAY);
+    drawAttendeeList("Guests", guests, rgb(0.16, 0.38, 0.70));
+  }
+
+  y -= 6;
+
+  // ===== MILESTONES =====
+  drawSectionHeader("MILESTONES");
+
+  if (opts.milestones.length === 0) {
+    ensureSpace(20);
+    drawText("No milestones defined.", MARGIN_X + 10, y, 9, false, TEXT_GRAY);
+    y -= 20;
+  } else {
+    // Column headers
+    const msColTitle = MARGIN_X + 10;
+    const msColDate = MARGIN_X + 220;
+    const msColStatus = MARGIN_X + 310;
+    const msColPriority = MARGIN_X + 400;
+    const msColOwner = MARGIN_X + 450;
+
+    ensureSpace(18);
+    drawText("Title", msColTitle, y, 8, true, TEXT_GRAY);
+    drawText("Target Date", msColDate, y, 8, true, TEXT_GRAY);
+    drawText("Status", msColStatus, y, 8, true, TEXT_GRAY);
+    drawText("Priority", msColPriority, y, 8, true, TEXT_GRAY);
+    drawText("Owner", msColOwner, y, 8, true, TEXT_GRAY);
+    y -= 4;
+    drawHr(y);
+    y -= 12;
+
+    for (const ms of opts.milestones) {
+      const isCompleted = ms.status.toLowerCase() === "completed" || ms.status.toLowerCase() === "done";
+      const titleColor = isCompleted ? TEXT_GRAY : TEXT_DARK;
+
+      // Estimate height: title may wrap
+      const titleLines = wrapText({ text: ms.title, font: bold, size: 9, maxWidth: 200 });
+      const descLines = ms.description
+        ? wrapText({ text: ms.description, font, size: 8, maxWidth: CONTENT_W - 20 }).slice(0, 2)
+        : [];
+      const neededH = titleLines.length * 12 + descLines.length * 10 + 16;
+      ensureSpace(neededH);
+
+      // Title (may wrap)
+      for (const tl of titleLines) {
+        drawText(tl, msColTitle, y, 9, true, titleColor);
+        y -= 12;
+      }
+      y += 12; // go back to first line for inline fields
+
+      drawText(ms.target_date ?? "—", msColDate, y, 9, false, TEXT_DARK);
+      drawStatusBadge(ms.status, msColStatus, y);
+      drawText(ms.priority, msColPriority, y, 9, false, TEXT_DARK);
+      drawText(clampText(ms.owner_name, 30), msColOwner, y, 9, false, TEXT_DARK);
+      y -= 12 * Math.max(0, titleLines.length - 1); // move down for multi-line titles
+
+      if (descLines.length > 0) {
+        y -= 2;
+        for (const dl of descLines) {
+          drawText(dl, msColTitle + 8, y, 8, false, TEXT_GRAY);
+          y -= 10;
+        }
+      }
+      y -= 6;
+      drawHr(y);
+      y -= 10;
+    }
+  }
+
+  y -= 6;
+
   // ===== ACTIVE TASKS (2 columns, grouped by category) =====
-  drawText("ACTIVE TASKS", MARGIN_X, y, 12, true, rgb(0.2, 0.5, 0.2));
-  y -= 14;
+  drawSectionHeader("ACTIVE TASKS");
 
   const taskColGap = 14;
   const taskColW = (CONTENT_W - taskColGap) / 2;
@@ -217,6 +399,14 @@ async function buildPdf(opts: {
   }
 
   const categories = Array.from(group.keys()).sort((a, b) => a.localeCompare(b));
+
+  if (opts.tasks.length === 0) {
+    ensureSpace(20);
+    drawText("No active tasks.", MARGIN_X + 10, y, 9, false, TEXT_GRAY);
+    y -= 20;
+    leftY = y;
+    rightY = y;
+  }
 
   const drawCategory = (x: number, yTop: number, cat: string, items: TaskRow[]) => {
     const titleLines = wrapText({ text: cat, font: bold, size: 10, maxWidth: taskColW - 16 });
@@ -247,15 +437,15 @@ async function buildPdf(opts: {
     }
 
     const contentLines = lines.length ? lines : ["(none)"];
-    const headerH = 18;
+    const headerH = 20;
     const lineH = 10;
     const bodyH = Math.max(28, contentLines.length * lineH + 10);
     const totalH = headerH + bodyH;
 
     drawBox(x, yTop, taskColW, totalH, rgb(0.985, 0.985, 0.985));
-    // header stripe
-    page.drawRectangle({ x, y: yTop - headerH, width: taskColW, height: headerH, color: rgb(0.95, 0.98, 0.95) });
-    drawText(titleLines[0] ?? cat, x + 8, yTop - 13, 10, true, rgb(0.15, 0.35, 0.15));
+    // Green header stripe
+    page.drawRectangle({ x, y: yTop - headerH, width: taskColW, height: headerH, color: GREEN_LIGHT });
+    drawText(titleLines[0] ?? cat, x + 8, yTop - 14, 10, true, GREEN_DARK);
 
     let cy = yTop - headerH - 14;
     for (const ln of contentLines) {
@@ -264,7 +454,7 @@ async function buildPdf(opts: {
         continue;
       }
       if (cy < yTop - totalH + 10) break;
-      drawText(ln, x + 10, cy, 8, false, rgb(0.1, 0.1, 0.1));
+      drawText(ln, x + 10, cy, 8, false, TEXT_DARK);
       cy -= lineH;
     }
 
@@ -272,55 +462,52 @@ async function buildPdf(opts: {
   };
 
   const commitTasksBlock = () => {
-    // after drawing into the two columns, set y below whichever is lower.
     y = Math.min(leftY, rightY) - 10;
   };
 
   for (const cat of categories) {
     const items = group.get(cat) ?? [];
+    const rough = 20 + Math.min(240, 40 + items.length * 40);
 
-    // Estimate needed height on a scratch basis (rough). We'll compute accurate after wrap.
-    const rough = 18 + Math.min(240, 40 + items.length * 40);
-
-    // If both columns would overflow, page break (and reset both columns)
     if (Math.min(leftY, rightY) - rough < BOTTOM) {
       newPage();
-      // re-draw section title at top of new page if tasks continued
-      drawText("ACTIVE TASKS (cont.)", MARGIN_X, y, 12, true, rgb(0.2, 0.5, 0.2));
-      y -= 14;
+      drawSectionHeader("ACTIVE TASKS (cont.)");
       leftY = y;
       rightY = y;
     }
 
-    // Choose the shorter column
     const useLeft = leftY >= rightY;
     const x = useLeft ? MARGIN_X : MARGIN_X + taskColW + taskColGap;
     const yTop = useLeft ? leftY : rightY;
 
-    // Ensure some minimal space; otherwise new page and reset
     if (yTop - 80 < BOTTOM) {
       newPage();
-      drawText("ACTIVE TASKS (cont.)", MARGIN_X, y, 12, true, rgb(0.2, 0.5, 0.2));
-      y -= 14;
+      drawSectionHeader("ACTIVE TASKS (cont.)");
       leftY = y;
       rightY = y;
     }
 
-    const h = drawCategory(x, yTop, cat, items);
+    const h = drawCategory(useLeft ? MARGIN_X : MARGIN_X + taskColW + taskColGap, useLeft ? leftY : rightY, cat, items);
     if (useLeft) leftY -= h + 10;
     else rightY -= h + 10;
   }
 
-  commitTasksBlock();
+  if (categories.length > 0) {
+    commitTasksBlock();
+  }
   y -= 6;
 
   // ===== DISCUSSION NOTES (side-by-side, multi-page) =====
-  ensureSpace(24);
-  drawText("DISCUSSION NOTES", MARGIN_X, y, 12, true, rgb(0.2, 0.5, 0.2));
-  y -= 16;
+  drawSectionHeader("DISCUSSION NOTES");
 
   const gap = 10;
   const colW = (CONTENT_W - gap) / 2;
+
+  if (opts.agenda.length === 0) {
+    ensureSpace(20);
+    drawText("No agenda items.", MARGIN_X + 10, y, 9, false, TEXT_GRAY);
+    y -= 20;
+  }
 
   const drawAgendaSection = (row: AgendaPdfRow) => {
     const headerH = 22;
@@ -343,15 +530,15 @@ async function buildPdf(opts: {
 
     const maxLines = Math.max(leftLines.length, rightLines.length);
     const lineH = 11;
-    const boxBodyH = Math.max(60, Math.min(320, maxLines * lineH + 28)); // clamp so it stays readable
+    const boxBodyH = Math.max(60, Math.min(320, maxLines * lineH + 28));
     const boxH = boxBodyH;
 
     const needed = headerH + boxH + 14;
     ensureSpace(needed);
 
-    // Section header box
-    drawBox(MARGIN_X, y, CONTENT_W, headerH, rgb(0.95, 0.98, 0.95));
-    drawText(row.label, MARGIN_X + 10, y - 15, 10, true, rgb(0.1, 0.25, 0.1));
+    // Agenda item header box with green tint
+    drawBox(MARGIN_X, y, CONTENT_W, headerH, GREEN_LIGHT);
+    drawText(row.label, MARGIN_X + 10, y - 15, 10, true, GREEN_DARK);
     y -= headerH + 8;
 
     // Left + right boxes
@@ -369,14 +556,14 @@ async function buildPdf(opts: {
     let ly = y - 30;
     for (const ln of leftLines) {
       if (ly < y - boxH + 10) break;
-      drawText(ln, leftX + 8, ly, 9, false, rgb(0.1, 0.1, 0.1));
+      drawText(ln, leftX + 8, ly, 9, false, TEXT_DARK);
       ly -= lineH;
     }
 
     let ry = y - 30;
     for (const ln of rightLines) {
       if (ry < y - boxH + 10) break;
-      drawText(ln, rightX + 8, ry, 9, false, rgb(0.1, 0.1, 0.1));
+      drawText(ln, rightX + 8, ry, 9, false, TEXT_DARK);
       ry -= lineH;
     }
 
@@ -387,6 +574,53 @@ async function buildPdf(opts: {
     drawAgendaSection(a);
   }
 
+  // ===== ONGOING NOTES =====
+  drawSectionHeader("ONGOING NOTES");
+
+  if (opts.ongoingNotes.length === 0) {
+    ensureSpace(20);
+    drawText("No ongoing notes.", MARGIN_X + 10, y, 9, false, TEXT_GRAY);
+    y -= 20;
+  } else {
+    for (const note of opts.ongoingNotes) {
+      const titleLines = wrapText({ text: note.title, font: bold, size: 10, maxWidth: CONTENT_W - 20 });
+      const contentLines = note.content
+        ? wrapText({ text: normalizeNotes(note.content), font, size: 9, maxWidth: CONTENT_W - 30 })
+        : [];
+      const categoryLine = note.category ? `Category: ${note.category}` : "";
+
+      const neededH = titleLines.length * 13 + contentLines.length * 11 + (categoryLine ? 14 : 0) + 20;
+      ensureSpace(neededH);
+
+      // Title
+      for (const tl of titleLines) {
+        drawText(tl, MARGIN_X + 10, y, 10, true, TEXT_DARK);
+        y -= 13;
+      }
+
+      // Category tag
+      if (categoryLine) {
+        drawText(categoryLine, MARGIN_X + 10, y, 8, false, GREEN_ACCENT);
+        y -= 14;
+      }
+
+      // Content
+      if (contentLines.length > 0) {
+        for (const cl of contentLines) {
+          drawText(cl, MARGIN_X + 16, y, 9, false, TEXT_DARK);
+          y -= 11;
+        }
+      } else {
+        drawText("(No content)", MARGIN_X + 16, y, 9, false, TEXT_GRAY);
+        y -= 11;
+      }
+
+      y -= 6;
+      drawHr(y);
+      y -= 10;
+    }
+  }
+
   // ===== FOOTER (reference link) =====
   if (opts.referenceLink) {
     ensureSpace(40);
@@ -395,6 +629,32 @@ async function buildPdf(opts: {
     drawText("Reference link:", MARGIN_X, y, 9, true, rgb(0.2, 0.2, 0.2));
     drawText(clampText(opts.referenceLink, 140), MARGIN_X + 92, y, 9, false, rgb(0.1, 0.3, 0.8));
     y -= 12;
+  }
+
+  // ===== PAGE NUMBERS =====
+  const allPages = pdf.getPages();
+  const totalPages = allPages.length;
+  for (let i = 0; i < totalPages; i++) {
+    const pg = allPages[i]!;
+    const pageNumText = `Page ${i + 1} of ${totalPages}`;
+    const pageNumW = font.widthOfTextAtSize(pageNumText, 8);
+    pg.drawText(pageNumText, {
+      x: (PAGE_W - pageNumW) / 2,
+      y: 28,
+      size: 8,
+      font,
+      color: TEXT_GRAY,
+    });
+
+    const brandText = "Generated by Alan's Workspace";
+    const brandW = font.widthOfTextAtSize(brandText, 7);
+    pg.drawText(brandText, {
+      x: (PAGE_W - brandW) / 2,
+      y: 18,
+      size: 7,
+      font,
+      color: TEXT_GRAY,
+    });
   }
 
   return pdf.save();
@@ -590,6 +850,48 @@ export async function POST(req: Request) {
       .maybeSingle();
     const referenceLink = !sessionRes.error ? sessionRes.data?.reference_link ?? null : null;
 
+    // Fetch milestones
+    const milestonesRes = await admin
+      .from("meeting_milestones")
+      .select("id,title,description,target_date,status,priority,owner_id,owner_email,owner_name,position")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true });
+
+    const milestones = (milestonesRes.data ?? []).map((m: { title?: string; target_date?: string; status?: string; priority?: string; owner_name?: string; owner_id?: string; description?: string }) => ({
+      title: String(m.title ?? ""),
+      target_date: m.target_date ? String(m.target_date) : null,
+      status: String(m.status ?? "Pending"),
+      priority: String(m.priority ?? "Normal"),
+      owner_name: String(m.owner_name ?? "").trim() || (m.owner_id ? String(ownerById.get(String(m.owner_id)) ?? "") : "") || "Unassigned",
+      description: m.description ? String(m.description) : null,
+    }));
+
+    // Fetch ongoing notes
+    const ongoingNotesRes = await admin
+      .from("meeting_ongoing_notes")
+      .select("id,title,content,category,position")
+      .eq("meeting_id", meetingId)
+      .order("position", { ascending: true });
+
+    const ongoingNotes = (ongoingNotesRes.data ?? []).map((n: { title?: string; content?: string; category?: string }) => ({
+      title: String(n.title ?? ""),
+      content: n.content ? String(n.content) : null,
+      category: n.category ? String(n.category) : null,
+    }));
+
+    // Fetch session attendance
+    const attendanceRes = await admin
+      .from("meeting_session_attendees")
+      .select("email,full_name,is_present,is_guest")
+      .eq("session_id", sessionId);
+
+    const attendanceData: AttendanceRow[] = (attendanceRes.data ?? []).map((a: { email?: string; full_name?: string; is_present?: boolean; is_guest?: boolean }) => ({
+      full_name: a.full_name ? String(a.full_name) : null,
+      email: a.email ? String(a.email) : null,
+      is_present: Boolean(a.is_present),
+      is_guest: Boolean(a.is_guest),
+    }));
+
     // Build PDF
     const meeting = meetingRes.data;
     const start = new Date(meeting.start_at);
@@ -599,6 +901,8 @@ export async function POST(req: Request) {
     const pdfBytes = await buildPdf({
       meetingTitle: meeting.title,
       meetingDateLabel: dateLabel,
+      meetingTimeLabel: timeLabel,
+      meetingLocation: String(meeting.location ?? ""),
       infoRows: [
         ["ID", sessionId],
         ["NAME", meeting.title],
@@ -609,6 +913,9 @@ export async function POST(req: Request) {
       agenda,
       tasks,
       referenceLink,
+      attendanceData,
+      milestones,
+      ongoingNotes,
     });
 
     // Upload PDF
