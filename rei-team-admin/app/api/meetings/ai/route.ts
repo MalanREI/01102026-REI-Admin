@@ -160,7 +160,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: "Empty transcript" });
     }
 
-    // 4) Ask AI to bucket notes per agenda item id
+    // 4) Load meeting metadata for context
+    const meetingRes = await admin
+      .from("meetings")
+      .select("title,start_at,duration_minutes")
+      .eq("id", meetingId)
+      .single();
+    const meetingTitle = meetingRes.data?.title ?? "Meeting";
+    const meetingDate = meetingRes.data?.start_at
+      ? new Date(meetingRes.data.start_at).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+      : "Unknown date";
+
+    // Load attendees for context
+    const attendeesRes = await admin
+      .from("meeting_attendees")
+      .select("email,full_name")
+      .eq("meeting_id", meetingId);
+    const attendeeNames = (attendeesRes.data ?? [])
+      .map((a: { full_name?: string; email?: string }) => a.full_name?.trim() || a.email?.trim() || "")
+      .filter(Boolean);
+
+    // 5) Ask AI to bucket notes per agenda item id
     // Using JSON Schema response_format for reliability
     const schema = {
       name: "AgendaNotes",
@@ -185,10 +205,31 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content:
-              "Turn a meeting transcript into concise, professional meeting minutes. " +
-              "Return ONLY JSON mapping agenda_item_id -> notes. Keep notes factual and action-oriented. " +
-              "If an agenda item was not discussed, return an empty string for that item.",
+            content: [
+              "You are a professional meeting secretary creating detailed meeting minutes.",
+              "",
+              "CONTEXT:",
+              `- Meeting: "${meetingTitle}"`,
+              `- Date: ${meetingDate}`,
+              `- Attendees: ${attendeeNames.join(", ") || "Not specified"}`,
+              "",
+              "INSTRUCTIONS:",
+              "1. Map each section of the transcript to the most relevant agenda item.",
+              "2. For each agenda item, write DETAILED notes including:",
+              "   - Key points discussed (not just a one-sentence summary)",
+              "   - Specific decisions made and the reasoning behind them",
+              "   - Names of people who raised points or were assigned responsibilities",
+              "   - Specific numbers, dates, deadlines, or metrics mentioned",
+              "   - Any disagreements, concerns, or open questions raised",
+              "   - Next steps or follow-ups discussed",
+              "3. Use bullet points (dashes) within each note for readability.",
+              "4. Attribute statements to specific people when identifiable from the transcript (e.g., 'Alan suggested...', 'Braden raised a concern about...').",
+              "5. If a topic was discussed that doesn't fit any agenda item, include it under the most related item with a note like '[Off-agenda]'.",
+              "6. If an agenda item was not discussed at all, return an empty string for it.",
+              "",
+              "Return ONLY a JSON object mapping agenda_item_id → notes_string.",
+              "Each notes_string should be a multi-line string with dashes for bullet points.",
+            ].join("\n"),
           },
           {
             role: "user",
@@ -257,10 +298,23 @@ export async function POST(req: Request) {
           messages: [
             {
               role: "system",
-              content:
-                "Extract action items from a meeting transcript. An action item is a task assigned to someone with a deadline. " +
-                "Return JSON with an array of items, each having: title (the task), owner (person responsible), dueDate (if mentioned, format YYYY-MM-DD or empty string), " +
-                "and priority (High/Normal/Low based on urgency, default to Normal). Only include clear action items, not general discussion points.",
+              content: [
+                "You are analyzing a meeting transcript to extract clear action items (tasks assigned to specific people).",
+                "",
+                "CONTEXT:",
+                `- Meeting: "${meetingTitle}"`,
+                `- Date: ${meetingDate}`,
+                `- Known team members: ${attendeeNames.join(", ") || "Not specified"}`,
+                "",
+                "RULES:",
+                "1. Only include CLEAR action items — tasks where someone committed to doing something or was assigned work.",
+                "2. Do NOT include general discussion points or topics mentioned in passing.",
+                "3. For 'owner': Use the person's full name from the known team members list if you can match them. If uncertain, use whatever name is mentioned in the transcript.",
+                "4. For 'dueDate': Only include if a specific date or timeframe was mentioned (e.g., 'by Friday', 'next week', 'by March 1st'). Convert relative dates to YYYY-MM-DD format based on the meeting date. If no date was mentioned, use an empty string.",
+                "5. For 'priority': Set to 'Urgent' if the item was described as urgent, critical, or blocking. Set to 'High' if it was emphasized as important. Default to 'Normal'.",
+                "6. For 'title': Write a clear, actionable task title (e.g., 'Submit insurance quote to broker by Friday' not just 'insurance quote').",
+                "7. If someone said they already completed something, do NOT include it as an action item.",
+              ].join("\n"),
             },
             {
               role: "user",

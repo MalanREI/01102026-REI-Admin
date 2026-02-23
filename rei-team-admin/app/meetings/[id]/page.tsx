@@ -304,6 +304,13 @@ export default function MeetingDetailPage() {
   "none" | "daily" | "weekdays" | "weekly" | "biweekly" | "monthly"
 >("weekly");
 
+  // Start Meeting checklist modal
+  const [startMeetingOpen, setStartMeetingOpen] = useState(false);
+  const [attendeePresence, setAttendeePresence] = useState<Record<string, boolean>>({});
+  const [guestNames, setGuestNames] = useState<string[]>([]);
+  const [guestInput, setGuestInput] = useState("");
+  const nextSessionNumber = useMemo(() => prevSessions.length + (currentSession ? 1 : 0) + 1, [prevSessions, currentSession]);
+
   // Column manager modal
   const [columnManagerOpen, setColumnManagerOpen] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
@@ -2097,7 +2104,14 @@ async function selectPreviousSession(sessionId: string) {
                 items={[
                   {
                     label: currentSession && !currentSession.ended_at ? "Start New Session" : "Start Meeting",
-                    onClick: onNewMinutes,
+                    onClick: () => {
+                      const presence: Record<string, boolean> = {};
+                      attendees.forEach(a => { presence[a.email] = true; });
+                      setAttendeePresence(presence);
+                      setGuestNames([]);
+                      setGuestInput("");
+                      setStartMeetingOpen(true);
+                    },
                     disabled: busy,
                   },
                   {
@@ -3413,6 +3427,124 @@ async function selectPreviousSession(sessionId: string) {
             </div>
           </Modal>
 
+          {/* Start Meeting Checklist Modal */}
+          <Modal
+            open={startMeetingOpen}
+            title={`${meeting?.title ?? "Meeting"} — Session #${nextSessionNumber}`}
+            onClose={() => setStartMeetingOpen(false)}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setStartMeetingOpen(false)}>Cancel</Button>
+                <Button onClick={async () => {
+                  setBusy(true);
+                  setErr(null);
+                  try {
+                    const session = await ensureCurrentSession();
+                    const sessionTitle = `${meeting?.title ?? "Meeting"} #${nextSessionNumber}`;
+                    await globalStartRecording({
+                      meetingId,
+                      sessionId: session.id,
+                      meetingTitle: sessionTitle,
+                    });
+                    setStartMeetingOpen(false);
+                  } catch (e: unknown) {
+                    setErr((e as Error)?.message ?? "Failed to start meeting");
+                  } finally {
+                    setBusy(false);
+                  }
+                }} disabled={busy}>
+                  {busy ? "Starting..." : "Start Meeting & Record"}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-5">
+              {/* Date/Time */}
+              <div>
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Date &amp; Time</div>
+                <div className="text-sm text-slate-300">
+                  {meeting?.start_at ? prettyDate(meeting.start_at) : "—"} · Starting now: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+
+              {/* Attendees */}
+              <div>
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  Attendees ({Object.values(attendeePresence).filter(Boolean).length + guestNames.length} present)
+                </div>
+                <div className="space-y-1 max-h-44 overflow-y-auto">
+                  {attendees.map(a => (
+                    <label key={a.email} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white/[0.04] rounded px-2 py-1.5 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={!!attendeePresence[a.email]}
+                        onChange={() => setAttendeePresence(prev => ({ ...prev, [a.email]: !prev[a.email] }))}
+                        className="rounded"
+                      />
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: a.color_hex || '#6b7280' }} />
+                      <span className={attendeePresence[a.email] ? 'text-slate-200' : 'text-slate-500 line-through'}>
+                        {a.full_name || a.email}
+                      </span>
+                      {!attendeePresence[a.email] && <span className="text-xs text-slate-600 ml-auto">absent</span>}
+                    </label>
+                  ))}
+
+                  {/* Guest names */}
+                  {guestNames.map((name, i) => (
+                    <div key={`guest-${i}`} className="flex items-center gap-2 text-sm px-2 py-1.5">
+                      <input type="checkbox" checked disabled className="rounded" />
+                      <span className="w-2 h-2 rounded-full bg-slate-500 flex-shrink-0" />
+                      <span className="text-slate-200">{name}</span>
+                      <span className="text-xs text-emerald-500 ml-1">guest</span>
+                      <button
+                        className="ml-auto text-xs text-slate-500 hover:text-red-400 transition-colors"
+                        onClick={() => setGuestNames(prev => prev.filter((_, gi) => gi !== i))}
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add guest */}
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    value={guestInput}
+                    onChange={(e) => setGuestInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && guestInput.trim()) {
+                        setGuestNames(prev => [...prev, guestInput.trim()]);
+                        setGuestInput("");
+                      }
+                    }}
+                    placeholder="Add guest name..."
+                  />
+                  <Button variant="ghost" onClick={() => {
+                    if (guestInput.trim()) {
+                      setGuestNames(prev => [...prev, guestInput.trim()]);
+                      setGuestInput("");
+                    }
+                  }}>
+                    + Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Agenda preview */}
+              {agenda.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Agenda</div>
+                  <div className="space-y-1 text-sm">
+                    {agenda.map(a => (
+                      <div key={a.id} className="text-slate-400 px-2 py-0.5 flex gap-2">
+                        {a.code && <span className="text-slate-600 font-mono text-xs">{a.code}</span>}
+                        <span>{a.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Modal>
+
           {/* Column Manager Modal */}
           <Modal
             open={columnManagerOpen}
@@ -3656,28 +3788,6 @@ function CalendarView({
     onYearChange(today.getFullYear());
   };
 
-  const MAX_VISIBLE_TASKS_PER_DAY = 3;
-
-  const itemsByDate = useMemo(() => {
-    const map = new Map<string, { milestones: Milestone[]; tasks: Task[] }>();
-    milestones.forEach((m) => {
-      if (m.target_date) {
-        const key = formatDateKey(new Date(m.target_date));
-        if (!map.has(key)) map.set(key, { milestones: [], tasks: [] });
-        map.get(key)!.milestones.push(m);
-      }
-    });
-    tasks.forEach((t) => {
-      const effectiveDate = t.due_date || t.start_date;
-      if (effectiveDate) {
-        const key = formatDateKey(new Date(effectiveDate));
-        if (!map.has(key)) map.set(key, { milestones: [], tasks: [] });
-        map.get(key)!.tasks.push(t);
-      }
-    });
-    return map;
-  }, [tasks, milestones]);
-
   const isCurrentMonth = (date: Date) => date.getMonth() === month;
   const isToday = (date: Date) => isSameDay(date, new Date());
 
@@ -3714,80 +3824,130 @@ function CalendarView({
           </Button>
         </div>
       </div>
-      
-      {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-2">
-        {/* Day headers */}
+
+      {/* Day headers */}
+      <div className="grid grid-cols-7">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
           <div key={day} className="text-center text-xs font-semibold text-slate-400 py-2">
             {day}
           </div>
         ))}
-        
-        {/* Calendar days */}
-        {days.map((date, idx) => {
-          const dateKey = formatDateKey(date);
-          const items = itemsByDate.get(dateKey);
-          const isCurrent = isCurrentMonth(date);
-          const isNow = isToday(date);
-          
-          return (
-            <div
-              key={idx}
-              className={`min-h-24 border rounded-lg p-2 ${
-                isCurrent ? 'bg-surface' : 'bg-base'
-              } ${isNow ? 'ring-2 ring-emerald-500' : ''}`}
-            >
-              <div className={`text-xs font-semibold mb-1 ${
-                isNow ? 'text-blue-600' : isCurrent ? 'text-slate-100' : 'text-slate-600'
-              }`}>
-                {date.getDate()}
-              </div>
-              
-              {items && (
-                <div className="space-y-1">
-                  {/* Milestones */}
-                  {items.milestones.map((milestone) => (
-                    <div
-                      key={milestone.id}
-                      className="text-xs px-1 py-0.5 rounded truncate cursor-pointer hover:opacity-80 border-l-2"
-                      style={{
-                        backgroundColor: `${priorityColor(milestone.priority)}20`,
-                        borderLeftColor: priorityColor(milestone.priority),
-                      }}
-                      onClick={() => onMilestoneClick(milestone.id)}
-                      title={milestone.title}
-                    >
-                      🎯 {milestone.title}
-                    </div>
-                  ))}
-                </div>
-              )}
+      </div>
 
-              {/* Tasks */}
-              {items && items.tasks.slice(0, MAX_VISIBLE_TASKS_PER_DAY).map((task) => (
-                <div
-                  key={task.id}
-                  className="text-xs px-1 py-0.5 rounded truncate cursor-pointer hover:opacity-80 border-l-2 dark:text-gray-100"
-                  style={{
-                    backgroundColor: `${statusColor(task.status)}30`,
-                    borderLeftColor: getOwnerColor(task),
-                  }}
-                  onClick={() => onTaskClick(task.id)}
-                  title={task.title}
-                >
-                  {task.title}
-                </div>
-              ))}
-              {items && items.tasks.length > MAX_VISIBLE_TASKS_PER_DAY && (
-                <div className="text-xs text-slate-500 pl-1">
-                  +{items.tasks.length - MAX_VISIBLE_TASKS_PER_DAY} more
-                </div>
+      {/* Week rows with bars */}
+      {weeks.map((week, weekIdx) => {
+        const lanes = computeWeekLanes(week);
+        const isExpanded = expandedWeeks.has(weekIdx);
+        const visibleLanes = isExpanded ? lanes : lanes.slice(0, MAX_BARS_PER_WEEK);
+        const hiddenCount = lanes.length - MAX_BARS_PER_WEEK;
+
+        return (
+          <div key={weekIdx}>
+            {/* Date number row */}
+            <div className="grid grid-cols-7">
+              {week.map((date, colIdx) => {
+                const isCurrent = isCurrentMonth(date);
+                const isNow = isToday(date);
+                return (
+                  <div
+                    key={colIdx}
+                    className={`text-center text-xs font-semibold py-1 border-b border-white/5 ${
+                      isCurrent ? 'bg-surface' : 'bg-base'
+                    }`}
+                  >
+                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full ${
+                      isNow ? 'ring-2 ring-emerald-500 text-emerald-400' : isCurrent ? 'text-slate-100' : 'text-slate-600'
+                    }`}>
+                      {date.getDate()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Bar lanes */}
+            <div className="relative" style={{ minHeight: visibleLanes.length ? `${visibleLanes.length * 26 + 4}px` : '8px' }}>
+              {visibleLanes.map((lane, laneIdx) =>
+                lane.map((bar) => {
+                  const leftPct = (bar.startCol / 7) * 100;
+                  const widthPct = ((bar.endCol - bar.startCol + 1) / 7) * 100;
+                  const topPx = laneIdx * 26 + 2;
+
+                  if (bar.type === 'milestone' && bar.milestone) {
+                    return (
+                      <div
+                        key={`m-${bar.milestone.id}`}
+                        className="absolute cursor-pointer hover:opacity-80 text-xs truncate px-1 py-0.5 rounded"
+                        style={{
+                          left: `${leftPct}%`,
+                          width: `${widthPct}%`,
+                          top: `${topPx}px`,
+                          height: '22px',
+                          backgroundColor: `${priorityColor(bar.milestone.priority)}20`,
+                          borderLeft: `2px solid ${priorityColor(bar.milestone.priority)}`,
+                        }}
+                        title={bar.milestone.title}
+                        onClick={() => onMilestoneClick(bar.milestone!.id)}
+                      >
+                        🎯 {bar.milestone.title}
+                      </div>
+                    );
+                  }
+
+                  if (bar.type === 'task' && bar.task) {
+                    const ownerClr = getOwnerColor(bar.task);
+                    const completed = bar.task.status?.toLowerCase() === 'done' || bar.task.status?.toLowerCase() === 'completed';
+                    return (
+                      <div
+                        key={`t-${bar.task.id}`}
+                        className={`absolute cursor-pointer hover:opacity-80 text-xs truncate px-1 py-0.5 ${
+                          completed ? 'opacity-50 line-through' : ''
+                        }`}
+                        style={{
+                          left: `${leftPct}%`,
+                          width: `${widthPct}%`,
+                          top: `${topPx}px`,
+                          height: '22px',
+                          backgroundColor: `${ownerClr}25`,
+                          borderLeft: bar.isStart ? `3px solid ${ownerClr}` : undefined,
+                          borderRight: bar.isEnd ? `3px solid ${ownerClr}` : undefined,
+                          borderTop: `1px solid ${ownerClr}40`,
+                          borderBottom: `1px solid ${ownerClr}40`,
+                          borderRadius: `${bar.isStart ? 4 : 0}px ${bar.isEnd ? 4 : 0}px ${bar.isEnd ? 4 : 0}px ${bar.isStart ? 4 : 0}px`,
+                        }}
+                        title={bar.task.title}
+                        onClick={() => onTaskClick(bar.task!.id)}
+                      >
+                        {bar.showLabel ? bar.task.title : ''}
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })
               )}
             </div>
-          );
-        })}
-      </div>
+
+            {/* Show more / less */}
+            {hiddenCount > 0 && !isExpanded && (
+              <div
+                className="text-xs text-slate-500 hover:text-slate-300 cursor-pointer pl-1 py-0.5 transition-colors"
+                onClick={() => toggleWeekExpanded(weekIdx)}
+              >
+                + {hiddenCount} more
+              </div>
+            )}
+            {isExpanded && lanes.length > MAX_BARS_PER_WEEK && (
+              <div
+                className="text-xs text-slate-500 hover:text-slate-300 cursor-pointer pl-1 py-0.5 transition-colors"
+                onClick={() => toggleWeekExpanded(weekIdx)}
+              >
+                show less
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
