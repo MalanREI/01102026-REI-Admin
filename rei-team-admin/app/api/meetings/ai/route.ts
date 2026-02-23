@@ -362,6 +362,27 @@ export async function POST(req: Request) {
       })
       .eq("id", sessionId);
 
+    // Auto-trigger PDF generation (finalize)
+    try {
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : process.env.SITE_URL || "http://localhost:3000";
+
+      const internalToken = process.env.INTERNAL_JOB_TOKEN || "";
+
+      await fetch(`${baseUrl}/api/meetings/ai/finalize`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(internalToken ? { "x-internal-token": internalToken } : {}),
+        },
+        body: JSON.stringify({ meetingId, sessionId }),
+      });
+    } catch (finalizeErr) {
+      console.error("Auto-finalize failed (non-fatal):", finalizeErr);
+      // Don't fail the whole process — PDF can be generated manually later
+    }
+
     return NextResponse.json({ 
       ok: true, 
       agendaItemsUpdated: upRows.length,

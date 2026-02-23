@@ -56,10 +56,44 @@ export async function POST(req: Request) {
 
     if (upd.error) throw upd.error;
 
-    return NextResponse.json({ 
-      ok: true, 
+    // Auto-trigger AI processing if recording exists
+    if (hasRecording) {
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : process.env.SITE_URL || "http://localhost:3000";
+
+      // Set status to queued
+      await admin
+        .from("meeting_minutes_sessions")
+        .update({ ai_status: "queued", ai_error: null })
+        .eq("id", sessionId);
+
+      // Fire-and-forget: trigger AI processing
+      const internalToken = process.env.INTERNAL_JOB_TOKEN || "";
+      fetch(`${baseUrl}/api/meetings/ai`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(internalToken ? { "x-internal-token": internalToken } : {}),
+        },
+        body: JSON.stringify({ meetingId, sessionId, recordingPath: rec.data!.storage_path }),
+      }).catch(async (err: unknown) => {
+        console.error("Failed to auto-trigger AI processing:", err);
+        await admin
+          .from("meeting_minutes_sessions")
+          .update({
+            ai_status: "error",
+            ai_error: "Auto-processing failed to start: " + ((err as Error)?.message || "Unknown"),
+          })
+          .eq("id", sessionId);
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
       hasRecording,
-      ai_status: upd.data?.[0]?.ai_status ?? null 
+      autoProcessing: hasRecording,
+      ai_status: hasRecording ? "queued" : "skipped",
     });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error)?.message ?? "Conclude failed" }, { status: 500 });

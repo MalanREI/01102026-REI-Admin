@@ -1767,9 +1767,11 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
 
 
     if (j.hasRecording) {
-      setInfo("Meeting concluded successfully! Click the 'Process Recording' button to generate AI minutes.");
+      setInfo("Meeting ended! AI is processing the recording — transcribing, summarizing, and generating the PDF. This may take a few minutes. You'll see the status update here automatically.");
+      // Auto-poll for completion without blocking the UI
+      void pollForAiCompletion(currentSession.id);
     } else {
-      setInfo("Meeting concluded successfully! No recording to process.");
+      setInfo("Meeting ended successfully. No recording was captured.");
     }
   } catch (e: unknown) {
     const error = e as Error;
@@ -1778,6 +1780,61 @@ function formatTaskEventLine(opts: { event: TaskEvent; columns: Column[] }): str
     setBusy(false);
   }
 }
+
+  async function pollForAiCompletion(pollSessionId: string) {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const maxSeconds = Number(process.env.NEXT_PUBLIC_AI_POLL_MAX_SECONDS || "1800");
+    const intervalMs = Math.max(2000, Number(process.env.NEXT_PUBLIC_AI_POLL_INTERVAL_MS || "5000"));
+    const maxIters = Math.max(1, Math.floor((maxSeconds * 1000) / intervalMs));
+
+    for (let i = 0; i < maxIters; i++) {
+      await sleep(intervalMs);
+
+      const st = await sb
+        .from("meeting_minutes_sessions")
+        .select("id,ai_status,ai_error,pdf_path")
+        .eq("id", pollSessionId)
+        .maybeSingle();
+
+      if (!st.error && st.data) {
+        const status = String(st.data.ai_status ?? "");
+        const aiError = String(st.data.ai_error ?? "");
+
+        if (status === "done") {
+          await loadAgendaNotes(pollSessionId, true);
+          const s2 = await sb
+            .from("meeting_minutes_sessions")
+            .select("id,started_at,ended_at,pdf_path,ai_status,ai_error")
+            .eq("meeting_id", meetingId)
+            .order("started_at", { ascending: false });
+          if (!s2.error) {
+            const sessions2 = (s2.data as MinutesSession[]) ?? [];
+            setCurrentSession(sessions2.find((x) => !x.ended_at) ?? null);
+            setPrevSession(sessions2.find((x) => !!x.ended_at) ?? null);
+            setPrevSessions(sessions2.filter((x) => !!x.ended_at));
+          }
+
+          if (st.data.pdf_path) {
+            setInfo("✅ Meeting minutes are ready! The AI summary and PDF have been generated. Go to View ▾ → 'Send meeting notes' to review and send.");
+          } else {
+            setInfo("✅ AI processing complete! Notes have been summarized per agenda item.");
+          }
+          return;
+        }
+
+        if (status === "error") {
+          setErr("AI processing encountered an error: " + (aiError || "Unknown error. Check View ▾ → Previous Meetings for details."));
+          return;
+        }
+
+        if (status === "processing") {
+          setInfo("⏳ AI is transcribing and summarizing the recording...");
+        }
+      }
+    }
+
+    setInfo("AI processing is still running in the background. Check View ▾ → Previous Meetings to see when it completes.");
+  }
 
   async function processRecording() {
     if (!prevSession?.id) return;
@@ -2167,10 +2224,6 @@ async function selectPreviousSession(sessionId: string) {
                 items={[
                   { label: "New meeting minutes", onClick: onNewMinutes, disabled: busy },
                   { label: "Conclude meeting", onClick: concludeMeeting, disabled: busy },
-                  ...(prevSession && prevSession.ai_status === "ready" 
-                    ? [{ label: "Process Recording", onClick: processRecording, disabled: busy }]
-                    : []
-                  ),
                 ]}
               />
               
