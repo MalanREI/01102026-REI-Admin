@@ -39,12 +39,16 @@ export default function ContentLibraryPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const fetchMeta = useCallback(async () => {
-    const [ctRes, bvRes] = await Promise.all([
-      fetch("/api/content-types?activeOnly=true"),
-      fetch("/api/brand-voices"),
-    ]);
-    if (ctRes.ok) setContentTypes(await ctRes.json());
-    if (bvRes.ok) setBrandVoices(await bvRes.json());
+    try {
+      const [ctRes, bvRes] = await Promise.all([
+        fetch("/api/content-types?activeOnly=true"),
+        fetch("/api/brand-voices"),
+      ]);
+      if (ctRes.ok) setContentTypes(await ctRes.json());
+      if (bvRes.ok) setBrandVoices(await bvRes.json());
+    } catch {
+      // Non-critical: filters will still work without meta
+    }
   }, []);
 
   const fetchPosts = useCallback(async () => {

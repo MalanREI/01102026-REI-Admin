@@ -42,11 +42,9 @@ export default function PostDetailPage() {
   const fetchPost = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/posts?sort_by=created_at&sort_dir=desc`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const all: ContentPostWithRelations[] = await res.json();
-      const found = all.find((p) => p.id === id);
-      if (!found) { setError("Post not found"); return; }
+      const res = await fetch(`/api/posts?id=${id}`);
+      if (!res.ok) throw new Error(res.status === 404 ? "Post not found" : "Failed to fetch");
+      const found: ContentPostWithRelations = await res.json();
       setPost(found);
       setForm({
         title: found.title ?? "",

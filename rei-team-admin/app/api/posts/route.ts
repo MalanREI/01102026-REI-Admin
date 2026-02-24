@@ -6,6 +6,18 @@ export async function GET(req: NextRequest) {
     const db = await supabaseServer();
     const p = req.nextUrl.searchParams;
 
+    // Single-post lookup by ID
+    const postId = p.get("id");
+    if (postId) {
+      const { data, error } = await db
+        .from("content_posts")
+        .select("*, content_type:content_types(*), brand_voice:brand_voices(*), created_by_member:team_members!created_by(*)")
+        .eq("id", postId)
+        .single();
+      if (error) return NextResponse.json({ error: error.message }, { status: error.code === "PGRST116" ? 404 : 500 });
+      return NextResponse.json(data);
+    }
+
     let query = db
       .from("content_posts")
       .select("*, content_type:content_types(*), brand_voice:brand_voices(*), created_by_member:team_members!created_by(*)");
