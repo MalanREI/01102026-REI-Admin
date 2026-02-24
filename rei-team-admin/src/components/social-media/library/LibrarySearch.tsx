@@ -15,7 +15,7 @@ export function LibrarySearch({ value, onChange }: { value: string; onChange: (v
   useEffect(() => {
     const timer = setTimeout(() => {
       onChangeRef.current(local);
-    }, 300);
+    }, 500);
     return () => clearTimeout(timer);
   }, [local]);
 

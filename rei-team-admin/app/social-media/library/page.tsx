@@ -112,24 +112,29 @@ export default function ContentLibraryPage() {
     fetchPosts();
   };
 
-  const handleBulkSubmit = async (ids: string[]) => {
-    await Promise.all(ids.map((id) => fetch("/api/posts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: "pending_approval" }) })));
+  const runBulkOp = async (requests: Promise<Response>[]) => {
+    const results = await Promise.allSettled(requests);
+    const failed = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok));
+    if (failed.length > 0) {
+      setError(`${failed.length} of ${requests.length} items could not be updated. Please try again.`);
+    }
     fetchPosts();
+  };
+
+  const handleBulkSubmit = async (ids: string[]) => {
+    await runBulkOp(ids.map((id) => fetch("/api/posts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: "pending_approval" }) })));
   };
 
   const handleBulkArchive = async (ids: string[]) => {
-    await Promise.all(ids.map((id) => fetch("/api/posts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: "archived" }) })));
-    fetchPosts();
+    await runBulkOp(ids.map((id) => fetch("/api/posts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: "archived" }) })));
   };
 
   const handleBulkDelete = async (ids: string[]) => {
-    await Promise.all(ids.map((id) => fetch(`/api/posts?id=${id}`, { method: "DELETE" })));
-    fetchPosts();
+    await runBulkOp(ids.map((id) => fetch(`/api/posts?id=${id}`, { method: "DELETE" })));
   };
 
   const handleBulkChangeType = async (ids: string[], contentTypeId: string) => {
-    await Promise.all(ids.map((id) => fetch("/api/posts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, content_type_id: contentTypeId }) })));
-    fetchPosts();
+    await runBulkOp(ids.map((id) => fetch("/api/posts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, content_type_id: contentTypeId }) })));
   };
 
   return (

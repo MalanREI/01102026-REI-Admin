@@ -15,6 +15,7 @@ export default function ContentTypesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ContentType | null>(null);
   const [postCounts, setPostCounts] = useState<Record<string, number>>({});
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -75,8 +76,13 @@ export default function ContentTypesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this content type?")) return;
-    await fetch(`/api/content-types?id=${id}`, { method: "DELETE" });
+    setDeleteId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    await fetch(`/api/content-types?id=${deleteId}`, { method: "DELETE" });
+    setDeleteId(null);
     fetchData();
   };
 
@@ -128,6 +134,20 @@ export default function ContentTypesPage() {
             onSave={handleSave}
             onCancel={() => { setFormOpen(false); setEditing(null); }}
           />
+        </Modal>
+
+        <Modal
+          open={deleteId !== null}
+          title="Delete Content Type"
+          onClose={() => setDeleteId(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDeleteId(null)}>Cancel</Button>
+              <Button onClick={confirmDelete} className="bg-red-600 hover:bg-red-500">Delete</Button>
+            </>
+          }
+        >
+          <p className="text-sm text-slate-300">Are you sure you want to delete this content type? This action cannot be undone.</p>
         </Modal>
       </div>
     </PageShell>

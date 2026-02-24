@@ -18,6 +18,7 @@ export default function BrandVoicesPage() {
   const [testResult, setTestResult] = useState("");
   const [testLoading, setTestLoading] = useState(false);
   const [postCounts, setPostCounts] = useState<Record<string, number>>({});
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -64,8 +65,13 @@ export default function BrandVoicesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this brand voice?")) return;
-    await fetch(`/api/brand-voices?id=${id}`, { method: "DELETE" });
+    setDeleteId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    await fetch(`/api/brand-voices?id=${deleteId}`, { method: "DELETE" });
+    setDeleteId(null);
     fetchData();
   };
 
@@ -155,6 +161,20 @@ export default function BrandVoicesPage() {
               <p className="text-sm text-slate-200 whitespace-pre-wrap">{testResult}</p>
             </div>
           )}
+        </Modal>
+
+        <Modal
+          open={deleteId !== null}
+          title="Delete Brand Voice"
+          onClose={() => setDeleteId(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDeleteId(null)}>Cancel</Button>
+              <Button onClick={confirmDelete} className="bg-red-600 hover:bg-red-500">Delete</Button>
+            </>
+          }
+        >
+          <p className="text-sm text-slate-300">Are you sure you want to delete this brand voice? This action cannot be undone.</p>
         </Modal>
       </div>
     </PageShell>
