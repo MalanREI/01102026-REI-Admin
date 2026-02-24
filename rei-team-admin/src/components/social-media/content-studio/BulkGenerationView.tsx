@@ -13,6 +13,7 @@ type BulkPost = {
 type Props = {
   posts: BulkPost[];
   isLoading: boolean;
+  saveStatus?: "idle" | "saving" | "saved" | "error";
   onSaveAll: (posts: BulkPost[]) => void;
   onUpdatePost: (id: string, content: string) => void;
   onToggleApproval: (id: string, approved: boolean) => void;
@@ -22,6 +23,7 @@ type Props = {
 export function BulkGenerationView({
   posts,
   isLoading,
+  saveStatus = "idle",
   onSaveAll,
   onUpdatePost,
   onToggleApproval,
@@ -59,12 +61,18 @@ export function BulkGenerationView({
         <span className="text-sm text-slate-400">{posts.length} posts generated • {approvedPosts.length} approved</span>
         <Button
           onClick={() => onSaveAll(approvedPosts)}
-          disabled={approvedPosts.length === 0}
+          disabled={approvedPosts.length === 0 || saveStatus === "saving"}
           className="text-xs py-1.5"
         >
-          Save {approvedPosts.length} as Drafts
+          {saveStatus === "saving" ? "Saving…" : `Save ${approvedPosts.length} as Drafts`}
         </Button>
       </div>
+      {saveStatus === "saved" && (
+        <p className="text-xs text-emerald-400">✓ All approved posts saved as drafts.</p>
+      )}
+      {saveStatus === "error" && (
+        <p className="text-xs text-red-400">Failed to save some posts. Please try again.</p>
+      )}
 
       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
         {posts.map((post, idx) => (

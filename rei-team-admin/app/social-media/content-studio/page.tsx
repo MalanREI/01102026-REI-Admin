@@ -61,6 +61,7 @@ export default function ContentStudioPage() {
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkPosts, setBulkPosts] = useState<BulkPost[]>([]);
   const [isBulkLoading, setIsBulkLoading] = useState(false);
+  const [bulkSaveStatus, setBulkSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   // Load data
   useEffect(() => {
@@ -227,18 +228,18 @@ export default function ContentStudioPage() {
     }
   }, [userId]);
 
-  function handleSaveAllBulk(posts: BulkPost[]) {
+  async function handleSaveAllBulk(posts: BulkPost[]) {
     const ctName = (() => {
       const ct = contentTypes.find((t) => t.id === selectedContentTypeId);
       if (!ct) return "custom";
       return ct.name.toLowerCase().replace(/\s+/g, "-");
     })();
     const model = modelOverride || MODEL_ROUTING[ctName] || "gpt-4o";
-    // Save each approved post as draft
-    Promise.all(posts.map(async (post) => {
-      try {
-        const { createContentPost } = await import("@/src/lib/supabase/social-media-queries");
-        await createContentPost({
+    setBulkSaveStatus("saving");
+    try {
+      const { createContentPost } = await import("@/src/lib/supabase/social-media-queries");
+      await Promise.all(posts.map((post) =>
+        createContentPost({
           title: null,
           body: post.content,
           content_type_id: selectedContentTypeId || null,
@@ -251,11 +252,13 @@ export default function ContentStudioPage() {
           ai_prompt_used: latestPrompt,
           platform_specific_content: null,
           created_by: userId,
-        });
-      } catch (e) {
-        console.error("Failed to save bulk post:", e);
-      }
-    })).catch(console.error);
+        })
+      ));
+      setBulkSaveStatus("saved");
+    } catch (e) {
+      console.error("Failed to save bulk posts:", e);
+      setBulkSaveStatus("error");
+    }
   }
 
   return (
@@ -315,6 +318,7 @@ export default function ContentStudioPage() {
               <BulkGenerationView
                 posts={bulkPosts}
                 isLoading={isBulkLoading}
+                saveStatus={bulkSaveStatus}
                 onSaveAll={handleSaveAllBulk}
                 onUpdatePost={(id, content) =>
                   setBulkPosts((prev) => prev.map((p) => p.id === id ? { ...p, content } : p))

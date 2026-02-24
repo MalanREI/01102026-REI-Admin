@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
 
+// DALL-E 3 standard 1024x1024 image cost in USD
+const DALLE3_IMAGE_COST = 0.04;
+
 export async function POST(req: Request) {
   try {
     const body = await req.json() as {
@@ -33,7 +36,7 @@ export async function POST(req: Request) {
       quality: "standard",
     });
 
-    const imageUrl = response.data[0]?.url;
+    const imageUrl = response.data?.[0]?.url;
     if (!imageUrl) {
       return NextResponse.json({ error: "No image returned" }, { status: 500 });
     }
@@ -65,7 +68,7 @@ export async function POST(req: Request) {
         model_used: "dall-e-3",
         content_type: "image",
         tokens_used: null,
-        cost_estimate: 0.04,
+        cost_estimate: DALLE3_IMAGE_COST,
         generated_by,
       });
     } catch (logErr) {

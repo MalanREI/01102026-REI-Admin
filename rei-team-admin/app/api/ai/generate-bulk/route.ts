@@ -3,6 +3,9 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
 
+// Approximate cost per token in USD (blended estimate for logging purposes)
+const COST_PER_TOKEN = 0.000002;
+
 const MODEL_ROUTING: Record<string, string> = {
   "daily-tips": "claude-sonnet",
   "weekly-newsletter": "gpt-4o",
@@ -117,7 +120,7 @@ export async function POST(req: Request) {
         model_used: modelUsed,
         content_type,
         tokens_used: tokensUsed,
-        cost_estimate: tokensUsed ? tokensUsed * 0.000002 : null,
+        cost_estimate: tokensUsed ? tokensUsed * COST_PER_TOKEN : null,
         generated_by,
       });
     } catch (logErr) {

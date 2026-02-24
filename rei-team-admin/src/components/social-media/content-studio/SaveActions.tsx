@@ -88,7 +88,7 @@ export function SaveActions({
           className="text-xs py-1.5 opacity-50 cursor-not-allowed"
           title="Coming in Phase 2"
         >
-          Save &amp; Schedule
+          Save & Schedule
         </Button>
       </div>
 

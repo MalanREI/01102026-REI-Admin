@@ -48,7 +48,7 @@ export function ChatInterface({ messages, isLoading, onSend, onGenerateImage, ge
             <div className="space-y-2 text-left">
               {[
                 "Write a daily tip about property valuation for Instagram",
-                'Generate 5 weekly tips for Facebook about real estate investing',
+                'Generate 10 weekly tips for Facebook about real estate investing',
                 "Create a mythbusters post debunking the '20% down' myth",
                 "Write a holiday post for Christmas about real estate",
               ].map((example) => (
