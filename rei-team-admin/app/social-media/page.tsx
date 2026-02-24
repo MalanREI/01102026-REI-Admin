@@ -1,6 +1,7 @@
 import { PageShell } from "@/src/components/PageShell";
 import { Card, Pill } from "@/src/components/ui";
 import Link from "next/link";
+import { SocialMediaDashboardOverview } from "@/src/components/social-media/SocialMediaDashboardOverview";
 
 const SECTIONS = [
   {
@@ -51,6 +52,9 @@ export default function SocialMediaDashboard() {
             Manage all your social media channels from one place — content creation, scheduling, analytics, and engagement.
           </div>
         </div>
+
+        {/* Live platform overview — fetches from Supabase client-side */}
+        <SocialMediaDashboardOverview />
 
         <Card title="Modules" right={<Pill>Coming soon</Pill>}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

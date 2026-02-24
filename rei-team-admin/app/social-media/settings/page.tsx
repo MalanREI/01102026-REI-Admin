@@ -1,7 +1,53 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import { PageShell } from "@/src/components/PageShell";
 import { Card, Pill } from "@/src/components/ui";
+import { getSocialPlatforms } from "@/src/lib/supabase/social-media-queries";
+import type { SocialPlatform } from "@/src/lib/types/social-media";
+import { PlatformCard } from "@/src/components/social-media/PlatformCard";
+import { PlatformQuickLinks } from "@/src/components/social-media/PlatformQuickLinks";
+import { ConnectionHealthSummary } from "@/src/components/social-media/ConnectionHealthSummary";
+import {
+  ALL_PLATFORMS,
+  PLATFORM_CONFIGS,
+} from "@/src/components/social-media/platform-config";
 
 export default function SocialMediaSettingsPage() {
+  const [platformData, setPlatformData] = useState<Record<string, SocialPlatform>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPlatforms = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await getSocialPlatforms();
+      const map: Record<string, SocialPlatform> = {};
+      for (const row of rows) {
+        map[row.platform_name] = row;
+      }
+      setPlatformData(map);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load platforms");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPlatforms();
+  }, [loadPlatforms]);
+
+  function handlePlatformUpdate(updated: SocialPlatform) {
+    setPlatformData((prev) => ({
+      ...prev,
+      [updated.platform_name]: updated,
+    }));
+  }
+
+  const allPlatforms = Object.values(platformData);
+
   return (
     <PageShell>
       <div className="max-w-5xl space-y-6">
@@ -12,12 +58,46 @@ export default function SocialMediaSettingsPage() {
           </div>
         </div>
 
-        <Card title="Platform Connections" right={<Pill>Coming soon</Pill>}>
-          <ul className="list-disc pl-5 text-sm text-slate-300 space-y-1">
-            <li>Connect Instagram, Facebook, LinkedIn, TikTok, YouTube, Google Business Profile</li>
-            <li>OAuth token management and refresh</li>
-            <li>Platform-specific posting settings</li>
-          </ul>
+        {/* Connection health summary */}
+        {!loading && !error && (
+          <ConnectionHealthSummary
+            platforms={allPlatforms}
+            total={ALL_PLATFORMS.length}
+          />
+        )}
+
+        {/* Quick links to connected platforms */}
+        <Card title="Quick Launch">
+          {loading ? (
+            <div className="text-xs text-slate-500">Loading platforms…</div>
+          ) : (
+            <PlatformQuickLinks platforms={allPlatforms} />
+          )}
+        </Card>
+
+        {/* Platform connection cards */}
+        <Card title="Platform Connections">
+          {loading ? (
+            <div className="text-xs text-slate-500 py-4 text-center">
+              Loading platform connections…
+            </div>
+          ) : error ? (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-400">
+              {error}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {ALL_PLATFORMS.map((name) => (
+                <PlatformCard
+                  key={name}
+                  platformName={name}
+                  config={PLATFORM_CONFIGS[name]}
+                  platform={platformData[name] ?? null}
+                  onUpdate={handlePlatformUpdate}
+                />
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card title="Team Management" right={<Pill>Coming soon</Pill>}>
