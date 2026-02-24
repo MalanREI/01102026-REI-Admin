@@ -1,26 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
-import { PageShell } from "@/src/components/PageShell";
-import { SettingsSection } from "@/src/components/social-media/settings/SettingsSection";
-
-export default function SocialMediaSettingsPage() {
-  const [contentTypeCount, setContentTypeCount] = useState<number | undefined>(undefined);
-  const [brandVoiceCount, setBrandVoiceCount] = useState<number | undefined>(undefined);
-
-  useEffect(() => {
-    fetch("/api/content-types?activeOnly=false")
-      .then((r) => r.json())
-      .then((d) => Array.isArray(d) && setContentTypeCount(d.length))
-      .catch(() => {});
-    fetch("/api/brand-voices")
-      .then((r) => r.json())
-      .then((d) => Array.isArray(d) && setBrandVoiceCount(d.length))
-      .catch(() => {});
-  }, []);
-
-
 import { useCallback, useEffect, useState } from "react";
 import { PageShell } from "@/src/components/PageShell";
+import { SettingsSection } from "@/src/components/social-media/settings/SettingsSection";
 import { Card, Pill } from "@/src/components/ui";
 import { getSocialPlatforms } from "@/src/lib/supabase/social-media-queries";
 import type { SocialPlatform } from "@/src/lib/types/social-media";
@@ -33,9 +14,22 @@ import {
 } from "@/src/components/social-media/platform-config";
 
 export default function SocialMediaSettingsPage() {
+  const [contentTypeCount, setContentTypeCount] = useState<number | undefined>(undefined);
+  const [brandVoiceCount, setBrandVoiceCount] = useState<number | undefined>(undefined);
   const [platformData, setPlatformData] = useState<Record<string, SocialPlatform>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/content-types?activeOnly=false")
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) && setContentTypeCount(d.length))
+      .catch(() => {});
+    fetch("/api/brand-voices")
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) && setBrandVoiceCount(d.length))
+      .catch(() => {});
+  }, []);
 
   const loadPlatforms = useCallback(async () => {
     setLoading(true);
