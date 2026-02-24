@@ -235,7 +235,7 @@ export default function ContentStudioPage() {
     })();
     const model = modelOverride || MODEL_ROUTING[ctName] || "gpt-4o";
     // Save each approved post as draft
-    posts.forEach(async (post) => {
+    Promise.all(posts.map(async (post) => {
       try {
         const { createContentPost } = await import("@/src/lib/supabase/social-media-queries");
         await createContentPost({
@@ -255,7 +255,7 @@ export default function ContentStudioPage() {
       } catch (e) {
         console.error("Failed to save bulk post:", e);
       }
-    });
+    })).catch(console.error);
   }
 
   return (

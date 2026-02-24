@@ -57,7 +57,7 @@ export function ChatInterface({ messages, isLoading, onSend, onGenerateImage, ge
                   onClick={() => { setInput(example); }}
                   className="block w-full text-left text-xs text-slate-400 hover:text-emerald-400 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-lg px-3 py-2 transition-colors"
                 >
-                  &quot;{example}&quot;
+                  {`"${example}"`}
                 </button>
               ))}
             </div>

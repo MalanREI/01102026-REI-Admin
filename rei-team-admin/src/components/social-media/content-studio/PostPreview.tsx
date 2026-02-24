@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PlatformPreviewTab } from "./PlatformPreviewTab";
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -26,9 +26,11 @@ export function PostPreview({ content, imageUrl, targetPlatforms, onEditContent 
   const [editValue, setEditValue] = useState(content);
 
   // Sync edit value when content changes externally
-  if (!isEditing && editValue !== content) {
-    setEditValue(content);
-  }
+  useEffect(() => {
+    if (!isEditing) {
+      setEditValue(content);
+    }
+  }, [content, isEditing]);
 
   function handleSaveEdit() {
     onEditContent(editValue);
