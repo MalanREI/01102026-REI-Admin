@@ -279,6 +279,30 @@ export default function SocialMediaCalendarPage() {
           </div>
         )}
 
+        {/* Overdue posts banner — shown when scheduled posts are past their run time */}
+        {!loading && !error && (() => {
+          const now = new Date();
+          const overdueCount = events.filter(
+            (ev) =>
+              ev.post_status === "scheduled" &&
+              ev.next_run_at != null &&
+              new Date(ev.next_run_at) < now
+          ).length;
+          if (!overdueCount) return null;
+          return (
+            <div className="rounded-xl bg-amber-900/20 border border-amber-700/40 px-4 py-3 flex items-center gap-3">
+              <span className="text-amber-400 text-base">⚠</span>
+              <p className="text-sm text-amber-300 flex-1">
+                {overdueCount} scheduled post{overdueCount > 1 ? "s are" : " is"} overdue — the
+                cron engine will publish them on its next run (every 5 minutes).
+              </p>
+              <Button variant="ghost" onClick={fetchEvents} className="text-xs shrink-0">
+                Refresh
+              </Button>
+            </div>
+          );
+        })()}
+
         {/* Loading skeleton */}
         {loading && (
           <div className="rounded-2xl border border-white/[0.06] bg-surface h-96 animate-pulse" />

@@ -47,7 +47,11 @@ export function ScheduleList({ events, onSelect }: ScheduleListProps) {
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-slate-400 shrink-0">{time}</span>
-                <PostScheduleBadge status={ev.post_status} scheduleType={ev.schedule_type} />
+                <PostScheduleBadge
+                  status={ev.post_status}
+                  scheduleType={ev.schedule_type}
+                  nextRunAt={ev.next_run_at}
+                />
               </div>
               <p className="text-xs text-slate-200 mt-0.5 truncate font-medium">
                 {ev.post_title || ev.post_body.slice(0, 60)}
