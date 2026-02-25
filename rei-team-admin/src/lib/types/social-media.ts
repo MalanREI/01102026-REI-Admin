@@ -254,3 +254,32 @@ export interface EngagementInboxItemWithPlatform extends EngagementInboxItem {
 export interface ContentScheduleWithPost extends ContentSchedule {
   post?: ContentPost | null;
 }
+
+// ============================================================
+// CALENDAR / SCHEDULING HELPERS
+// ============================================================
+
+/** A flattened event used for calendar display (schedule + post merged). */
+export interface CalendarEvent {
+  schedule_id: string;
+  post_id: string;
+  post_title: string | null;
+  post_body: string;
+  post_status: PostStatus;
+  target_platforms: string[];
+  media_type: MediaType | null;
+  schedule_type: ScheduleType;
+  scheduled_at: string | null;
+  recurrence_rule: string | null;
+  recurrence_end_date: string | null;
+  timezone: string;
+  is_active: boolean;
+  next_run_at: string | null;
+}
+
+/** Filter state used by the calendar view. */
+export interface CalendarFilter {
+  platforms: string[];
+  statuses: PostStatus[];
+  scheduleType: ScheduleType | '';
+}
