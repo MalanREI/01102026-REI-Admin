@@ -1,16 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import { Button, Modal, Input } from "@/src/components/ui";
 import { useRecording } from "@/src/context/RecordingContext";
 
+const MAX_UNREAD_NOTIFICATIONS = 99;
+
 export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [email, setEmail] = useState<string>("");
+  const [memberId, setMemberId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [p1, setP1] = useState("");
   const [p2, setP2] = useState("");
@@ -26,6 +30,28 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
     };
     void load();
   }, [sb]);
+
+  // Fetch current team member id
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((m) => { if (m?.id) setMemberId(m.id); })
+      .catch(() => {});
+  }, []);
+
+  const fetchUnread = useCallback(() => {
+    if (!memberId) return;
+    fetch(`/api/notifications?recipient_id=${memberId}&unread=true&limit=${MAX_UNREAD_NOTIFICATIONS}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: unknown[]) => setUnreadCount(Array.isArray(data) ? data.length : 0))
+      .catch(() => {});
+  }, [memberId]);
+
+  useEffect(() => {
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchUnread]);
 
   async function signOut() {
     await sb.auth.signOut();
@@ -74,14 +100,32 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
           </Link>
         )}
 
-        <div className="relative">
-          <button
-            className="h-9 w-9 rounded-full border border-white/10 bg-elevated text-sm font-semibold text-slate-300"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label="Open profile menu"
+        <div className="flex items-center gap-2">
+          {/* Notification bell */}
+          <Link
+            href="/social-media/library?status=pending_approval"
+            className="relative p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+            aria-label="Pending approvals"
+            title="Pending approvals"
           >
-            {(email?.[0] ?? "U").toUpperCase()}
-          </button>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </Link>
+
+          <div className="relative">
+            <button
+              className="h-9 w-9 rounded-full border border-white/10 bg-elevated text-sm font-semibold text-slate-300"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="Open profile menu"
+            >
+              {(email?.[0] ?? "U").toUpperCase()}
+            </button>
 
           {menuOpen && (
             <div className="absolute right-0 mt-2 w-56 rounded-xl border border-white/10 bg-surface shadow-2xl p-2">
@@ -104,6 +148,7 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
               </button>
             </div>
           )}
+          </div>
         </div>
       </div>
 

@@ -5,7 +5,10 @@ import Link from "next/link";
 import { PageShell } from "@/src/components/PageShell";
 import { Button, Input, Textarea, Modal } from "@/src/components/ui";
 import { StatusBadge } from "@/src/components/social-media/library/StatusBadge";
-import type { ContentPostWithRelations, ContentType, BrandVoice, PostStatus } from "@/src/lib/types/social-media";
+import { ApprovalActions } from "@/src/components/social-media/approval/ApprovalActions";
+import { ApprovalFlowIndicator } from "@/src/components/social-media/approval/ApprovalFlowIndicator";
+import { ApprovalTimeline } from "@/src/components/social-media/approval/ApprovalTimeline";
+import type { ContentPostWithRelations, ContentType, BrandVoice, TeamMember } from "@/src/lib/types/social-media";
 
 const PLATFORMS = [
   { value: "instagram", label: "Instagram" },
@@ -23,11 +26,13 @@ export default function PostDetailPage() {
   const [post, setPost] = useState<ContentPostWithRelations | null>(null);
   const [contentTypes, setContentTypes] = useState<ContentType[]>([]);
   const [brandVoices, setBrandVoices] = useState<BrandVoice[]>([]);
+  const [currentMember, setCurrentMember] = useState<TeamMember | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [edited, setEdited] = useState(false);
+  const [approvalRefreshKey, setApprovalRefreshKey] = useState(0);
 
   const [form, setForm] = useState({
     title: "",
@@ -67,9 +72,11 @@ export default function PostDetailPage() {
     Promise.all([
       fetch("/api/content-types").then((r) => r.json()),
       fetch("/api/brand-voices").then((r) => r.json()),
-    ]).then(([ct, bv]) => {
+      fetch("/api/auth/me").then((r) => r.ok ? r.json() : null),
+    ]).then(([ct, bv, me]) => {
       setContentTypes(ct);
       setBrandVoices(bv);
+      if (me) setCurrentMember(me);
     });
   }, [fetchPost]);
 
@@ -112,23 +119,14 @@ export default function PostDetailPage() {
     }
   };
 
-  const handleStatusChange = async (newStatus: PostStatus) => {
-    setSaving(true);
-    try {
-      await fetch("/api/posts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: newStatus }),
-      });
-      fetchPost();
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleDelete = async () => {
     await fetch(`/api/posts?id=${id}`, { method: "DELETE" });
     router.push("/social-media/library");
+  };
+
+  const handleApprovalComplete = () => {
+    fetchPost();
+    setApprovalRefreshKey((k) => k + 1);
   };
 
   if (loading) return <PageShell><div className="animate-pulse h-96 rounded-xl bg-surface" /></PageShell>;
@@ -148,17 +146,12 @@ export default function PostDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {post.status === "draft" && (
-            <Button variant="ghost" onClick={() => handleStatusChange("pending_approval")} disabled={saving}>
-              Submit for Approval
-            </Button>
-          )}
-          {post.status === "pending_approval" && (
-            <>
-              <Button onClick={() => handleStatusChange("approved")} disabled={saving}>Approve</Button>
-              <Button variant="ghost" onClick={() => handleStatusChange("rejected")} disabled={saving} className="text-red-400 hover:text-red-300">Reject</Button>
-            </>
-          )}
+          <ApprovalActions
+            postId={id}
+            postStatus={post.status}
+            currentMember={currentMember}
+            onActionComplete={handleApprovalComplete}
+          />
           <Button variant="ghost" onClick={() => setDeleteOpen(true)} className="ml-auto text-red-400 hover:text-red-300 text-xs">
             Delete Post
           </Button>
@@ -213,6 +206,8 @@ export default function PostDetailPage() {
           </div>
 
           <div className="space-y-4">
+            <ApprovalFlowIndicator status={post.status} />
+
             <div className="rounded-xl border border-white/[0.06] bg-surface p-4 space-y-4">
               <div className="space-y-1">
                 <label className="text-xs text-slate-400">Content Type</label>
@@ -269,6 +264,8 @@ export default function PostDetailPage() {
               <div className="text-xs text-slate-500">Updated: {new Date(post.updated_at).toLocaleString()}</div>
               {post.created_by_member && <div className="text-xs text-slate-500">By: {post.created_by_member.display_name}</div>}
             </div>
+
+            <ApprovalTimeline postId={id} refreshKey={approvalRefreshKey} />
           </div>
         </div>
       </div>
