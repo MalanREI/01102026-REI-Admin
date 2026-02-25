@@ -1,7 +1,7 @@
 -- Migration: notifications table for approval workflow
 -- Phase 2 PR 6: Approval Workflow
 
-create type if not exists public.notification_type as enum (
+create type public.notification_type as enum (
   'approval_requested',
   'approval_approved',
   'approval_rejected'
