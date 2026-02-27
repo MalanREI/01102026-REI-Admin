@@ -20,6 +20,7 @@ import {
   fetchLinkedInEngagement,
   fetchGoogleBusinessEngagement,
 } from '@/src/lib/platforms/fetch-engagement';
+import type { PlatformCredentials } from '@/src/lib/platforms/post-to-platform';
 
 export const maxDuration = 300;
 
@@ -35,15 +36,21 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // ── Load connected platforms + recent post IDs ─────────────────────────
+  // ── Load connected platforms + tokens for API calls ─────────────────────
   const { data: platforms } = await supabase
     .from('social_platforms')
-    .select('id, platform_name')
+    .select('id, platform_name, access_token, account_id, metadata')
     .eq('is_connected', true);
 
   const platformMap: Record<string, string> = {};
+  const credentialsMap: Record<string, PlatformCredentials> = {};
   for (const p of platforms ?? []) {
     platformMap[p.platform_name] = p.id;
+    credentialsMap[p.platform_name] = {
+      accessToken: p.access_token,
+      accountId: p.account_id,
+      authorUrn: (p.metadata as Record<string, string> | null)?.author_urn,
+    };
   }
 
   // Get platform_post_ids published in the last 30 days
@@ -62,12 +69,12 @@ export async function GET(request: NextRequest) {
     postIdsByPlatform[log.platform].push(log.platform_post_id);
   }
 
-  // ── Fetch engagement from each platform ──────────────────────────────────
+  // ── Fetch engagement from each platform using stored OAuth tokens ─────────
   const [instagramItems, facebookItems, linkedinItems, googleItems] = await Promise.all([
-    fetchInstagramEngagement(postIdsByPlatform.instagram ?? []),
-    fetchFacebookEngagement(postIdsByPlatform.facebook ?? []),
-    fetchLinkedInEngagement(postIdsByPlatform.linkedin ?? []),
-    fetchGoogleBusinessEngagement(),
+    fetchInstagramEngagement(postIdsByPlatform.instagram ?? [], credentialsMap.instagram),
+    fetchFacebookEngagement(postIdsByPlatform.facebook ?? [], credentialsMap.facebook),
+    fetchLinkedInEngagement(postIdsByPlatform.linkedin ?? [], credentialsMap.linkedin),
+    fetchGoogleBusinessEngagement(credentialsMap.google_business),
   ]);
 
   const allItems = [

@@ -28,6 +28,7 @@ import {
   postToPlatform,
   type PlatformPostPayload,
   type PlatformPostResult,
+  type PlatformCredentials,
 } from '@/src/lib/platforms/post-to-platform';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -74,7 +75,22 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, ...summary });
     }
 
-    // ── 2. Process each due schedule ────────────────────────────────────────
+    // ── 2. Load stored OAuth tokens from social_platforms ───────────────────
+    const { data: connectedPlatforms } = await admin
+      .from('social_platforms')
+      .select('platform_name, access_token, account_id, metadata')
+      .eq('is_connected', true);
+
+    const credentialsMap: Record<string, PlatformCredentials> = {};
+    for (const p of connectedPlatforms ?? []) {
+      credentialsMap[p.platform_name] = {
+        accessToken: p.access_token,
+        accountId: p.account_id,
+        authorUrn: (p.metadata as Record<string, string> | null)?.author_urn,
+      };
+    }
+
+    // ── 3. Process each due schedule ────────────────────────────────────────
     for (const row of duePosts) {
       summary.processed++;
       const post = row.post;
@@ -93,17 +109,18 @@ export async function GET(req: Request) {
         platformSpecificContent: post.platform_specific_content,
       };
 
-      // ── 3. Post to each platform ──────────────────────────────────────────
+      // ── 4. Post to each platform using stored OAuth credentials ───────────
       const results: PlatformPostResult[] = await Promise.all(
         platforms.map((platform) =>
-          postToPlatform(platform, {
-            ...payload,
-            body: post.platform_specific_content?.[platform] ?? post.body,
-          })
+          postToPlatform(
+            platform,
+            { ...payload, body: post.platform_specific_content?.[platform] ?? post.body },
+            credentialsMap[platform]
+          )
         )
       );
 
-      // ── 4. Write to cron_post_log ─────────────────────────────────────────
+      // ── 5. Write to cron_post_log ─────────────────────────────────────────
       const logRows = results.map((r) => ({
         schedule_id: row.id,
         post_id: post.id,
@@ -119,7 +136,7 @@ export async function GET(req: Request) {
       const allSucceeded = results.every((r) => r.success);
       const anyFailed = results.some((r) => !r.success);
 
-      // ── 5. Update post status + schedule ─────────────────────────────────
+      // ── 6. Update post status + schedule ─────────────────────────────────
       if (allSucceeded) {
         // Mark the post as published
         await admin
@@ -178,7 +195,7 @@ export async function GET(req: Request) {
           .update({ last_run_at: now, updated_at: now, is_active: !exhausted })
           .eq('id', row.id);
 
-        // ── 6. Notify admins/managers of failure ───────────────────────────
+        // ── 7. Notify admins/managers of failure ───────────────────────────
         await notifyFailure(admin, post.id);
       }
     }

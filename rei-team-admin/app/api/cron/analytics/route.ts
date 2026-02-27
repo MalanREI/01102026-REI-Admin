@@ -23,6 +23,7 @@ import {
   fetchLinkedInAnalytics,
   fetchGoogleBusinessAnalytics,
 } from '@/src/lib/platforms/fetch-analytics';
+import type { PlatformCredentials } from '@/src/lib/platforms/post-to-platform';
 
 export const maxDuration = 300; // 5 minutes
 
@@ -59,15 +60,21 @@ export async function GET(request: NextRequest) {
     return post.last_analytics_fetched_at < cutoff;
   });
 
-  // Find the social_platform IDs for each platform name
+  // Load connected platforms — IDs for FK references + tokens for API calls
   const { data: platforms } = await supabase
     .from('social_platforms')
-    .select('id, platform_name')
+    .select('id, platform_name, access_token, account_id, metadata')
     .eq('is_connected', true);
 
   const platformMap: Record<string, string> = {};
+  const credentialsMap: Record<string, PlatformCredentials> = {};
   for (const p of platforms ?? []) {
     platformMap[p.platform_name] = p.id;
+    credentialsMap[p.platform_name] = {
+      accessToken: p.access_token,
+      accountId: p.account_id,
+      authorUrn: (p.metadata as Record<string, string> | null)?.author_urn,
+    };
   }
 
   let synced = 0;
@@ -80,18 +87,19 @@ export async function GET(request: NextRequest) {
 
     let analytics = null;
 
+    const creds = credentialsMap[platform];
     switch (platform) {
       case 'instagram':
-        analytics = await fetchInstagramAnalytics(platform_post_id);
+        analytics = await fetchInstagramAnalytics(platform_post_id, creds);
         break;
       case 'facebook':
-        analytics = await fetchFacebookAnalytics(platform_post_id);
+        analytics = await fetchFacebookAnalytics(platform_post_id, creds);
         break;
       case 'linkedin':
-        analytics = await fetchLinkedInAnalytics(platform_post_id);
+        analytics = await fetchLinkedInAnalytics(platform_post_id, creds);
         break;
       case 'google_business':
-        analytics = await fetchGoogleBusinessAnalytics(platform_post_id);
+        analytics = await fetchGoogleBusinessAnalytics(platform_post_id, creds);
         break;
     }
 

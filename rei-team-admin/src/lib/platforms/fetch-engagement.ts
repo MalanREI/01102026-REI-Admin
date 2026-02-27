@@ -2,12 +2,15 @@
  * fetch-engagement.ts
  * Fetches comments, mentions, and reviews from each social platform.
  *
- * Each function returns an array of items ready to be upserted into the
+ * Each function accepts optional credentials from the `social_platforms` DB
+ * row and returns an array of items ready to be upserted into the
  * engagement_inbox table.  platform_item_id is used as the deduplication key.
  *
- * If credentials are absent, functions return an empty array so the cron
- * skips that platform silently.
+ * If credentials are absent, functions fall back to env vars for dev, then
+ * return an empty array so the cron skips that platform silently.
  */
+
+import type { PlatformCredentials } from './post-to-platform';
 
 export interface IncomingEngagementItem {
   platform_item_id: string;
@@ -26,9 +29,10 @@ export interface IncomingEngagementItem {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function fetchInstagramEngagement(
-  platformPostIds: string[]
+  platformPostIds: string[],
+  credentials?: PlatformCredentials
 ): Promise<IncomingEngagementItem[]> {
-  const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+  const token = credentials?.accessToken ?? process.env.INSTAGRAM_ACCESS_TOKEN;
   if (!token || platformPostIds.length === 0) return [];
 
   const items: IncomingEngagementItem[] = [];
@@ -68,9 +72,10 @@ export async function fetchInstagramEngagement(
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function fetchFacebookEngagement(
-  platformPostIds: string[]
+  platformPostIds: string[],
+  credentials?: PlatformCredentials
 ): Promise<IncomingEngagementItem[]> {
-  const token = process.env.FACEBOOK_ACCESS_TOKEN;
+  const token = credentials?.accessToken ?? process.env.FACEBOOK_ACCESS_TOKEN;
   if (!token || platformPostIds.length === 0) return [];
 
   const items: IncomingEngagementItem[] = [];
@@ -110,9 +115,10 @@ export async function fetchFacebookEngagement(
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function fetchLinkedInEngagement(
-  platformPostIds: string[]
+  platformPostIds: string[],
+  credentials?: PlatformCredentials
 ): Promise<IncomingEngagementItem[]> {
-  const token = process.env.LINKEDIN_ACCESS_TOKEN;
+  const token = credentials?.accessToken ?? process.env.LINKEDIN_ACCESS_TOKEN;
   if (!token || platformPostIds.length === 0) return [];
 
   const items: IncomingEngagementItem[] = [];
@@ -159,9 +165,9 @@ export async function fetchLinkedInEngagement(
 // Google Business Profile — reviews
 // ──────────────────────────────────────────────────────────────────────────────
 
-export async function fetchGoogleBusinessEngagement(): Promise<IncomingEngagementItem[]> {
-  const token = process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
-  const locationName = process.env.GOOGLE_BUSINESS_LOCATION_NAME;
+export async function fetchGoogleBusinessEngagement(credentials?: PlatformCredentials): Promise<IncomingEngagementItem[]> {
+  const token = credentials?.accessToken ?? process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
+  const locationName = credentials?.accountId ?? process.env.GOOGLE_BUSINESS_LOCATION_NAME;
   if (!token || !locationName) return [];
 
   const items: IncomingEngagementItem[] = [];

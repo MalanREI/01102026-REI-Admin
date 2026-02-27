@@ -3,15 +3,11 @@
  * Platform posting layer for the REI Social Media Command Center.
  *
  * Each `postToPlatform` call attempts to publish a content post to the
- * specified platform using real API calls.  If credentials are absent the
- * call falls back to a mock response so the cron engine works in development.
- *
- * Required environment variables per platform:
- *   Instagram : INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_ACCOUNT_ID
- *   Facebook  : FACEBOOK_ACCESS_TOKEN, FACEBOOK_PAGE_ID
- *   LinkedIn  : LINKEDIN_ACCESS_TOKEN, LINKEDIN_AUTHOR_URN
- *   Google    : GOOGLE_BUSINESS_ACCESS_TOKEN, GOOGLE_BUSINESS_LOCATION_NAME
- *               (format: "accounts/{id}/locations/{id}")
+ * specified platform using real API calls.  Credentials are sourced from the
+ * `social_platforms` DB table (set via Settings → Platform Connections OAuth)
+ * and passed in via the optional `credentials` parameter.  If credentials are
+ * absent the call falls back to env vars for local dev, then to a mock
+ * response so the cron engine works without any platform connection.
  */
 
 import type { PlatformName } from '@/src/lib/types/social-media';
@@ -37,13 +33,26 @@ export interface PlatformPostResult {
   error: string | null;
 }
 
+/**
+ * Credentials sourced from the `social_platforms` DB row for a connected
+ * platform.  Passed by the cron route so posting uses the OAuth token the
+ * user connected via Settings → Platform Connections.
+ */
+export interface PlatformCredentials {
+  accessToken: string;
+  /** Page ID (FB), IG account ID, or Google Business location name. */
+  accountId: string;
+  /** LinkedIn only — urn:li:organization:XXXXX */
+  authorUrn?: string;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Instagram — Meta Graph API
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function postToInstagram(payload: PlatformPostPayload): Promise<PlatformPostResult> {
-  const token = process.env.INSTAGRAM_ACCESS_TOKEN;
-  const accountId = process.env.INSTAGRAM_ACCOUNT_ID;
+async function postToInstagram(payload: PlatformPostPayload, credentials?: PlatformCredentials): Promise<PlatformPostResult> {
+  const token = credentials?.accessToken ?? process.env.INSTAGRAM_ACCESS_TOKEN;
+  const accountId = credentials?.accountId ?? process.env.INSTAGRAM_ACCOUNT_ID;
 
   if (!token || !accountId) {
     return mockSuccess('instagram', payload.postId);
@@ -124,9 +133,9 @@ async function postToInstagram(payload: PlatformPostPayload): Promise<PlatformPo
 // Facebook — Meta Graph API
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function postToFacebook(payload: PlatformPostPayload): Promise<PlatformPostResult> {
-  const token = process.env.FACEBOOK_ACCESS_TOKEN;
-  const pageId = process.env.FACEBOOK_PAGE_ID;
+async function postToFacebook(payload: PlatformPostPayload, credentials?: PlatformCredentials): Promise<PlatformPostResult> {
+  const token = credentials?.accessToken ?? process.env.FACEBOOK_ACCESS_TOKEN;
+  const pageId = credentials?.accountId ?? process.env.FACEBOOK_PAGE_ID;
 
   if (!token || !pageId) {
     return mockSuccess('facebook', payload.postId);
@@ -168,9 +177,9 @@ async function postToFacebook(payload: PlatformPostPayload): Promise<PlatformPos
 // LinkedIn — UGC Posts API
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function postToLinkedIn(payload: PlatformPostPayload): Promise<PlatformPostResult> {
-  const token = process.env.LINKEDIN_ACCESS_TOKEN;
-  const authorUrn = process.env.LINKEDIN_AUTHOR_URN; // e.g. urn:li:organization:12345
+async function postToLinkedIn(payload: PlatformPostPayload, credentials?: PlatformCredentials): Promise<PlatformPostResult> {
+  const token = credentials?.accessToken ?? process.env.LINKEDIN_ACCESS_TOKEN;
+  const authorUrn = credentials?.authorUrn ?? credentials?.accountId ?? process.env.LINKEDIN_AUTHOR_URN;
 
   if (!token || !authorUrn) {
     return mockSuccess('linkedin', payload.postId);
@@ -303,10 +312,10 @@ async function postToYouTube(payload: PlatformPostPayload): Promise<PlatformPost
 // Google Business Profile — My Business API v4
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function postToGoogleBusiness(payload: PlatformPostPayload): Promise<PlatformPostResult> {
-  const token = process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
+async function postToGoogleBusiness(payload: PlatformPostPayload, credentials?: PlatformCredentials): Promise<PlatformPostResult> {
+  const token = credentials?.accessToken ?? process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
   // Full resource name, e.g. "accounts/123456789/locations/987654321"
-  const locationName = process.env.GOOGLE_BUSINESS_LOCATION_NAME;
+  const locationName = credentials?.accountId ?? process.env.GOOGLE_BUSINESS_LOCATION_NAME;
 
   if (!token || !locationName) {
     return mockSuccess('google_business', payload.postId);
@@ -352,21 +361,25 @@ async function postToGoogleBusiness(payload: PlatformPostPayload): Promise<Platf
 /**
  * Post content to a single platform.
  *
- * Returns a `PlatformPostResult` describing success or failure.
+ * Pass `credentials` (from the `social_platforms` DB row) so the function
+ * uses the OAuth token the user connected via Settings → Platform Connections.
+ * Falls back to env vars when credentials are omitted (dev / testing).
+ *
  * Never throws — callers should check `result.success`.
  */
 export async function postToPlatform(
   platform: string,
-  payload: PlatformPostPayload
+  payload: PlatformPostPayload,
+  credentials?: PlatformCredentials
 ): Promise<PlatformPostResult> {
   try {
     switch (platform as PlatformName) {
-      case 'instagram':       return postToInstagram(payload);
-      case 'facebook':        return postToFacebook(payload);
-      case 'linkedin':        return postToLinkedIn(payload);
+      case 'instagram':       return postToInstagram(payload, credentials);
+      case 'facebook':        return postToFacebook(payload, credentials);
+      case 'linkedin':        return postToLinkedIn(payload, credentials);
       case 'tiktok':          return postToTikTok(payload);
       case 'youtube':         return postToYouTube(payload);
-      case 'google_business': return postToGoogleBusiness(payload);
+      case 'google_business': return postToGoogleBusiness(payload, credentials);
       default:
         return {
           platform: platform as PlatformName,

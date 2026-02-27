@@ -3,11 +3,15 @@
  * Fetches per-post performance metrics from each social platform's API.
  *
  * Each function accepts the platform_post_id (the ID assigned by the platform
- * after publishing) and the platform's access token, and returns a partial
- * AnalyticsSnapshot ready to be upserted into the analytics_snapshots table.
+ * after publishing) and optional credentials from the `social_platforms` DB
+ * row, and returns a partial AnalyticsSnapshot ready to be upserted into the
+ * analytics_snapshots table.
  *
- * If credentials are absent, functions return null so callers can skip silently.
+ * If credentials are absent, functions fall back to env vars for dev, then
+ * return null so callers can skip silently.
  */
+
+import type { PlatformCredentials } from './post-to-platform';
 
 export interface PlatformAnalytics {
   impressions: number;
@@ -27,9 +31,10 @@ export interface PlatformAnalytics {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function fetchInstagramAnalytics(
-  platformPostId: string
+  platformPostId: string,
+  credentials?: PlatformCredentials
 ): Promise<PlatformAnalytics | null> {
-  const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+  const token = credentials?.accessToken ?? process.env.INSTAGRAM_ACCESS_TOKEN;
   if (!token) return null;
 
   try {
@@ -76,9 +81,10 @@ export async function fetchInstagramAnalytics(
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function fetchFacebookAnalytics(
-  platformPostId: string
+  platformPostId: string,
+  credentials?: PlatformCredentials
 ): Promise<PlatformAnalytics | null> {
-  const token = process.env.FACEBOOK_ACCESS_TOKEN;
+  const token = credentials?.accessToken ?? process.env.FACEBOOK_ACCESS_TOKEN;
   if (!token) return null;
 
   try {
@@ -130,9 +136,11 @@ export async function fetchFacebookAnalytics(
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function fetchLinkedInAnalytics(
-  platformPostId: string
+  platformPostId: string,
+  credentials?: PlatformCredentials
 ): Promise<PlatformAnalytics | null> {
-  const token = process.env.LINKEDIN_ACCESS_TOKEN;
+  const token = credentials?.accessToken ?? process.env.LINKEDIN_ACCESS_TOKEN;
+  const authorUrn = credentials?.authorUrn ?? credentials?.accountId ?? process.env.LINKEDIN_AUTHOR_URN;
   if (!token) return null;
 
   try {
@@ -141,7 +149,7 @@ export async function fetchLinkedInAnalytics(
     const res = await fetch(
       `https://api.linkedin.com/v2/organizationalEntityShareStatistics` +
         `?q=organizationalEntity&organizationalEntity=${encodeURIComponent(
-          process.env.LINKEDIN_AUTHOR_URN ?? ''
+          authorUrn ?? ''
         )}&shares[0]=${shareUrn}`,
       {
         headers: {
@@ -184,9 +192,10 @@ export async function fetchLinkedInAnalytics(
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function fetchGoogleBusinessAnalytics(
-  platformPostId: string
+  platformPostId: string,
+  credentials?: PlatformCredentials
 ): Promise<PlatformAnalytics | null> {
-  const token = process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
+  const token = credentials?.accessToken ?? process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
   if (!token) return null;
 
   try {
