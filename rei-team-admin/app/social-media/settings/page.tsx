@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageShell } from "@/src/components/PageShell";
 import { SettingsSection } from "@/src/components/social-media/settings/SettingsSection";
-import { Card, Pill } from "@/src/components/ui";
+import { Card } from "@/src/components/ui";
 import { getSocialPlatforms } from "@/src/lib/supabase/social-media-queries";
 import type { SocialPlatform } from "@/src/lib/types/social-media";
 import { PlatformCard } from "@/src/components/social-media/PlatformCard";
@@ -94,6 +94,7 @@ export default function SocialMediaSettingsPage() {
           <SettingsSection
             title="Team & Permissions"
             description="Invite team members, manage roles (Creator, Manager, Admin), and control permissions."
+            href="/social-media/settings/team"
             icon="👥"
           />
           <SettingsSection
@@ -144,29 +145,6 @@ export default function SocialMediaSettingsPage() {
           )}
         </Card>
 
-        <Card title="Team Management" right={<Pill>Coming soon</Pill>}>
-          <ul className="list-disc pl-5 text-sm text-slate-300 space-y-1">
-            <li>Invite team members (Creator, Manager, Admin roles)</li>
-            <li>Manage permissions per role</li>
-            <li>Deactivate or reassign members</li>
-          </ul>
-        </Card>
-
-        <Card title="Brand Voices" right={<Pill>Coming soon</Pill>}>
-          <ul className="list-disc pl-5 text-sm text-slate-300 space-y-1">
-            <li>Edit default brand voices: Educational, Casual, Professional, Promotional, Storytelling</li>
-            <li>Create custom brand voices with custom AI system prompts</li>
-            <li>Set default voice per content type</li>
-          </ul>
-        </Card>
-
-        <Card title="Content Types" right={<Pill>Coming soon</Pill>}>
-          <ul className="list-disc pl-5 text-sm text-slate-300 space-y-1">
-            <li>Manage system content types: Daily Tips, Newsletter, Mythbusters, Market Updates, etc.</li>
-            <li>Create custom content types</li>
-            <li>Assign default AI model per content type</li>
-          </ul>
-        </Card>
       </div>
     </PageShell>
   );
