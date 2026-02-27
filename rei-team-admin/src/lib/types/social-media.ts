@@ -62,6 +62,7 @@ export interface SocialPlatform {
   platform_url: string;
   metadata: Record<string, unknown> | null;
   connected_by: string | null;
+  oauth_state: string | null;
   created_at: string;
   updated_at: string;
 }

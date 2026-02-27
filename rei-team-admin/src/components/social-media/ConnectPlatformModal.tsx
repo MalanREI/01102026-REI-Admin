@@ -2,12 +2,11 @@
 
 import { useState } from "react";
 import { Modal, Button } from "@/src/components/ui";
-import {
-  createSocialPlatform,
-  updateSocialPlatform,
-} from "@/src/lib/supabase/social-media-queries";
 import type { SocialPlatform, PlatformName } from "@/src/lib/types/social-media";
 import type { PlatformConfig } from "./platform-config";
+
+// Platforms that have real OAuth configured; all others use mock flow.
+const OAUTH_SUPPORTED: PlatformName[] = ['facebook', 'instagram', 'linkedin', 'google_business'];
 
 interface ConnectPlatformModalProps {
   open: boolean;
@@ -24,51 +23,38 @@ export function ConnectPlatformModal({
   platform,
   config,
   existingPlatform,
-  onConnected,
 }: ConnectPlatformModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const hasOAuth = OAUTH_SUPPORTED.includes(platform);
 
   async function handleConnect() {
     setLoading(true);
     setError(null);
     try {
-      // Mock token expiry 60 days from now (Phase 2 will use real OAuth tokens)
-      const mockTokenExpiry = new Date(
-        Date.now() + 60 * 24 * 60 * 60 * 1000
-      ).toISOString();
-
-      if (existingPlatform) {
-        const updated = await updateSocialPlatform(existingPlatform.id, {
-          is_connected: true,
-          access_token: `mock_access_token_${platform}`,
-          token_expires_at: mockTokenExpiry,
-        });
-        onConnected(updated);
+      if (hasOAuth) {
+        // Redirect user to the platform's OAuth authorization flow.
+        // The callback at /api/auth/social/[platform] will handle token exchange
+        // and update the social_platforms record, then redirect back to settings.
+        window.location.href = `/api/auth/social/${platform}?action=authorize`;
       } else {
-        const created = await createSocialPlatform({
-          platform_name: platform,
-          account_name: `@rei_${platform}`,
-          account_id: `mock_account_id_${platform}`,
-          access_token: `mock_access_token_${platform}`,
-          refresh_token: `mock_refresh_token_${platform}`,
-          token_expires_at: mockTokenExpiry,
-          is_connected: true,
-          platform_url: config.defaultUrl,
-          metadata: null,
-          connected_by: null,
-        });
-        onConnected(created);
+        // Platform not yet OAuth-enabled; inform the user.
+        setError(`${config.name} OAuth integration is not yet configured. Add the required environment variables and try again.`);
+        setLoading(false);
       }
-      onClose();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to connect platform"
-      );
-    } finally {
+      setError(err instanceof Error ? err.message : "Failed to initiate authorization");
       setLoading(false);
     }
   }
+
+  // Show reconnect label when a connection already exists
+  const buttonLabel = loading
+    ? "Redirecting…"
+    : existingPlatform?.is_connected
+    ? `Reconnect ${config.name}`
+    : `Authorize with ${config.name}`;
 
   return (
     <Modal
@@ -81,7 +67,7 @@ export function ConnectPlatformModal({
             Cancel
           </Button>
           <Button onClick={handleConnect} disabled={loading}>
-            {loading ? "Connecting…" : `Authorize with ${config.name}`}
+            {buttonLabel}
           </Button>
         </>
       }
@@ -94,8 +80,9 @@ export function ConnectPlatformModal({
               Connect your {config.name} account
             </div>
             <div className="text-xs text-slate-400 mt-1">
-              OAuth authorization will be implemented in Phase 2. This saves a
-              placeholder connection for now.
+              {hasOAuth
+                ? `You will be redirected to ${config.name} to grant access.`
+                : `${config.name} integration coming soon.`}
             </div>
           </div>
         </div>
@@ -142,11 +129,12 @@ export function ConnectPlatformModal({
           </div>
         )}
 
-        <p className="text-xs text-slate-500">
-          In Phase 2, this button will redirect you to {config.name}&apos;s
-          official OAuth authorization page to grant the permissions listed
-          above.
-        </p>
+        {hasOAuth && (
+          <p className="text-xs text-slate-500">
+            After authorizing, you will be redirected back to this page with your{" "}
+            {config.name} account connected.
+          </p>
+        )}
       </div>
     </Modal>
   );
