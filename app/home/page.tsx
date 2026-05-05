@@ -284,7 +284,6 @@ export default function HomePage() {
             <ActionButton href="/social-media/content-studio" icon="✏️" label="Create Post" />
             <ActionButton href="/sales-funnel" icon="👤" label="Add Lead" />
             <ActionButton href="/social-media/calendar" icon="📆" label="View Calendar" />
-            <ActionButton href="/media-posting" icon="🖼️" label="Media Posting" />
           </div>
         </SectionCard>
 
