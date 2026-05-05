@@ -6,6 +6,7 @@ import type {
   ConnectedAccount,
   AiDetectedProject,
   Email,
+  EmailAttachment,
   Commitment,
   Topic,
   TopicItem,
@@ -217,6 +218,17 @@ export async function starEmail(emailId: string, isStarred: boolean): Promise<vo
     .update({ is_starred: isStarred, updated_at: new Date().toISOString() })
     .eq('id', emailId);
   if (error) throw error;
+}
+
+export async function listEmailAttachmentsForEmail(emailId: string): Promise<EmailAttachment[]> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_attachments')
+    .select('*')
+    .eq('email_id', emailId)
+    .order('file_name', { ascending: true });
+  if (error) throw error;
+  return data as EmailAttachment[];
 }
 
 // ============================================================

@@ -3,10 +3,11 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pill } from "@/src/components/ui";
-import type { ConnectedAccount, AiDetectedProject } from "@/src/lib/types/workspace";
-import { listProjects } from "@/src/lib/supabase/workspace-queries";
+import { SyncNowButton } from "@/src/components/workspace/SyncNowButton";
+import type { ConnectedAccount, AiDetectedProject, SyncStatus } from "@/src/lib/types/workspace";
+import { listProjects, getWorkspace } from "@/src/lib/supabase/workspace-queries";
 
 const SUB_NAV_ITEMS = [
   { label: "Dashboard", path: "" },
@@ -22,21 +23,6 @@ const SUB_NAV_ITEMS = [
   { label: "Unsubscribe", path: "/unsubscribe" },
 ];
 
-function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return "Not synced yet";
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays === 1) return "Yesterday";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
 export function WorkspaceTopbar({
   workspace,
   activeProjectId,
@@ -49,6 +35,10 @@ export function WorkspaceTopbar({
   const pathname = usePathname();
   const basePath = `/workspace/${workspace.id}`;
   const [projects, setProjects] = useState<AiDetectedProject[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(workspace.sync_status);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(workspace.last_synced_at);
+  const [syncError, setSyncError] = useState<string | null>(workspace.sync_error);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     listProjects(workspace.id)
@@ -56,10 +46,62 @@ export function WorkspaceTopbar({
       .catch((err) => console.error("Failed to load projects:", err));
   }, [workspace.id]);
 
+  // Sync state from props when workspace prop changes (e.g. parent re-fetches)
+  useEffect(() => {
+    setSyncStatus(workspace.sync_status);
+    setLastSyncedAt(workspace.last_synced_at);
+    setSyncError(workspace.sync_error);
+  }, [workspace.sync_status, workspace.last_synced_at, workspace.sync_error]);
+
+  // Polling while syncing
+  useEffect(() => {
+    if (syncStatus !== "syncing") {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const updated = await getWorkspace(workspace.id);
+        if (updated) {
+          setSyncStatus(updated.sync_status);
+          setLastSyncedAt(updated.last_synced_at);
+          setSyncError(updated.sync_error);
+        }
+      } catch (err) {
+        console.error("Poll failed:", err);
+      }
+    }, 3000);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [syncStatus, workspace.id]);
+
+  const handleSyncStart = useCallback(() => {
+    setSyncStatus("syncing");
+  }, []);
+
+  const handleSyncComplete = useCallback(async () => {
+    try {
+      const updated = await getWorkspace(workspace.id);
+      if (updated) {
+        setSyncStatus(updated.sync_status);
+        setLastSyncedAt(updated.last_synced_at);
+        setSyncError(updated.sync_error);
+      }
+    } catch (err) {
+      console.error("Post-sync refresh failed:", err);
+    }
+  }, [workspace.id]);
+
   const providerLabel = workspace.provider === "gmail" ? "Gmail" : "Outlook";
-  const syncLabel = workspace.sync_status === "syncing"
-    ? "Syncing…"
-    : formatRelativeTime(workspace.last_synced_at);
 
   return (
     <div className="sticky top-14 z-30 bg-base border-b border-white/[0.06]">
@@ -89,14 +131,16 @@ export function WorkspaceTopbar({
           </select>
         </div>
 
-        {/* Right: sync status */}
-        <div className="flex items-center gap-1.5 text-xs text-slate-500 shrink-0">
-          {workspace.sync_status === "syncing" ? (
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          ) : (
-            <span className="inline-block w-2 h-2 rounded-full bg-slate-600" />
-          )}
-          <span>{syncLabel}</span>
+        {/* Right: sync button */}
+        <div className="shrink-0">
+          <SyncNowButton
+            accountId={workspace.id}
+            syncStatus={syncStatus}
+            lastSyncedAt={lastSyncedAt}
+            syncError={syncError}
+            onSyncStart={handleSyncStart}
+            onSyncComplete={handleSyncComplete}
+          />
         </div>
       </div>
 

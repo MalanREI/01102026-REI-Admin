@@ -115,6 +115,8 @@ export interface Email {
   triage_category: TriageCategory | null;
   triage_confidence: number | null;
   raw_headers: Record<string, unknown> | null;
+  provider_etag: string | null;
+  folder_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -136,6 +138,7 @@ export interface EmailAttachment {
   ai_project_id: string | null;
   ai_tags: string[] | null;
   ai_classification_status: AiClassificationStatus;
+  provider_attachment_id: string | null;
   created_at: string;
   updated_at: string;
 }
