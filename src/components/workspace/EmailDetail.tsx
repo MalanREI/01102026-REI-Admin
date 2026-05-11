@@ -143,14 +143,14 @@ export function EmailDetail({
                   className={["text-xs", email.user_state === "handled" ? "text-emerald-400" : ""].join(" ")}
                   onClick={() => onUserState(email.user_state === "handled" ? null : "handled")}
                 >
-                  {email.user_state === "handled" ? "✓ Handled" : "Mark handled"}
+                  {email.user_state === "handled" ? "✓ Handled" : "Handled"}
                 </Button>
                 <Button
                   variant="ghost"
                   className={["text-xs", email.user_state === "followup" ? "text-amber-400" : ""].join(" ")}
                   onClick={() => onUserState(email.user_state === "followup" ? null : "followup")}
                 >
-                  {email.user_state === "followup" ? "⏰ Follow-up" : "Needs follow-up"}
+                  {email.user_state === "followup" ? "⏰ Followup" : "Followup"}
                 </Button>
               </>
             )}

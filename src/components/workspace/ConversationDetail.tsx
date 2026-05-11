@@ -190,7 +190,7 @@ export function ConversationDetail({
                 className={["text-xs", conversation.user_state === "handled" ? "text-emerald-400" : ""].join(" ")}
                 onClick={() => onUserState(conversation.user_state === "handled" ? null : "handled")}
               >
-                {conversation.user_state === "handled" ? "✓ Handled" : "Mark handled"}
+                {conversation.user_state === "handled" ? "✓ Handled" : "Handled"}
               </Button>
               <Button
                 variant="ghost"
@@ -199,7 +199,7 @@ export function ConversationDetail({
                   followupDueAt: conversation.user_state !== "followup" ? new Date(Date.now() + 86400000) : null,
                 })}
               >
-                {conversation.user_state === "followup" ? "⏰ Follow-up" : "Needs follow-up"}
+                {conversation.user_state === "followup" ? "⏰ Followup" : "Followup"}
               </Button>
             </>
           )}
