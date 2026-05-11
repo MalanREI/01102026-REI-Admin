@@ -190,3 +190,159 @@ export async function graphFetch<T>(
 
   return res.json() as Promise<T>;
 }
+
+// ============================================================
+// Mail compose types
+// ============================================================
+
+export interface OutlookRecipient {
+  emailAddress: {
+    address: string;
+    name?: string;
+  };
+}
+
+export interface OutlookMessageDraft {
+  subject: string;
+  body: {
+    contentType: 'HTML' | 'Text';
+    content: string;
+  };
+  toRecipients: OutlookRecipient[];
+  ccRecipients?: OutlookRecipient[];
+  bccRecipients?: OutlookRecipient[];
+}
+
+export interface OutlookSentMessage {
+  id: string;
+  conversationId: string;
+  subject: string;
+  sentDateTime: string;
+  receivedDateTime: string;
+  bodyPreview: string;
+  from?: { emailAddress: { address: string; name?: string } };
+  toRecipients: OutlookRecipient[];
+  ccRecipients?: OutlookRecipient[];
+  bccRecipients?: OutlookRecipient[];
+  body?: { contentType: string; content: string };
+  parentFolderId?: string;
+  hasAttachments?: boolean;
+  isRead?: boolean;
+}
+
+// ============================================================
+// Mail compose & draft functions
+// ============================================================
+
+/**
+ * Send a new email. Microsoft Graph returns 202 Accepted with empty body.
+ */
+export async function sendMail(
+  accessToken: string,
+  message: OutlookMessageDraft,
+  saveToSentItems = true
+): Promise<void> {
+  const res = await fetch(`${MS_GRAPH_BASE}/me/sendMail`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ message, saveToSentItems }),
+  });
+
+  if (res.status !== 202 && !res.ok) {
+    const body = await res.text();
+    throw { status: res.status, body };
+  }
+}
+
+/**
+ * Create a draft message in the user's Drafts folder.
+ */
+export async function createDraft(
+  accessToken: string,
+  message: OutlookMessageDraft
+): Promise<OutlookSentMessage> {
+  return graphFetch<OutlookSentMessage>(accessToken, '/me/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(message),
+  });
+}
+
+/**
+ * Update an existing draft message.
+ */
+export async function updateDraft(
+  accessToken: string,
+  messageId: string,
+  patch: Partial<OutlookMessageDraft>
+): Promise<OutlookSentMessage> {
+  return graphFetch<OutlookSentMessage>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }
+  );
+}
+
+/**
+ * Send an existing draft. Returns 202 Accepted with empty body.
+ */
+export async function sendDraft(
+  accessToken: string,
+  messageId: string
+): Promise<void> {
+  const res = await fetch(
+    `${MS_GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/send`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (res.status !== 202 && res.status !== 204 && !res.ok) {
+    const body = await res.text();
+    throw { status: res.status, body };
+  }
+}
+
+/**
+ * Delete a draft message. Returns 204 No Content.
+ */
+export async function deleteDraft(
+  accessToken: string,
+  messageId: string
+): Promise<void> {
+  const res = await fetch(
+    `${MS_GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (res.status !== 204 && !res.ok) {
+    const body = await res.text();
+    throw { status: res.status, body };
+  }
+}
+
+/**
+ * Fetch a single message by ID including full body content.
+ * Used for reply/forward to get quoted-source content.
+ */
+export async function getMessageById(
+  accessToken: string,
+  messageId: string
+): Promise<OutlookSentMessage> {
+  const select = 'id,subject,from,toRecipients,ccRecipients,bccRecipients,sentDateTime,receivedDateTime,bodyPreview,body,conversationId,parentFolderId,hasAttachments,isRead';
+  return graphFetch<OutlookSentMessage>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(messageId)}?$select=${select}`
+  );
+}
