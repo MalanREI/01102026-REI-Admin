@@ -6,6 +6,7 @@ import { useWorkspace } from "@/src/components/workspace/WorkspaceContext";
 import { FolderList } from "@/src/components/workspace/FolderList";
 import { ConversationListItem } from "@/src/components/workspace/ConversationListItem";
 import { ConversationDetail } from "@/src/components/workspace/ConversationDetail";
+import { PaneSplit } from "@/src/components/workspace/PaneSplit";
 import { Compose } from "@/src/components/workspace/Compose";
 import {
   listConversations,
@@ -35,6 +36,7 @@ function InboxContent() {
   const [userStateFilter, setUserStateFilter] = useState<EmailUserState | "all">("inbox");
   const [folderId, setFolderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [folderCollapsed, setFolderCollapsed] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeMode, setComposeMode] = useState<"compose" | "reply" | "replyAll" | "forward">("compose");
   const [composeContext, setComposeContext] = useState<{
@@ -209,72 +211,97 @@ function InboxContent() {
   const hasFilters = !!debouncedSearch || userStateFilter !== "inbox";
 
   return (
-    <div className="flex h-[calc(100vh-160px)] gap-0">
-      {/* Left: folder tree */}
-      <div className="w-48 shrink-0 border-r border-white/[0.06] pr-2 overflow-y-auto">
-        <FolderList accountId={workspace.id} selectedFolderId={folderId} onFolderSelect={setFolderId} />
-      </div>
+    <div className="h-[calc(100vh-160px)]">
+      <PaneSplit
+        storageKey="inbox-folder-pane"
+        defaultLeftWidth={224}
+        minLeftWidth={140}
+        maxLeftWidth={320}
+        collapsible
+        collapsed={folderCollapsed}
+        onCollapsedChange={setFolderCollapsed}
+        leftPane={
+          <div className="h-full overflow-y-auto pr-2">
+            <FolderList accountId={workspace.id} selectedFolderId={folderId} onFolderSelect={setFolderId} />
+          </div>
+        }
+        rightPane={
+          <PaneSplit
+            storageKey="inbox-list-pane"
+            defaultLeftWidth={400}
+            minLeftWidth={280}
+            maxLeftWidth={700}
+            leftPane={
+              <div className="flex flex-col h-full px-2">
+                <div className="flex items-center gap-2 mb-2">
+                  {folderCollapsed && (
+                    <button
+                      onClick={() => setFolderCollapsed(false)}
+                      className="text-xs text-slate-400 hover:text-slate-200 shrink-0"
+                    >
+                      ☰
+                    </button>
+                  )}
+                  <input
+                    ref={searchRef}
+                    placeholder="Search… (/ to focus)"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="flex-1 rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/50"
+                  />
+                </div>
 
-      {/* Center: conversation list */}
-      <div className="w-[35%] flex flex-col min-w-0 px-2">
-        <div className="mb-2">
-          <input
-            ref={searchRef}
-            placeholder="Search conversations… (/ to focus)"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/50"
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {USER_STATE_FILTERS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setUserStateFilter(opt.value)}
+                      className={[
+                        "px-2 py-1 rounded text-[11px] font-medium transition-colors border",
+                        userStateFilter === opt.value
+                          ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300"
+                          : "bg-transparent border-white/[0.06] text-slate-400 hover:bg-white/[0.04]",
+                      ].join(" ")}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex-1 overflow-y-auto rounded-lg border border-white/[0.06] bg-surface">
+                  {loading ? (
+                    <p className="p-4 text-sm text-slate-500 italic">Loading…</p>
+                  ) : conversations.length === 0 ? (
+                    <div className="p-6 text-center">
+                      <p className="text-sm text-slate-500">
+                        {hasFilters ? "No conversations match your filters." : "No conversations in this folder."}
+                      </p>
+                    </div>
+                  ) : (
+                    conversations.map((conv, idx) => (
+                      <ConversationListItem
+                        key={conv.id}
+                        conversation={conv}
+                        isSelected={selectedConv?.id === conv.id}
+                        onClick={() => handleSelectConv(conv, idx)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            }
+            rightPane={
+              <div className="h-full overflow-y-auto bg-surface rounded-lg border border-white/[0.06]">
+                <ConversationDetail
+                  conversationId={selectedConv?.id ?? null}
+                  onMoveAction={handleMoveAction}
+                  onUserState={handleUserState}
+                />
+              </div>
+            }
           />
-        </div>
-
-        {/* User state filter chips */}
-        <div className="flex flex-wrap gap-1 mb-2">
-          {USER_STATE_FILTERS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setUserStateFilter(opt.value)}
-              className={[
-                "px-2 py-1 rounded text-[11px] font-medium transition-colors border",
-                userStateFilter === opt.value
-                  ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300"
-                  : "bg-transparent border-white/[0.06] text-slate-400 hover:bg-white/[0.04]",
-              ].join(" ")}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1 overflow-y-auto rounded-lg border border-white/[0.06] bg-surface">
-          {loading ? (
-            <p className="p-4 text-sm text-slate-500 italic">Loading…</p>
-          ) : conversations.length === 0 ? (
-            <div className="p-6 text-center">
-              <p className="text-sm text-slate-500">
-                {hasFilters ? "No conversations match your filters." : "No conversations in this folder."}
-              </p>
-            </div>
-          ) : (
-            conversations.map((conv, idx) => (
-              <ConversationListItem
-                key={conv.id}
-                conversation={conv}
-                isSelected={selectedConv?.id === conv.id}
-                onClick={() => handleSelectConv(conv, idx)}
-              />
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* Right: conversation detail */}
-      <div className="flex-1 overflow-y-auto bg-surface rounded-lg border border-white/[0.06] ml-2">
-        <ConversationDetail
-          conversationId={selectedConv?.id ?? null}
-          onMoveAction={handleMoveAction}
-          onUserState={handleUserState}
-        />
-      </div>
+        }
+      />
 
       <Compose
         open={composeOpen}

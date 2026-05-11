@@ -168,10 +168,10 @@ export function ConversationDetail({
 
   return (
     <div className="p-6 space-y-4 max-w-3xl">
-      {/* Action bar */}
-      <div className="flex items-start justify-between gap-4">
-        <h2 className="text-xl font-semibold text-slate-100">{conversation.subject || "(no subject)"}</h2>
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+      {/* Subject + Action bar */}
+      <div className="space-y-3">
+        <h2 className="text-xl font-semibold text-slate-100 break-words">{conversation.subject || "(no subject)"}</h2>
+        <div className="flex flex-wrap gap-1.5">
           <Button variant="ghost" className="text-xs" onClick={() => setComposeMode("reply")}>Reply</Button>
           <Button variant="ghost" className="text-xs" onClick={() => setComposeMode("replyAll")}>Reply all</Button>
           <Button variant="ghost" className="text-xs" onClick={() => setComposeMode("forward")}>Forward</Button>
