@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Pill, Button } from "@/src/components/ui";
 import { Compose } from "@/src/components/workspace/Compose";
+import { EmailBodyView } from "@/src/components/workspace/EmailBodyView";
 import { useWorkspace } from "@/src/components/workspace/WorkspaceContext";
 import { formatEmailDateLong, formatFileSize } from "@/src/lib/format";
 import { listEmailAttachmentsForEmail } from "@/src/lib/supabase/workspace-queries";
@@ -61,7 +62,7 @@ export function EmailDetail({
   const { workspace } = useWorkspace();
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
-  const [showHtml, setShowHtml] = useState(false);
+  // showHtml state moved into EmailBodyView
   const [composeMode, setComposeMode] = useState<"reply" | "replyAll" | "forward" | null>(null);
 
   useEffect(() => {
@@ -76,9 +77,7 @@ export function EmailDetail({
       .finally(() => setLoadingAttachments(false));
   }, [email?.id, email?.has_attachments]);
 
-  useEffect(() => {
-    setShowHtml(false);
-  }, [email?.id]);
+  // View mode state is now inside EmailBodyView
 
   if (!email) {
     return (
@@ -87,9 +86,6 @@ export function EmailDetail({
       </div>
     );
   }
-
-  const hasHtml = !!email.body_html;
-  const hasText = !!email.body_text;
 
   return (
     <div className="max-w-3xl p-6 space-y-4">
@@ -221,32 +217,7 @@ export function EmailDetail({
       )}
 
       {/* Body */}
-      <div>
-        {hasHtml && hasText && (
-          <button
-            onClick={() => setShowHtml((v) => !v)}
-            className="text-xs text-emerald-400 hover:text-emerald-300 mb-2 transition-colors"
-          >
-            {showHtml ? "View text" : "View HTML"}
-          </button>
-        )}
-
-        {showHtml && email.body_html ? (
-          <iframe
-            srcDoc={email.body_html}
-            sandbox=""
-            className="w-full min-h-96 border border-white/[0.06] rounded bg-white"
-          />
-        ) : hasText ? (
-          <pre className="whitespace-pre-wrap text-sm font-sans text-slate-300">
-            {email.body_text}
-          </pre>
-        ) : email.snippet ? (
-          <p className="text-sm text-slate-500 italic">{email.snippet}</p>
-        ) : (
-          <p className="text-sm text-slate-500 italic">No content available.</p>
-        )}
-      </div>
+      <EmailBodyView bodyHtml={email.body_html} bodyText={email.body_text} snippet={email.snippet} />
 
       {/* Compose modal for reply/replyAll/forward */}
       {composeMode && (() => {

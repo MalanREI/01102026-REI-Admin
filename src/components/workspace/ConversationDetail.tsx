@@ -5,6 +5,7 @@ import { Button, Pill } from "@/src/components/ui";
 import { Compose } from "@/src/components/workspace/Compose";
 import { useWorkspace } from "@/src/components/workspace/WorkspaceContext";
 import { getConversation, listEmailsInConversation, listEmailAttachmentsForEmail } from "@/src/lib/supabase/workspace-queries";
+import { EmailBodyView } from "@/src/components/workspace/EmailBodyView";
 import { formatEmailDateLong, formatFileSize } from "@/src/lib/format";
 import type { Email, EmailAttachment, Conversation, EmailUserState } from "@/src/lib/types/workspace";
 
@@ -63,11 +64,7 @@ function EmailInThread({ email, expanded, onToggle }: { email: Email; expanded: 
             </div>
           )}
 
-          {email.body_text ? (
-            <pre className="whitespace-pre-wrap text-sm font-sans text-slate-300">{email.body_text}</pre>
-          ) : email.snippet ? (
-            <p className="text-sm text-slate-500 italic">{email.snippet}</p>
-          ) : null}
+          <EmailBodyView bodyHtml={email.body_html} bodyText={email.body_text} snippet={email.snippet} />
         </div>
       )}
     </div>
