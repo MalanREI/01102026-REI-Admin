@@ -603,22 +603,36 @@ async function reconcileConversations(params: {
       }
     }
 
+    // Check if conversation already exists (to preserve user-set state)
+    const { data: existing } = await db.from("conversations")
+      .select("id, user_state").eq("account_id", accountId).eq("provider_thread_id", threadId).single();
+
+    const anyInboxEmail = emails.some((e) => e.user_state === "inbox");
+    const computedUserState = anyInboxEmail ? "inbox" : "handled";
+
+    const convRow: Record<string, unknown> = {
+      user_id: userId,
+      account_id: accountId,
+      provider_thread_id: threadId,
+      subject: newest.subject ?? oldest.subject,
+      message_count: emails.length,
+      unread_count: emails.filter((e) => !e.is_read).length,
+      last_message_at: newest.sent_at ?? newest.received_at,
+      first_message_at: oldest.sent_at ?? oldest.received_at,
+      participants: Array.from(participantSet.values()),
+      has_starred: emails.some((e) => e.is_starred),
+      has_attachments: emails.some((e) => e.has_attachments),
+      primary_folder_id: newest.folder_id,
+    };
+
+    // Only set user_state on new conversations (preserve manual state on existing)
+    if (!existing) {
+      convRow.user_state = computedUserState;
+    }
+
     const { data: conv } = await db
       .from("conversations")
-      .upsert({
-        user_id: userId,
-        account_id: accountId,
-        provider_thread_id: threadId,
-        subject: newest.subject ?? oldest.subject,
-        message_count: emails.length,
-        unread_count: emails.filter((e) => !e.is_read).length,
-        last_message_at: newest.sent_at ?? newest.received_at,
-        first_message_at: oldest.sent_at ?? oldest.received_at,
-        participants: Array.from(participantSet.values()),
-        has_starred: emails.some((e) => e.is_starred),
-        has_attachments: emails.some((e) => e.has_attachments),
-        primary_folder_id: newest.folder_id,
-      }, { onConflict: "account_id,provider_thread_id" })
+      .upsert(convRow, { onConflict: "account_id,provider_thread_id" })
       .select("id")
       .single();
 
