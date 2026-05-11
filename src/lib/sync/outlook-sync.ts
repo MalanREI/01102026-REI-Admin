@@ -297,9 +297,24 @@ export async function syncOutlookAccount(params: {
     if (existingState?.folders_pending) {
       state = existingState;
     } else {
-      // First invocation: use hardcoded well-known folder aliases
+      // First invocation: well-known aliases + custom folders from DB
+      const { data: customFolders } = await db
+        .from("email_folders")
+        .select("provider_folder_id, display_name")
+        .eq("account_id", accountId)
+        .eq("is_well_known", false)
+        .eq("is_hidden", false);
+
+      const allFolders: FolderInfo[] = [
+        ...FOLDERS_TO_SYNC,
+        ...(customFolders ?? []).map((f) => ({
+          alias: f.provider_folder_id,
+          displayName: f.display_name,
+        })),
+      ];
+
       state = {
-        folders_pending: [...FOLDERS_TO_SYNC],
+        folders_pending: allFolders,
         folders_done: [],
         current_folder_url: null,
       };
