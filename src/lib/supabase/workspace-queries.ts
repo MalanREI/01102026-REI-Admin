@@ -7,6 +7,7 @@ import type {
   AiDetectedProject,
   Email,
   EmailAttachment,
+  CalendarEvent,
   Commitment,
   Topic,
   TopicItem,
@@ -343,6 +344,43 @@ export async function getTopicWithItems(topicId: string): Promise<{ topic: Topic
   if (itemsErr) throw itemsErr;
 
   return { topic: topic as Topic, items: items as TopicItem[] };
+}
+
+// ============================================================
+// CALENDAR EVENTS
+// ============================================================
+
+export async function listCalendarEvents(
+  accountId: string,
+  opts: { startDate: Date; endDate: Date; projectId?: string | null }
+): Promise<CalendarEvent[]> {
+  const db = supabaseBrowser();
+  let query = db
+    .from('calendar_events')
+    .select('*')
+    .eq('account_id', accountId)
+    .gte('start_at', opts.startDate.toISOString())
+    .lte('start_at', opts.endDate.toISOString())
+    .order('start_at', { ascending: true });
+
+  if (opts.projectId) {
+    query = query.eq('ai_project_id', opts.projectId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as CalendarEvent[];
+}
+
+export async function getCalendarEvent(eventId: string): Promise<CalendarEvent | null> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('calendar_events')
+    .select('*')
+    .eq('id', eventId)
+    .single();
+  if (error) return null;
+  return data as CalendarEvent;
 }
 
 // ============================================================

@@ -122,6 +122,47 @@ export interface Email {
   updated_at: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  user_id: string;
+  account_id: string;
+  ai_project_id: string | null;
+  provider_event_id: string;
+  provider_etag: string | null;
+  ical_uid: string | null;
+  series_master_id: string | null;
+  subject: string | null;
+  body_preview: string | null;
+  body_html: string | null;
+  body_text: string | null;
+  start_at: string;
+  end_at: string;
+  is_all_day: boolean;
+  time_zone: string | null;
+  location: string | null;
+  online_meeting_url: string | null;
+  online_meeting_provider: string | null;
+  organizer_email: string | null;
+  organizer_name: string | null;
+  attendees: Array<{
+    emailAddress?: { address?: string; name?: string };
+    type?: string;
+    status?: { response?: string; time?: string };
+  }>;
+  is_organizer: boolean;
+  response_status: string | null;
+  show_as: string | null;
+  sensitivity: string | null;
+  is_cancelled: boolean;
+  importance: string | null;
+  is_recurring: boolean;
+  recurrence: unknown;
+  local_origin: boolean;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface EmailAttachment {
   id: string;
   email_id: string;
