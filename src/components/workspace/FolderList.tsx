@@ -59,7 +59,7 @@ export function FolderList({
   function renderFolder(folder: EmailFolder, indent = 0) {
     const icon = folder.well_known_name ? WELL_KNOWN_ICONS[folder.well_known_name] ?? "📁" : "📁";
     const label = folder.well_known_name ? WELL_KNOWN_LABELS[folder.well_known_name] ?? folder.display_name : folder.display_name;
-    const fid = folder.well_known_name ?? folder.display_name;
+    const fid = folder.well_known_name ?? folder.provider_folder_id;
     const isActive = selectedFolderId === fid;
     const children = childFolders.filter((cf) => cf.parent_folder_id === folder.id);
 
