@@ -470,6 +470,13 @@ export async function syncOutlookAccount(params: {
       state.current_folder_url = null;
     }
 
+    // 14b. Reconcile conversations from thread_ids
+    try {
+      await reconcileConversations({ userId, accountId, db });
+    } catch (err) {
+      console.error("[outlook-sync] Conversation reconciliation failed:", err);
+    }
+
     // 15. All folders done — mark completed
     await db
       .from("sync_jobs")
@@ -525,5 +532,95 @@ export async function syncOutlookAccount(params: {
       .eq("id", accountId);
 
     return { status: "failed", emails_synced: emailsSynced, attachments_recorded: attachmentsRecorded, error_message: message, error_details: details };
+  }
+}
+
+// ============================================================
+// Conversation reconciliation
+// ============================================================
+
+async function reconcileConversations(params: {
+  userId: string;
+  accountId: string;
+  db: ReturnType<typeof supabaseAdmin>;
+}): Promise<void> {
+  const { userId, accountId, db } = params;
+
+  const { data: threads } = await db
+    .from("emails")
+    .select("thread_id")
+    .eq("account_id", accountId)
+    .not("thread_id", "is", null);
+
+  if (!threads) return;
+
+  const uniqueThreadIds = [...new Set(threads.map((t) => t.thread_id).filter(Boolean))] as string[];
+
+  for (const threadId of uniqueThreadIds) {
+    const { data: emails } = await db
+      .from("emails")
+      .select("*")
+      .eq("account_id", accountId)
+      .eq("thread_id", threadId)
+      .order("sent_at", { ascending: true });
+
+    if (!emails || emails.length === 0) continue;
+
+    const sorted = [...emails].sort((a, b) => {
+      const aT = new Date(a.sent_at ?? a.received_at).getTime();
+      const bT = new Date(b.sent_at ?? b.received_at).getTime();
+      return aT - bT;
+    });
+
+    const newest = sorted[sorted.length - 1];
+    const oldest = sorted[0];
+
+    const participantSet = new Map<string, { address: string; name?: string }>();
+    for (const e of emails) {
+      if (e.from_address) {
+        participantSet.set(e.from_address.toLowerCase(), {
+          address: e.from_address,
+          name: e.from_name ?? undefined,
+        });
+      }
+      for (const arr of [e.to_addresses, e.cc_addresses]) {
+        if (Array.isArray(arr)) {
+          for (const r of arr as Array<{ emailAddress?: { address?: string; name?: string } }>) {
+            const addr = r?.emailAddress?.address;
+            const name = r?.emailAddress?.name;
+            if (addr) {
+              participantSet.set(addr.toLowerCase(), { address: addr, name: name ?? undefined });
+            }
+          }
+        }
+      }
+    }
+
+    const { data: conv } = await db
+      .from("conversations")
+      .upsert({
+        user_id: userId,
+        account_id: accountId,
+        provider_thread_id: threadId,
+        subject: newest.subject ?? oldest.subject,
+        message_count: emails.length,
+        unread_count: emails.filter((e) => !e.is_read).length,
+        last_message_at: newest.sent_at ?? newest.received_at,
+        first_message_at: oldest.sent_at ?? oldest.received_at,
+        participants: Array.from(participantSet.values()),
+        has_starred: emails.some((e) => e.is_starred),
+        has_attachments: emails.some((e) => e.has_attachments),
+        primary_folder_id: newest.folder_id,
+      }, { onConflict: "account_id,provider_thread_id" })
+      .select("id")
+      .single();
+
+    if (!conv) continue;
+
+    await db
+      .from("emails")
+      .update({ conversation_id: conv.id })
+      .eq("account_id", accountId)
+      .eq("thread_id", threadId);
   }
 }
