@@ -2,7 +2,7 @@
 // Server-only — uses service role client and Graph API.
 
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
-import { refreshAccessToken, graphFetch } from "@/src/lib/auth/outlook";
+import { refreshAccessToken, graphFetch, listMailFolders, listChildFolders } from "@/src/lib/auth/outlook";
 
 // ============================================================
 // Types
@@ -209,6 +209,52 @@ export async function syncOutlookAccount(params: {
 
         throw err;
       }
+    }
+
+    // 5b. Sync folder hierarchy into email_folders table
+    try {
+      const graphFolders = await listMailFolders(accessToken);
+      const now = new Date().toISOString();
+      for (const gf of graphFolders) {
+        await db.from("email_folders").upsert({
+          user_id: userId,
+          account_id: accountId,
+          provider_folder_id: gf.id,
+          well_known_name: gf.wellKnownName ?? null,
+          display_name: gf.displayName,
+          parent_folder_id: null,
+          unread_count: gf.unreadItemCount ?? 0,
+          total_count: gf.totalItemCount ?? 0,
+          is_hidden: gf.isHidden ?? false,
+          updated_at: now,
+        }, { onConflict: "account_id,provider_folder_id" });
+
+        // Sync child folders if any
+        if (gf.childFolderCount > 0) {
+          try {
+            const children = await listChildFolders(accessToken, gf.id);
+            // Look up the parent's local UUID
+            const { data: parentRow } = await db.from("email_folders")
+              .select("id").eq("account_id", accountId).eq("provider_folder_id", gf.id).single();
+            for (const cf of children) {
+              await db.from("email_folders").upsert({
+                user_id: userId,
+                account_id: accountId,
+                provider_folder_id: cf.id,
+                well_known_name: null,
+                display_name: cf.displayName,
+                parent_folder_id: parentRow?.id ?? null,
+                unread_count: cf.unreadItemCount ?? 0,
+                total_count: cf.totalItemCount ?? 0,
+                is_hidden: cf.isHidden ?? false,
+                updated_at: now,
+              }, { onConflict: "account_id,provider_folder_id" });
+            }
+          } catch { /* child folder fetch failed — continue */ }
+        }
+      }
+    } catch (err) {
+      console.error("[outlook-sync] Folder sync failed (non-fatal):", err);
     }
 
     // 6. Determine sync window

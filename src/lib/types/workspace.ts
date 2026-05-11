@@ -118,9 +118,58 @@ export interface Email {
   raw_headers: Record<string, unknown> | null;
   provider_etag: string | null;
   folder_id: string | null;
+  local_origin: boolean;
+  user_state: 'handled' | 'followup' | null;
   created_at: string;
   updated_at: string;
 }
+
+export interface EmailFolder {
+  id: string;
+  user_id: string;
+  account_id: string;
+  provider_folder_id: string;
+  well_known_name: string | null;
+  display_name: string;
+  parent_folder_id: string | null;
+  unread_count: number;
+  total_count: number;
+  is_hidden: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailSignature {
+  id: string;
+  user_id: string;
+  account_id: string;
+  name: string;
+  body_html: string;
+  is_default: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailDraft {
+  id: string;
+  user_id: string;
+  account_id: string;
+  mode: 'compose' | 'reply' | 'replyAll' | 'forward';
+  in_reply_to_message_id: string | null;
+  to_addresses: string[];
+  cc_addresses: string[];
+  bcc_addresses: string[];
+  subject: string;
+  body_html: string;
+  signature_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewEmailSignature = Omit<EmailSignature, 'id' | 'created_at' | 'updated_at'>;
+export type UpdateEmailSignature = Partial<NewEmailSignature>;
 
 export interface CalendarEvent {
   id: string;

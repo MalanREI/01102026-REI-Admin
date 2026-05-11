@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Input } from "@/src/components/ui";
 import { RecipientInput } from "@/src/components/workspace/RecipientInput";
 import { RichTextEditor } from "@/src/components/workspace/RichTextEditor";
+import { listSignatures, upsertDraft, deleteDraftById } from "@/src/lib/supabase/workspace-queries";
+import type { EmailSignature } from "@/src/lib/types/workspace";
 
 type ComposeMode = "compose" | "reply" | "replyAll" | "forward";
 
@@ -45,6 +47,22 @@ export function Compose({
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signatures, setSignatures] = useState<EmailSignature[]>([]);
+  const [selectedSigId, setSelectedSigId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Load signatures
+  useEffect(() => {
+    if (!open) return;
+    listSignatures(accountId)
+      .then((sigs) => {
+        setSignatures(sigs);
+        const def = sigs.find((s) => s.is_default);
+        if (def) setSelectedSigId(def.id);
+      })
+      .catch(() => setSignatures([]));
+  }, [open, accountId]);
 
   // Initialize state when modal opens
   useEffect(() => {
@@ -57,7 +75,38 @@ export function Compose({
     setShowCcBcc(!!(initialCc && initialCc.length > 0));
     setSending(false);
     setError(null);
+    setDraftId(null);
   }, [open, initialTo, initialCc, initialSubject, initialBody]);
+
+  // Auto-save draft every 5 seconds
+  useEffect(() => {
+    if (!open) {
+      if (autoSaveRef.current) clearInterval(autoSaveRef.current);
+      return;
+    }
+    autoSaveRef.current = setInterval(async () => {
+      if (sending) return;
+      const hasAny = to.length > 0 || subject.trim() || body.trim();
+      if (!hasAny) return;
+      try {
+        const saved = await upsertDraft({
+          id: draftId ?? crypto.randomUUID(),
+          user_id: "", // RLS handles this
+          account_id: accountId,
+          mode,
+          in_reply_to_message_id: inReplyToMessageId ?? null,
+          to_addresses: to,
+          cc_addresses: cc,
+          bcc_addresses: bcc,
+          subject,
+          body_html: body,
+          signature_id: selectedSigId,
+        });
+        if (!draftId) setDraftId(saved.id);
+      } catch { /* auto-save is best-effort */ }
+    }, 5000);
+    return () => { if (autoSaveRef.current) clearInterval(autoSaveRef.current); };
+  }, [open, sending, to, cc, bcc, subject, body, draftId, accountId, mode, inReplyToMessageId, selectedSigId]);
 
   const hasContent = to.length > 0 || subject.trim() !== "" || body.trim() !== "";
 
@@ -65,8 +114,10 @@ export function Compose({
     if (hasContent && !sending) {
       if (!window.confirm("Discard this draft?")) return;
     }
+    // Clean up draft on discard
+    if (draftId) deleteDraftById(draftId).catch(() => {});
     onClose();
-  }, [hasContent, sending, onClose]);
+  }, [hasContent, sending, onClose, draftId]);
 
   // ESC to close
   useEffect(() => {
@@ -95,6 +146,11 @@ export function Compose({
     }
 
     setSending(true);
+
+    // Append signature if selected
+    const sig = signatures.find((s) => s.id === selectedSigId);
+    const finalBody = sig ? body + "<br><br>--<br>" + sig.body_html : body;
+
     try {
       const res = await fetch("/api/email/send", {
         method: "POST",
@@ -106,7 +162,7 @@ export function Compose({
           cc: cc.length > 0 ? cc : undefined,
           bcc: bcc.length > 0 ? bcc : undefined,
           subject,
-          body,
+          body: finalBody,
           inReplyToMessageId,
         }),
       });
@@ -118,6 +174,8 @@ export function Compose({
         return;
       }
 
+      // Clean up draft on successful send
+      if (draftId) deleteDraftById(draftId).catch(() => {});
       onSent?.();
       onClose();
     } catch (err) {
@@ -178,6 +236,22 @@ export function Compose({
               placeholder="Subject"
             />
           </div>
+
+          {signatures.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400 w-8 shrink-0">Sig</label>
+              <select
+                value={selectedSigId ?? ""}
+                onChange={(e) => setSelectedSigId(e.target.value || null)}
+                className="flex-1 rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 outline-none"
+              >
+                <option value="">No signature</option>
+                {signatures.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <RichTextEditor
             value={body}

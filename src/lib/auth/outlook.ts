@@ -498,3 +498,120 @@ export async function deleteCalendarEvent(
     throw { status: res.status, body };
   }
 }
+
+// ============================================================
+// Mail folder types and functions
+// ============================================================
+
+export interface OutlookMailFolder {
+  id: string;
+  displayName: string;
+  parentFolderId: string;
+  childFolderCount: number;
+  unreadItemCount: number;
+  totalItemCount: number;
+  isHidden: boolean;
+  wellKnownName?: string;
+}
+
+/**
+ * List all top-level mail folders for the user.
+ * Use includeHiddenFolders to also retrieve hidden system folders.
+ */
+export async function listMailFolders(
+  accessToken: string,
+  opts?: { includeHidden?: boolean }
+): Promise<OutlookMailFolder[]> {
+  const hidden = opts?.includeHidden ? '&includeHiddenFolders=true' : '';
+  const result = await graphFetch<{ value: OutlookMailFolder[] }>(
+    accessToken,
+    `/me/mailFolders?$top=100&$select=id,displayName,parentFolderId,childFolderCount,unreadItemCount,totalItemCount,isHidden${hidden}`
+  );
+  return result.value;
+}
+
+/**
+ * List child folders of a specific folder.
+ */
+export async function listChildFolders(
+  accessToken: string,
+  parentFolderId: string
+): Promise<OutlookMailFolder[]> {
+  const result = await graphFetch<{ value: OutlookMailFolder[] }>(
+    accessToken,
+    `/me/mailFolders/${encodeURIComponent(parentFolderId)}/childFolders?$top=100&$select=id,displayName,parentFolderId,childFolderCount,unreadItemCount,totalItemCount,isHidden`
+  );
+  return result.value;
+}
+
+export interface MoveMessageResult {
+  id: string;
+  parentFolderId: string;
+  conversationId?: string;
+  subject?: string;
+}
+
+/**
+ * Move a message to a different folder.
+ * IMPORTANT: Graph returns a NEW message ID after move. The old ID becomes invalid.
+ */
+export async function moveMessage(
+  accessToken: string,
+  messageId: string,
+  destinationFolderId: string
+): Promise<MoveMessageResult> {
+  return graphFetch<MoveMessageResult>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(messageId)}/move`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destinationId: destinationFolderId }),
+    }
+  );
+}
+
+/**
+ * Permanently delete a message (bypasses deleted items).
+ */
+export async function deleteMessage(
+  accessToken: string,
+  messageId: string
+): Promise<void> {
+  const url = `${MS_GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status !== 204 && !res.ok) {
+    const body = await res.text().catch(() => '');
+    throw { status: res.status, body };
+  }
+}
+
+/**
+ * Create a new file attachment on a message (for compose with attachments).
+ * Must be < 3MB per attachment via this simple endpoint.
+ */
+export async function addFileAttachment(
+  accessToken: string,
+  messageId: string,
+  fileName: string,
+  contentBytes: string,
+  contentType: string
+): Promise<{ id: string; name: string; size: number }> {
+  return graphFetch<{ id: string; name: string; size: number }>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(messageId)}/attachments`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: fileName,
+        contentBytes,
+        contentType,
+      }),
+    }
+  );
+}

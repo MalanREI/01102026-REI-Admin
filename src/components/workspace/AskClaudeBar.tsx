@@ -37,7 +37,6 @@ export function AskClaudeBar({
   // Global Cmd+K / Ctrl+K listener
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      console.log('AskClaudeBar keydown', e.key, e.metaKey, e.ctrlKey);
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         onOpenChange(true);

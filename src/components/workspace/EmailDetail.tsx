@@ -45,10 +45,18 @@ export function EmailDetail({
   email,
   onMarkRead,
   onStar,
+  onUserState,
+  onArchive,
+  onTrash,
+  onDelete,
 }: {
   email: Email | null;
   onMarkRead?: (isRead: boolean) => void;
   onStar?: (isStarred: boolean) => void;
+  onUserState?: (state: 'handled' | 'followup' | null) => void;
+  onArchive?: () => void;
+  onTrash?: () => void;
+  onDelete?: () => void;
 }) {
   const { workspace } = useWorkspace();
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
@@ -102,6 +110,16 @@ export function EmailDetail({
             <Button variant="ghost" className="text-xs" onClick={() => setComposeMode("forward")}>
               Forward
             </Button>
+            {onArchive && (
+              <Button variant="ghost" className="text-xs" onClick={onArchive}>
+                📦 Archive
+              </Button>
+            )}
+            {onTrash && (
+              <Button variant="ghost" className="text-xs" onClick={onTrash}>
+                🗑 Trash
+              </Button>
+            )}
             <div className="w-px h-4 bg-white/[0.08]" />
             {onMarkRead && (
               <Button
@@ -120,6 +138,25 @@ export function EmailDetail({
               >
                 {email.is_starred ? "Unstar" : "Star"}
               </Button>
+            )}
+            {onUserState && (
+              <>
+                <div className="w-px h-4 bg-white/[0.08]" />
+                <Button
+                  variant="ghost"
+                  className={["text-xs", email.user_state === "handled" ? "text-emerald-400" : ""].join(" ")}
+                  onClick={() => onUserState(email.user_state === "handled" ? null : "handled")}
+                >
+                  {email.user_state === "handled" ? "✓ Handled" : "Mark handled"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={["text-xs", email.user_state === "followup" ? "text-amber-400" : ""].join(" ")}
+                  onClick={() => onUserState(email.user_state === "followup" ? null : "followup")}
+                >
+                  {email.user_state === "followup" ? "⏰ Follow-up" : "Needs follow-up"}
+                </Button>
+              </>
             )}
             <a
               href={`https://outlook.live.com/mail/0/inbox/id/${encodeURIComponent(email.provider_message_id)}`}

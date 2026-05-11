@@ -8,6 +8,11 @@ import type {
   Email,
   EmailAttachment,
   CalendarEvent,
+  EmailFolder,
+  EmailSignature,
+  EmailDraft,
+  NewEmailSignature,
+  UpdateEmailSignature,
   Commitment,
   Topic,
   TopicItem,
@@ -142,9 +147,11 @@ export async function listEmails(
   accountId: string,
   opts?: {
     projectId?: string | null;
+    folderId?: string;
     triageCategory?: TriageCategory;
     isRead?: boolean;
     isPromotional?: boolean;
+    userState?: 'handled' | 'followup';
     limit?: number;
     offset?: number;
     search?: string;
@@ -164,8 +171,14 @@ export async function listEmails(
       query = query.eq('ai_project_id', opts.projectId);
     }
   }
+  if (opts?.folderId) {
+    query = query.eq('folder_id', opts.folderId);
+  }
   if (opts?.triageCategory) {
     query = query.eq('triage_category', opts.triageCategory);
+  }
+  if (opts?.userState) {
+    query = query.eq('user_state', opts.userState);
   }
   if (opts?.isRead !== undefined) {
     query = query.eq('is_read', opts.isRead);
@@ -230,6 +243,107 @@ export async function listEmailAttachmentsForEmail(emailId: string): Promise<Ema
     .order('file_name', { ascending: true });
   if (error) throw error;
   return data as EmailAttachment[];
+}
+
+export async function setEmailUserState(emailId: string, userState: 'handled' | 'followup' | null): Promise<void> {
+  const db = supabaseBrowser();
+  const { error } = await db
+    .from('emails')
+    .update({ user_state: userState, updated_at: new Date().toISOString() })
+    .eq('id', emailId);
+  if (error) throw error;
+}
+
+// ============================================================
+// EMAIL FOLDERS
+// ============================================================
+
+export async function listEmailFolders(accountId: string): Promise<EmailFolder[]> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_folders')
+    .select('*')
+    .eq('account_id', accountId)
+    .eq('is_hidden', false)
+    .order('position', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as EmailFolder[];
+}
+
+// ============================================================
+// EMAIL SIGNATURES
+// ============================================================
+
+export async function listSignatures(accountId: string): Promise<EmailSignature[]> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_signatures')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('position', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as EmailSignature[];
+}
+
+export async function createSignature(sig: NewEmailSignature): Promise<EmailSignature> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_signatures')
+    .insert(sig)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as EmailSignature;
+}
+
+export async function updateSignature(id: string, updates: UpdateEmailSignature): Promise<EmailSignature> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_signatures')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as EmailSignature;
+}
+
+export async function deleteSignature(id: string): Promise<void> {
+  const db = supabaseBrowser();
+  const { error } = await db.from('email_signatures').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// EMAIL DRAFTS
+// ============================================================
+
+export async function listDrafts(accountId: string): Promise<EmailDraft[]> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_drafts')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as EmailDraft[];
+}
+
+export async function upsertDraft(draft: Omit<EmailDraft, 'created_at' | 'updated_at'>): Promise<EmailDraft> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_drafts')
+    .upsert({ ...draft, updated_at: new Date().toISOString() }, { onConflict: 'id' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as EmailDraft;
+}
+
+export async function deleteDraftById(id: string): Promise<void> {
+  const db = supabaseBrowser();
+  const { error } = await db.from('email_drafts').delete().eq('id', id);
+  if (error) throw error;
 }
 
 // ============================================================
