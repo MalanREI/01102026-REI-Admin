@@ -45,11 +45,13 @@ export function CalendarWeekView({
   events,
   selectedEventId,
   onEventClick,
+  onSlotClick,
 }: {
   weekStart: Date;
   events: CalendarEvent[];
   selectedEventId: string | null;
   onEventClick: (event: CalendarEvent) => void;
+  onSlotClick?: (start: Date, end: Date) => void;
 }) {
   const today = useMemo(() => new Date(), []);
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -125,13 +127,29 @@ export function CalendarWeekView({
           {days.map((day, dayIdx) => {
             const dayEvents = getEventsForDay(events, day, false);
             const isToday = isSameDay(day, today);
+            const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>) => {
+              if (!onSlotClick) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const y = e.clientY - rect.top;
+              const totalHeight = rect.height;
+              const minutesFromDayStart = (y / totalHeight) * HOURS_IN_VIEW * 60;
+              const roundedMinutes = Math.round(minutesFromDayStart / 30) * 30;
+              const startHour = DAY_START_HOUR + Math.floor(roundedMinutes / 60);
+              const startMin = roundedMinutes % 60;
+              const start = new Date(day);
+              start.setHours(startHour, startMin, 0, 0);
+              const end = new Date(start.getTime() + 60 * 60 * 1000);
+              onSlotClick(start, end);
+            };
+
             return (
               <div
                 key={dayIdx}
                 className={[
-                  "flex-1 relative border-l border-white/[0.04]",
+                  "flex-1 relative border-l border-white/[0.04] cursor-pointer",
                   isToday ? "bg-emerald-500/5" : "",
                 ].join(" ")}
+                onClick={handleSlotClick}
               >
                 {/* Hour grid lines */}
                 {HOUR_LABELS.map((_, i) => (

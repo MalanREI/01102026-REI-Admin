@@ -435,3 +435,66 @@ export async function listCalendarEvents(
 
   return { events: result.value, nextLink };
 }
+
+// ============================================================
+// Calendar event CRUD
+// ============================================================
+
+export interface OutlookEventDraft {
+  subject: string;
+  body?: { contentType: 'HTML' | 'Text'; content: string };
+  start: { dateTime: string; timeZone: string };
+  end: { dateTime: string; timeZone: string };
+  location?: { displayName: string };
+  attendees?: OutlookCalendarAttendee[];
+  isAllDay?: boolean;
+  showAs?: string;
+  importance?: string;
+  isOnlineMeeting?: boolean;
+  onlineMeetingProvider?: 'teamsForBusiness' | 'skypeForBusiness' | 'skypeForConsumer';
+}
+
+/** Create a new calendar event. */
+export async function createCalendarEvent(
+  accessToken: string,
+  event: OutlookEventDraft
+): Promise<OutlookCalendarEvent> {
+  return graphFetch<OutlookCalendarEvent>(accessToken, '/me/events', {
+    method: 'POST',
+    body: JSON.stringify(event),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** Update an existing event. */
+export async function updateCalendarEvent(
+  accessToken: string,
+  eventId: string,
+  patch: Partial<OutlookEventDraft>
+): Promise<OutlookCalendarEvent> {
+  return graphFetch<OutlookCalendarEvent>(
+    accessToken,
+    `/me/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+}
+
+/** Delete an event. Returns 204 No Content. */
+export async function deleteCalendarEvent(
+  accessToken: string,
+  eventId: string
+): Promise<void> {
+  const url = `${MS_GRAPH_BASE}/me/events/${encodeURIComponent(eventId)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status !== 204 && !res.ok) {
+    const body = await res.text().catch(() => '');
+    throw { status: res.status, body };
+  }
+}

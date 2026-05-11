@@ -30,7 +30,7 @@ export function CalendarEventBlock({
     <button
       type="button"
       style={{ top: `${topPercent}%`, height: `${Math.max(heightPercent, 2)}%` }}
-      onClick={onClick}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={[
         "absolute left-1 right-1 px-2 py-0.5 rounded text-xs text-left overflow-hidden cursor-pointer transition-all",
         colorClass,

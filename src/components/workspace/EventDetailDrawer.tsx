@@ -16,9 +16,13 @@ const RESPONSE_ICONS: Record<string, { icon: string; color: string }> = {
 export function EventDetailDrawer({
   event,
   onClose,
+  onEdit,
+  onDelete,
 }: {
   event: CalendarEvent | null;
   onClose: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   if (!event) return null;
 
@@ -143,7 +147,7 @@ export function EventDetailDrawer({
         )}
 
         {/* Actions */}
-        <div className="mt-6 pt-4 border-t border-white/[0.06]">
+        <div className="mt-6 pt-4 border-t border-white/[0.06] flex items-center gap-3">
           <a
             href="https://outlook.live.com/calendar/view/week"
             target="_blank"
@@ -152,6 +156,22 @@ export function EventDetailDrawer({
           >
             Open in Outlook
           </a>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              Edit
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="text-xs text-red-400 hover:text-red-300 transition-colors"
+            >
+              Delete
+            </button>
+          )}
         </div>
       </div>
     </>
