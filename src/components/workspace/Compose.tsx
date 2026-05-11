@@ -125,11 +125,15 @@ export function Compose({
     onClose();
   }, [hasContent, sending, onClose, draftId]);
 
-  // ESC to close
+  // ESC to close, Cmd+Enter to send
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") handleClose();
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSend();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

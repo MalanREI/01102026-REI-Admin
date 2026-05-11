@@ -6,13 +6,15 @@ import { useWorkspace } from "@/src/components/workspace/WorkspaceContext";
 import { FolderList } from "@/src/components/workspace/FolderList";
 import { ConversationListItem } from "@/src/components/workspace/ConversationListItem";
 import { ConversationDetail } from "@/src/components/workspace/ConversationDetail";
-// Input from ui.tsx doesn't forward refs; using plain <input> for search
+import { Compose } from "@/src/components/workspace/Compose";
 import {
   listConversations,
   listEmailsInConversation,
   setConversationUserState,
+  getConversation,
 } from "@/src/lib/supabase/workspace-queries";
-import type { Conversation, EmailUserState } from "@/src/lib/types/workspace";
+import { formatEmailDateLong } from "@/src/lib/format";
+import type { Conversation, Email, EmailUserState } from "@/src/lib/types/workspace";
 
 const USER_STATE_FILTERS: { value: EmailUserState | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -33,6 +35,12 @@ function InboxContent() {
   const [userStateFilter, setUserStateFilter] = useState<EmailUserState | "all">("inbox");
   const [folderId, setFolderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeMode, setComposeMode] = useState<"compose" | "reply" | "replyAll" | "forward">("compose");
+  const [composeContext, setComposeContext] = useState<{
+    initialTo?: string[]; initialCc?: string[]; initialSubject?: string;
+    initialBody?: string; inReplyToMessageId?: string;
+  }>({});
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -95,14 +103,59 @@ function InboxContent() {
     } catch { /* ignore */ }
   }, [selectedConv, fetchConversations]);
 
+  const openReplyForConversation = useCallback(async (mode: "reply" | "replyAll" | "forward") => {
+    if (!selectedConv) return;
+    const emails = await listEmailsInConversation(selectedConv.id);
+    const newest = emails[emails.length - 1];
+    if (!newest) return;
+    const myEmail = workspace.email_address.toLowerCase();
+    const subject = newest.subject ?? "";
+
+    if (mode === "reply") {
+      setComposeContext({
+        initialTo: newest.from_address ? [newest.from_address] : [],
+        initialSubject: subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`,
+        inReplyToMessageId: newest.provider_message_id,
+      });
+    } else if (mode === "replyAll") {
+      const extractAddr = (r: unknown) => (r as { emailAddress?: { address?: string } })?.emailAddress?.address ?? null;
+      const allTo = [...new Set([newest.from_address, ...((newest.to_addresses ?? []) as unknown[]).map(extractAddr)].filter((a): a is string => !!a && a.toLowerCase() !== myEmail))];
+      const allCc = ((newest.cc_addresses ?? []) as unknown[]).map(extractAddr).filter((a): a is string => !!a && a.toLowerCase() !== myEmail);
+      setComposeContext({
+        initialTo: allTo,
+        initialCc: allCc,
+        initialSubject: subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`,
+        inReplyToMessageId: newest.provider_message_id,
+      });
+    } else {
+      setComposeContext({
+        initialTo: [],
+        initialSubject: subject.toLowerCase().startsWith("fwd:") ? subject : `Fwd: ${subject}`,
+        inReplyToMessageId: newest.provider_message_id,
+      });
+    }
+    setComposeMode(mode);
+    setComposeOpen(true);
+  }, [selectedConv, workspace.email_address]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.target instanceof HTMLElement && e.target.isContentEditable) return;
+
+      // Cmd/Ctrl+N: new compose
+      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+        e.preventDefault();
+        setComposeMode("compose");
+        setComposeContext({});
+        setComposeOpen(true);
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-      switch (e.key.toLowerCase()) {
+      switch (e.key) {
         case "j": {
           e.preventDefault();
           const next = Math.min(selectedIndex + 1, conversations.length - 1);
@@ -130,7 +183,19 @@ function InboxContent() {
           searchRef.current?.focus();
           break;
         }
-        case "escape": {
+        case "r": {
+          if (!selectedConv) break;
+          e.preventDefault();
+          openReplyForConversation(e.shiftKey ? "replyAll" : "reply");
+          break;
+        }
+        case "f": {
+          if (!selectedConv) break;
+          e.preventDefault();
+          openReplyForConversation("forward");
+          break;
+        }
+        case "Escape": {
           setSelectedConv(null);
           setSelectedIndex(-1);
           break;
@@ -139,7 +204,7 @@ function InboxContent() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIndex, conversations, handleSelectConv, handleMoveAction]);
+  }, [selectedIndex, conversations, handleSelectConv, handleMoveAction, selectedConv]);
 
   const hasFilters = !!debouncedSearch || userStateFilter !== "inbox";
 
@@ -210,6 +275,15 @@ function InboxContent() {
           onUserState={handleUserState}
         />
       </div>
+
+      <Compose
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        accountId={workspace.id}
+        mode={composeMode}
+        {...composeContext}
+        onSent={fetchConversations}
+      />
     </div>
   );
 }
