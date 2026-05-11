@@ -212,15 +212,22 @@ export async function syncOutlookAccount(params: {
     }
 
     // 5b. Sync folder hierarchy into email_folders table
+    const DISPLAY_TO_WELLKNOWN: Record<string, string> = {
+      "inbox": "inbox", "sent items": "sentitems", "drafts": "drafts",
+      "deleted items": "deleteditems", "junk email": "junkemail", "junk": "junkemail",
+      "archive": "archive", "outbox": "outbox",
+    };
     try {
       const graphFolders = await listMailFolders(accessToken);
       const now = new Date().toISOString();
       for (const gf of graphFolders) {
+        const wkn = gf.wellKnownName ?? DISPLAY_TO_WELLKNOWN[gf.displayName.toLowerCase()] ?? null;
         await db.from("email_folders").upsert({
           user_id: userId,
           account_id: accountId,
           provider_folder_id: gf.id,
-          well_known_name: gf.wellKnownName ?? null,
+          well_known_name: wkn,
+          is_well_known: wkn !== null,
           display_name: gf.displayName,
           parent_folder_id: null,
           unread_count: gf.unreadItemCount ?? 0,
