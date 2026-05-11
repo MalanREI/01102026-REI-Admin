@@ -380,6 +380,23 @@ export async function listEmailFolders(accountId: string): Promise<EmailFolder[]
   return (data ?? []) as EmailFolder[];
 }
 
+export async function getFolderCounts(accountId: string): Promise<Record<string, { total: number; unread: number }>> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('conversations')
+    .select('primary_folder_id, unread_count')
+    .eq('account_id', accountId);
+  if (error) throw error;
+  const counts: Record<string, { total: number; unread: number }> = {};
+  for (const row of data ?? []) {
+    const fid = row.primary_folder_id ?? '__none__';
+    if (!counts[fid]) counts[fid] = { total: 0, unread: 0 };
+    counts[fid].total++;
+    if ((row.unread_count as number) > 0) counts[fid].unread++;
+  }
+  return counts;
+}
+
 // ============================================================
 // EMAIL SIGNATURES
 // ============================================================

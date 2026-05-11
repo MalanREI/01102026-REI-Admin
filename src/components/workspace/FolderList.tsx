@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listEmailFolders } from "@/src/lib/supabase/workspace-queries";
+import { listEmailFolders, getFolderCounts } from "@/src/lib/supabase/workspace-queries";
 import type { EmailFolder } from "@/src/lib/types/workspace";
 
 const WELL_KNOWN_ORDER = ["inbox", "drafts", "sentitems", "archive", "deleteditems", "junkemail"];
@@ -32,12 +32,13 @@ export function FolderList({
   onFolderSelect: (folderId: string | null) => void;
 }) {
   const [folders, setFolders] = useState<EmailFolder[]>([]);
+  const [counts, setCounts] = useState<Record<string, { total: number; unread: number }>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    listEmailFolders(accountId)
-      .then(setFolders)
-      .catch(() => setFolders([]))
+    Promise.all([listEmailFolders(accountId), getFolderCounts(accountId)])
+      .then(([f, c]) => { setFolders(f); setCounts(c); })
+      .catch(() => { setFolders([]); setCounts({}); })
       .finally(() => setLoading(false));
   }, [accountId]);
 
@@ -62,6 +63,7 @@ export function FolderList({
     const fid = folder.well_known_name ?? folder.provider_folder_id;
     const isActive = selectedFolderId === fid;
     const children = childFolders.filter((cf) => cf.parent_folder_id === folder.id);
+    const localCount = counts[fid];
 
     return (
       <div key={folder.id}>
@@ -76,9 +78,9 @@ export function FolderList({
         >
           <span className="text-sm">{icon}</span>
           <span className="flex-1 truncate text-left">{label}</span>
-          {folder.unread_count > 0 && (
-            <span className={["text-[10px] font-semibold tabular-nums", isActive ? "text-emerald-400" : "text-slate-500"].join(" ")}>
-              {folder.unread_count}
+          {localCount && localCount.total > 0 && (
+            <span className={["text-[10px] tabular-nums", localCount.unread > 0 ? "font-semibold" : "font-normal", isActive ? "text-emerald-400" : "text-slate-500"].join(" ")}>
+              {localCount.unread > 0 ? localCount.unread : localCount.total}
             </span>
           )}
         </button>
