@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Input } from "@/src/components/ui";
 import { RecipientInput } from "@/src/components/workspace/RecipientInput";
 import { RichTextEditor } from "@/src/components/workspace/RichTextEditor";
+import { SignatureManager } from "@/src/components/workspace/SignatureManager";
 import { listSignatures, upsertDraft, deleteDraftById } from "@/src/lib/supabase/workspace-queries";
-import type { EmailSignature } from "@/src/lib/types/workspace";
+import { formatFileSize } from "@/src/lib/format";
+import type { EmailSignature, DraftAttachment } from "@/src/lib/types/workspace";
 
 type ComposeMode = "compose" | "reply" | "replyAll" | "forward";
 
@@ -50,6 +52,9 @@ export function Compose({
   const [signatures, setSignatures] = useState<EmailSignature[]>([]);
   const [selectedSigId, setSelectedSigId] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [manageSignaturesOpen, setManageSignaturesOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load signatures
@@ -76,6 +81,7 @@ export function Compose({
     setSending(false);
     setError(null);
     setDraftId(null);
+    setAttachments([]);
   }, [open, initialTo, initialCc, initialSubject, initialBody]);
 
   // Auto-save draft every 5 seconds
@@ -129,6 +135,37 @@ export function Compose({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, handleClose]);
 
+  function refetchSignatures() {
+    listSignatures(accountId).then(setSignatures).catch(() => {});
+  }
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || !draftId) { setError("Save your draft first before attaching files."); return; }
+    for (const file of Array.from(files)) {
+      const formData = new FormData();
+      formData.append("draftId", draftId);
+      formData.append("file", file);
+      const res = await fetch("/api/email/draft/attachment", { method: "POST", body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        setAttachments((prev) => [...prev, data]);
+      } else {
+        setError("Upload failed: " + file.name);
+      }
+    }
+    e.target.value = "";
+  }
+
+  async function removeAttachment(attachmentId: string) {
+    const res = await fetch("/api/email/draft/attachment", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attachmentId }),
+    });
+    if (res.ok) setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+  }
+
   async function handleSend() {
     setError(null);
 
@@ -164,6 +201,7 @@ export function Compose({
           subject,
           body: finalBody,
           inReplyToMessageId,
+          draftId: draftId ?? undefined,
         }),
       });
 
@@ -237,19 +275,35 @@ export function Compose({
             />
           </div>
 
-          {signatures.length > 0 && (
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-400 w-8 shrink-0">Sig</label>
-              <select
-                value={selectedSigId ?? ""}
-                onChange={(e) => setSelectedSigId(e.target.value || null)}
-                className="flex-1 rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 outline-none"
-              >
-                <option value="">No signature</option>
-                {signatures.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-400 w-8 shrink-0">Sig</label>
+            <select
+              value={selectedSigId ?? ""}
+              onChange={(e) => setSelectedSigId(e.target.value || null)}
+              className="flex-1 rounded-lg border border-white/10 bg-base px-3 py-2 text-sm text-slate-200 outline-none"
+            >
+              <option value="">No signature</option>
+              {signatures.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            <button onClick={() => setManageSignaturesOpen(true)} className="text-xs text-emerald-400 hover:text-emerald-300 shrink-0">
+              Manage
+            </button>
+            <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={handleFileSelect} />
+            <button onClick={() => fileInputRef.current?.click()} className="text-xs px-2 py-1 rounded border border-white/10 hover:bg-white/[0.05] text-slate-300 shrink-0">
+              📎 Attach
+            </button>
+          </div>
+
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {attachments.map((a) => (
+                <div key={a.id} className="flex items-center gap-2 px-3 py-1 bg-white/[0.05] rounded text-xs text-slate-300">
+                  📎 {a.file_name} ({formatFileSize(a.size_bytes)})
+                  <button onClick={() => removeAttachment(a.id)} className="text-slate-500 hover:text-slate-200">×</button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -277,6 +331,13 @@ export function Compose({
           </div>
         </div>
       </div>
+
+      <SignatureManager
+        open={manageSignaturesOpen}
+        onClose={() => setManageSignaturesOpen(false)}
+        accountId={accountId}
+        onChange={refetchSignatures}
+      />
     </div>
   );
 }
