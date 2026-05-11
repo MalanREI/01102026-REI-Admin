@@ -89,7 +89,7 @@ function InboxContent() {
     setSelectedEmail((prev) => prev ? { ...prev, is_starred: isStarred } : prev);
   }, [selectedEmail]);
 
-  const handleUserState = useCallback((state: 'handled' | 'followup' | null) => {
+  const handleUserState = useCallback((state: 'inbox' | 'handled' | 'followup' | 'snoozed' | null) => {
     if (!selectedEmail) return;
     setEmailUserState(selectedEmail.id, state).catch(() => {});
     setEmails((prev) => prev.map((e) => (e.id === selectedEmail.id ? { ...e, user_state: state } : e)));

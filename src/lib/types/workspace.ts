@@ -48,6 +48,8 @@ export type ScheduleItemStatus = 'on_track' | 'at_risk' | 'slipped' | 'completed
 
 export type AskQueryScope = 'current_workspace' | 'all_workspaces';
 
+export type EmailUserState = 'inbox' | 'handled' | 'followup' | 'snoozed';
+
 // ============================================================
 // TABLE ROW TYPES
 // ============================================================
@@ -119,7 +121,12 @@ export interface Email {
   provider_etag: string | null;
   folder_id: string | null;
   local_origin: boolean;
-  user_state: 'handled' | 'followup' | null;
+  user_state: EmailUserState | null;
+  handled_at: string | null;
+  followup_due_at: string | null;
+  snoozed_until: string | null;
+  user_notes: string | null;
+  conversation_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -166,6 +173,39 @@ export interface EmailDraft {
   signature_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Conversation {
+  id: string;
+  user_id: string;
+  account_id: string;
+  provider_thread_id: string;
+  subject: string | null;
+  message_count: number;
+  unread_count: number;
+  last_message_at: string | null;
+  first_message_at: string | null;
+  participants: Array<{ address: string; name?: string }>;
+  has_starred: boolean;
+  has_attachments: boolean;
+  primary_folder_id: string | null;
+  user_state: EmailUserState | null;
+  handled_at: string | null;
+  followup_due_at: string | null;
+  snoozed_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DraftAttachment {
+  id: string;
+  user_id: string;
+  draft_id: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  storage_path: string;
+  created_at: string;
 }
 
 export type NewEmailSignature = Omit<EmailSignature, 'id' | 'created_at' | 'updated_at'>;

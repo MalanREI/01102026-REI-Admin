@@ -53,7 +53,7 @@ export function EmailDetail({
   email: Email | null;
   onMarkRead?: (isRead: boolean) => void;
   onStar?: (isStarred: boolean) => void;
-  onUserState?: (state: 'handled' | 'followup' | null) => void;
+  onUserState?: (state: 'inbox' | 'handled' | 'followup' | 'snoozed' | null) => void;
   onArchive?: () => void;
   onTrash?: () => void;
   onDelete?: () => void;

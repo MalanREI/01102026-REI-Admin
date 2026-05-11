@@ -11,6 +11,9 @@ import type {
   EmailFolder,
   EmailSignature,
   EmailDraft,
+  Conversation,
+  DraftAttachment,
+  EmailUserState,
   NewEmailSignature,
   UpdateEmailSignature,
   Commitment,
@@ -245,13 +248,120 @@ export async function listEmailAttachmentsForEmail(emailId: string): Promise<Ema
   return data as EmailAttachment[];
 }
 
-export async function setEmailUserState(emailId: string, userState: 'handled' | 'followup' | null): Promise<void> {
+export async function setEmailUserState(
+  emailId: string,
+  userState: EmailUserState | null,
+  options?: { followupDueAt?: Date | null; snoozedUntil?: Date | null }
+): Promise<void> {
   const db = supabaseBrowser();
   const { error } = await db
     .from('emails')
-    .update({ user_state: userState, updated_at: new Date().toISOString() })
+    .update({
+      user_state: userState,
+      handled_at: userState === 'handled' ? new Date().toISOString() : null,
+      followup_due_at: options?.followupDueAt?.toISOString() ?? null,
+      snoozed_until: options?.snoozedUntil?.toISOString() ?? null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', emailId);
   if (error) throw error;
+}
+
+// ============================================================
+// CONVERSATIONS
+// ============================================================
+
+export async function listConversations(accountId: string, opts: {
+  folderId?: string;
+  userState?: EmailUserState | 'all';
+  projectId?: string | null;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<Conversation[]> {
+  const db = supabaseBrowser();
+  let query = db
+    .from('conversations')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('last_message_at', { ascending: false });
+
+  if (opts.folderId) query = query.eq('primary_folder_id', opts.folderId);
+  if (opts.userState && opts.userState !== 'all') {
+    query = query.eq('user_state', opts.userState);
+    if (opts.userState === 'inbox') {
+      const now = new Date().toISOString();
+      query = query.or(`snoozed_until.is.null,snoozed_until.lt.${now}`);
+    }
+  }
+  if (opts.search) query = query.ilike('subject', `%${opts.search}%`);
+  query = query.limit(opts.limit ?? 50);
+  if (opts.offset) query = query.range(opts.offset, opts.offset + (opts.limit ?? 50) - 1);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as Conversation[];
+}
+
+export async function getConversation(id: string): Promise<Conversation | null> {
+  const db = supabaseBrowser();
+  const { data, error } = await db.from('conversations').select('*').eq('id', id).single();
+  if (error) return null;
+  return data as Conversation;
+}
+
+export async function listEmailsInConversation(conversationId: string): Promise<Email[]> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('emails')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('sent_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Email[];
+}
+
+export async function setConversationUserState(
+  conversationId: string,
+  userState: EmailUserState | null,
+  options?: { followupDueAt?: Date | null; snoozedUntil?: Date | null }
+): Promise<void> {
+  const db = supabaseBrowser();
+  const now = new Date().toISOString();
+  const updates = {
+    user_state: userState,
+    handled_at: userState === 'handled' ? now : null,
+    followup_due_at: options?.followupDueAt?.toISOString() ?? null,
+    snoozed_until: options?.snoozedUntil?.toISOString() ?? null,
+    updated_at: now,
+  };
+  const { error: convErr } = await db.from('conversations').update(updates).eq('id', conversationId);
+  if (convErr) throw convErr;
+  // Cascade to emails
+  const emailUpdates = {
+    user_state: userState,
+    handled_at: userState === 'handled' ? now : null,
+    followup_due_at: options?.followupDueAt?.toISOString() ?? null,
+    snoozed_until: options?.snoozedUntil?.toISOString() ?? null,
+    updated_at: now,
+  };
+  const { error: emailErr } = await db.from('emails').update(emailUpdates).eq('conversation_id', conversationId);
+  if (emailErr) throw emailErr;
+}
+
+// ============================================================
+// DRAFT ATTACHMENTS
+// ============================================================
+
+export async function listDraftAttachments(draftId: string): Promise<DraftAttachment[]> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('draft_attachments')
+    .select('*')
+    .eq('draft_id', draftId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as DraftAttachment[];
 }
 
 // ============================================================
