@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/src/lib/supabase/server";
+import { supabaseAdmin } from "@/src/lib/supabase/admin";
 import {
   refreshAccessToken,
   sendMail,
   getMessageById,
   type OutlookMessageDraft,
+  type OutlookFileAttachment,
 } from "@/src/lib/auth/outlook";
 import { formatEmailDateLong } from "@/src/lib/format";
 
@@ -36,6 +38,7 @@ interface SendPayload {
   subject: string;
   body: string;
   inReplyToMessageId?: string;
+  draftId?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -170,12 +173,39 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Build attachments from draft if present
+  const graphAttachments: OutlookFileAttachment[] = [];
+  let hasDraftAttachments = false;
+  if (payload.draftId) {
+    const admin = supabaseAdmin();
+    const { data: draftAtts } = await admin.from("draft_attachments")
+      .select("*").eq("draft_id", payload.draftId);
+    if (draftAtts && draftAtts.length > 0) {
+      hasDraftAttachments = true;
+      for (const att of draftAtts) {
+        const { data: fileData } = await admin.storage
+          .from("email-attachments")
+          .download(att.storage_path);
+        if (fileData) {
+          const buffer = Buffer.from(await fileData.arrayBuffer());
+          graphAttachments.push({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            name: att.file_name,
+            contentType: att.mime_type ?? "application/octet-stream",
+            contentBytes: buffer.toString("base64"),
+          });
+        }
+      }
+    }
+  }
+
   const draft: OutlookMessageDraft = {
     subject: finalSubject,
     body: { contentType: "HTML", content: finalBody },
     toRecipients: payload.to.map((addr) => ({ emailAddress: { address: addr } })),
     ccRecipients: (payload.cc ?? []).map((addr) => ({ emailAddress: { address: addr } })),
     bccRecipients: (payload.bcc ?? []).map((addr) => ({ emailAddress: { address: addr } })),
+    attachments: graphAttachments.length > 0 ? graphAttachments : undefined,
   };
 
   // Send
@@ -217,14 +247,26 @@ export async function POST(request: NextRequest) {
         is_sent_by_me: true,
         is_read: true,
         is_starred: false,
-        has_attachments: false,
+        has_attachments: hasDraftAttachments,
         folder_id: "sentitems",
         local_origin: true,
+        user_state: "handled",
       },
       { onConflict: "account_id,provider_message_id" }
     )
     .select("id")
     .single();
+
+  // Clean up draft after successful send
+  if (payload.draftId) {
+    const admin = supabaseAdmin();
+    const { data: draftAtts } = await admin.from("draft_attachments").select("storage_path").eq("draft_id", payload.draftId);
+    if (draftAtts) {
+      const paths = draftAtts.map((a) => a.storage_path).filter(Boolean);
+      if (paths.length > 0) await admin.storage.from("email-attachments").remove(paths);
+    }
+    await db.from("email_drafts").delete().eq("id", payload.draftId);
+  }
 
   return NextResponse.json({
     success: true,

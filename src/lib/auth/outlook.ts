@@ -202,6 +202,13 @@ export interface OutlookRecipient {
   };
 }
 
+export interface OutlookFileAttachment {
+  '@odata.type': '#microsoft.graph.fileAttachment';
+  name: string;
+  contentType: string;
+  contentBytes: string;
+}
+
 export interface OutlookMessageDraft {
   subject: string;
   body: {
@@ -211,6 +218,7 @@ export interface OutlookMessageDraft {
   toRecipients: OutlookRecipient[];
   ccRecipients?: OutlookRecipient[];
   bccRecipients?: OutlookRecipient[];
+  attachments?: OutlookFileAttachment[];
 }
 
 export interface OutlookSentMessage {
