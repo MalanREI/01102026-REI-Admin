@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pill } from "@/src/components/ui";
 import { SyncNowButton } from "@/src/components/workspace/SyncNowButton";
+import { Compose } from "@/src/components/workspace/Compose";
 import type { ConnectedAccount, AiDetectedProject, SyncStatus } from "@/src/lib/types/workspace";
 import { listProjects, getWorkspace } from "@/src/lib/supabase/workspace-queries";
 
@@ -38,6 +39,7 @@ export function WorkspaceTopbar({
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(workspace.sync_status);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(workspace.last_synced_at);
   const [syncError, setSyncError] = useState<string | null>(workspace.sync_error);
+  const [composeOpen, setComposeOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -131,8 +133,14 @@ export function WorkspaceTopbar({
           </select>
         </div>
 
-        {/* Right: sync button */}
-        <div className="shrink-0">
+        {/* Right: new email + sync */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setComposeOpen(true)}
+            className="text-xs px-3 py-1.5 rounded border border-white/[0.08] hover:bg-white/[0.04] text-slate-200 transition-colors"
+          >
+            ✏️ New email
+          </button>
           <SyncNowButton
             accountId={workspace.id}
             syncStatus={syncStatus}
@@ -167,6 +175,13 @@ export function WorkspaceTopbar({
           );
         })}
       </div>
+
+      <Compose
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        accountId={workspace.id}
+        mode="compose"
+      />
     </div>
   );
 }

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Pill, Button } from "@/src/components/ui";
+import { Compose } from "@/src/components/workspace/Compose";
+import { useWorkspace } from "@/src/components/workspace/WorkspaceContext";
 import { formatEmailDateLong, formatFileSize } from "@/src/lib/format";
 import { listEmailAttachmentsForEmail } from "@/src/lib/supabase/workspace-queries";
 import type { Email, EmailAttachment } from "@/src/lib/types/workspace";
@@ -16,6 +18,29 @@ function recipientNames(addresses: Record<string, unknown>[] | null, max: number
   return `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
 }
 
+function extractAddress(recipient: unknown): string | null {
+  const r = recipient as { emailAddress?: { address?: string } } | undefined;
+  return r?.emailAddress?.address ?? null;
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function buildQuotedBody(original: Email): string {
+  const intro = "<br><br>--- Original message ---<br>";
+  const meta =
+    `From: ${original.from_name ?? ""} &lt;${original.from_address ?? ""}&gt;<br>` +
+    `Sent: ${formatEmailDateLong(original.sent_at)}<br>` +
+    `Subject: ${original.subject ?? "(no subject)"}<br><br>`;
+  const body = original.body_html ?? `<pre>${escapeHtml(original.body_text ?? "")}</pre>`;
+  return intro + meta + body;
+}
+
+function unique(arr: (string | null)[]): string[] {
+  return [...new Set(arr.filter((a): a is string => !!a))];
+}
+
 export function EmailDetail({
   email,
   onMarkRead,
@@ -25,9 +50,11 @@ export function EmailDetail({
   onMarkRead?: (isRead: boolean) => void;
   onStar?: (isStarred: boolean) => void;
 }) {
+  const { workspace } = useWorkspace();
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [showHtml, setShowHtml] = useState(false);
+  const [composeMode, setComposeMode] = useState<"reply" | "replyAll" | "forward" | null>(null);
 
   useEffect(() => {
     if (!email?.has_attachments) {
@@ -66,6 +93,16 @@ export function EmailDetail({
           </h2>
           {/* Action bar */}
           <div className="flex items-center gap-2 shrink-0">
+            <Button variant="ghost" className="text-xs" onClick={() => setComposeMode("reply")}>
+              Reply
+            </Button>
+            <Button variant="ghost" className="text-xs" onClick={() => setComposeMode("replyAll")}>
+              Reply all
+            </Button>
+            <Button variant="ghost" className="text-xs" onClick={() => setComposeMode("forward")}>
+              Forward
+            </Button>
+            <div className="w-px h-4 bg-white/[0.08]" />
             {onMarkRead && (
               <Button
                 variant="ghost"
@@ -173,6 +210,46 @@ export function EmailDetail({
           <p className="text-sm text-slate-500 italic">No content available.</p>
         )}
       </div>
+
+      {/* Compose modal for reply/replyAll/forward */}
+      {composeMode && (() => {
+        const myAddr = workspace.email_address.toLowerCase();
+        const quotedBody = buildQuotedBody(email);
+        let initTo: string[] = [];
+        let initCc: string[] = [];
+        let initSubject = email.subject ?? "";
+
+        if (composeMode === "reply") {
+          initTo = email.from_address ? [email.from_address] : [];
+          initSubject = initSubject.toLowerCase().startsWith("re:") ? initSubject : `Re: ${initSubject}`;
+        } else if (composeMode === "replyAll") {
+          initTo = unique([
+            email.from_address,
+            ...((email.to_addresses ?? []) as Record<string, unknown>[]).map(extractAddress),
+          ].filter((a) => a?.toLowerCase() !== myAddr));
+          initCc = ((email.cc_addresses ?? []) as Record<string, unknown>[])
+            .map(extractAddress)
+            .filter((a): a is string => !!a && a.toLowerCase() !== myAddr);
+          initSubject = initSubject.toLowerCase().startsWith("re:") ? initSubject : `Re: ${initSubject}`;
+        } else {
+          initTo = [];
+          initSubject = initSubject.toLowerCase().startsWith("fwd:") ? initSubject : `Fwd: ${initSubject}`;
+        }
+
+        return (
+          <Compose
+            open
+            onClose={() => setComposeMode(null)}
+            accountId={workspace.id}
+            mode={composeMode}
+            initialTo={initTo}
+            initialCc={initCc}
+            initialSubject={initSubject}
+            initialBody={quotedBody}
+            inReplyToMessageId={email.provider_message_id}
+          />
+        );
+      })()}
     </div>
   );
 }

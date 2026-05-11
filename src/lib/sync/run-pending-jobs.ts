@@ -3,6 +3,7 @@
 
 import { supabaseAdmin } from "@/src/lib/supabase/admin";
 import { syncOutlookAccount, type SyncResult } from "./outlook-sync";
+import { syncOutlookCalendar } from "./outlook-calendar-sync";
 
 export async function runPendingSyncJobs(params: {
   userId?: string;
@@ -64,12 +65,44 @@ export async function runPendingSyncJobs(params: {
     }
 
     if (account.provider === "outlook") {
-      const result = await syncOutlookAccount({
-        userId: account.user_id,
-        accountId: job.account_id,
-        jobId: job.id,
-        budgetMs: remaining,
-      });
+      let result: SyncResult;
+
+      if (job.job_type === "calendar_sync") {
+        result = await syncOutlookCalendar({
+          userId: account.user_id,
+          accountId: job.account_id,
+          jobId: job.id,
+          budgetMs: remaining,
+        });
+      } else {
+        result = await syncOutlookAccount({
+          userId: account.user_id,
+          accountId: job.account_id,
+          jobId: job.id,
+          budgetMs: remaining,
+        });
+
+        // Auto-queue calendar sync after successful email sync
+        if (result.status === "completed" && (job.job_type === "initial_backfill" || job.job_type === "incremental_sync")) {
+          const { data: existingCalSync } = await db
+            .from("sync_jobs")
+            .select("id")
+            .eq("account_id", job.account_id)
+            .eq("job_type", "calendar_sync")
+            .in("status", ["pending", "running"])
+            .limit(1);
+
+          if (!existingCalSync?.length) {
+            await db.from("sync_jobs").insert({
+              user_id: account.user_id,
+              account_id: job.account_id,
+              job_type: "calendar_sync",
+              status: "pending",
+            });
+          }
+        }
+      }
+
       results.push({ jobId: job.id, result });
       if (result.status === "completed") completed++;
       else if (result.status === "failed") failed++;

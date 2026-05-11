@@ -346,3 +346,92 @@ export async function getMessageById(
     `/me/messages/${encodeURIComponent(messageId)}?$select=${select}`
   );
 }
+
+// ============================================================
+// Calendar types
+// ============================================================
+
+export interface OutlookCalendarAttendee {
+  emailAddress: { address: string; name?: string };
+  type?: 'required' | 'optional' | 'resource';
+  status?: {
+    response?: 'none' | 'organizer' | 'tentativelyAccepted' | 'accepted' | 'declined' | 'notResponded';
+    time?: string;
+  };
+}
+
+export interface OutlookCalendarEvent {
+  id: string;
+  '@odata.etag'?: string;
+  iCalUId?: string;
+  seriesMasterId?: string;
+  type?: 'singleInstance' | 'occurrence' | 'exception' | 'seriesMaster';
+  subject?: string;
+  bodyPreview?: string;
+  body?: { contentType: 'html' | 'text'; content: string };
+  start?: { dateTime: string; timeZone: string };
+  end?: { dateTime: string; timeZone: string };
+  isAllDay?: boolean;
+  isCancelled?: boolean;
+  isOrganizer?: boolean;
+  showAs?: string;
+  sensitivity?: string;
+  importance?: string;
+  location?: { displayName?: string };
+  onlineMeeting?: { joinUrl?: string };
+  onlineMeetingProvider?: string;
+  organizer?: { emailAddress: { address: string; name?: string } };
+  attendees?: OutlookCalendarAttendee[];
+  responseStatus?: { response?: string; time?: string };
+  recurrence?: unknown;
+  webLink?: string;
+}
+
+// ============================================================
+// Calendar functions
+// ============================================================
+
+/**
+ * List calendar events within a time range using /me/calendarView.
+ * Sends Prefer: outlook.timezone="UTC" so all times come back in UTC.
+ * Recurring events are auto-expanded into individual instances.
+ */
+export async function listCalendarEvents(
+  accessToken: string,
+  options: {
+    startDateTime: string;
+    endDateTime: string;
+    pageUrl?: string;
+  }
+): Promise<{ events: OutlookCalendarEvent[]; nextLink: string | null }> {
+  const url = options.pageUrl ??
+    `/me/calendarView?` +
+    `startDateTime=${encodeURIComponent(options.startDateTime)}` +
+    `&endDateTime=${encodeURIComponent(options.endDateTime)}` +
+    `&$select=id,iCalUId,seriesMasterId,type,subject,bodyPreview,body,` +
+      `start,end,isAllDay,isCancelled,isOrganizer,showAs,sensitivity,` +
+      `importance,location,onlineMeeting,onlineMeetingProvider,` +
+      `organizer,attendees,responseStatus,recurrence,webLink` +
+    `&$top=100` +
+    `&$orderby=start/dateTime`;
+
+  type CalendarViewResponse = {
+    value: OutlookCalendarEvent[];
+    '@odata.nextLink'?: string;
+  };
+
+  const result = await graphFetch<CalendarViewResponse>(accessToken, url, {
+    headers: { 'Prefer': 'outlook.timezone="UTC"' },
+  });
+
+  let nextLink: string | null = null;
+  if (result['@odata.nextLink']) {
+    const absoluteUrl = result['@odata.nextLink'];
+    const base = 'https://graph.microsoft.com/v1.0';
+    nextLink = absoluteUrl.startsWith(base)
+      ? absoluteUrl.slice(base.length)
+      : absoluteUrl;
+  }
+
+  return { events: result.value, nextLink };
+}

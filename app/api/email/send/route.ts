@@ -124,38 +124,49 @@ export async function POST(request: NextRequest) {
   let originalConversationId: string | null = null;
 
   if (payload.mode !== "compose" && payload.inReplyToMessageId) {
-    try {
-      const original = await getMessageById(accessToken, payload.inReplyToMessageId);
-      originalConversationId = original.conversationId ?? null;
+    const alreadyQuoted = payload.body.includes("--- Original message ---");
 
-      // Prefix subject if not already present
-      if (payload.mode === "reply" || payload.mode === "replyAll") {
-        if (!finalSubject.toLowerCase().startsWith("re:")) {
-          finalSubject = `Re: ${finalSubject}`;
+    if (!alreadyQuoted) {
+      // UI did not include quote — build it server-side
+      try {
+        const original = await getMessageById(accessToken, payload.inReplyToMessageId);
+        originalConversationId = original.conversationId ?? null;
+
+        // Prefix subject if not already present
+        if (payload.mode === "reply" || payload.mode === "replyAll") {
+          if (!finalSubject.toLowerCase().startsWith("re:")) {
+            finalSubject = `Re: ${finalSubject}`;
+          }
+        } else if (payload.mode === "forward") {
+          if (!finalSubject.toLowerCase().startsWith("fwd:")) {
+            finalSubject = `Fwd: ${finalSubject}`;
+          }
         }
-      } else if (payload.mode === "forward") {
-        if (!finalSubject.toLowerCase().startsWith("fwd:")) {
-          finalSubject = `Fwd: ${finalSubject}`;
-        }
+
+        // Append quoted original
+        const originalFrom = original.from?.emailAddress
+          ? `${original.from.emailAddress.name ?? ""} &lt;${original.from.emailAddress.address}&gt;`
+          : "Unknown";
+        const originalDate = formatEmailDateLong(original.sentDateTime);
+        const originalSubject = original.subject ?? "(no subject)";
+        const originalBody = original.body?.content ?? "";
+
+        finalBody +=
+          "<br><br>--- Original message ---<br>" +
+          `From: ${originalFrom}<br>` +
+          `Sent: ${originalDate}<br>` +
+          `Subject: ${originalSubject}<br><br>` +
+          originalBody;
+      } catch (err) {
+        console.error("[email/send] Failed to fetch original message:", errorToMessage(err));
+        // Continue with send — user's new content is still valid, just without quote
       }
-
-      // Append quoted original
-      const originalFrom = original.from?.emailAddress
-        ? `${original.from.emailAddress.name ?? ""} &lt;${original.from.emailAddress.address}&gt;`
-        : "Unknown";
-      const originalDate = formatEmailDateLong(original.sentDateTime);
-      const originalSubject = original.subject ?? "(no subject)";
-      const originalBody = original.body?.content ?? "";
-
-      finalBody +=
-        "<br><br>--- Original message ---<br>" +
-        `From: ${originalFrom}<br>` +
-        `Sent: ${originalDate}<br>` +
-        `Subject: ${originalSubject}<br><br>` +
-        originalBody;
-    } catch (err) {
-      console.error("[email/send] Failed to fetch original message:", errorToMessage(err));
-      // Continue with send — user's new content is still valid, just without quote
+    } else {
+      // UI already included the quote; still try to fetch original for thread_id linkage
+      try {
+        const original = await getMessageById(accessToken, payload.inReplyToMessageId);
+        originalConversationId = original.conversationId ?? null;
+      } catch { /* ignore — thread linkage is best-effort */ }
     }
   }
 

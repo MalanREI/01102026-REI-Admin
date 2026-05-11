@@ -61,7 +61,7 @@ interface GraphMessagesResponse {
 // Helpers
 // ============================================================
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return html
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
@@ -77,7 +77,7 @@ const FOLDERS_TO_SYNC: FolderInfo[] = [
 
 const MS_GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
-function errorToMessage(err: unknown): string {
+export function errorToMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   if (err && typeof err === "object") {
