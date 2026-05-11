@@ -1,10 +1,10 @@
 // Microsoft OAuth & Graph API wrapper for the Workspace module.
 // Pure HTTP library — no Supabase, no caching, no side effects.
 
+import { OUTLOOK_SCOPES_STRING } from './outlook-scopes';
+
 const MS_GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const MS_AUTH_BASE = 'https://login.microsoftonline.com';
-
-const SCOPES = 'openid profile email offline_access User.Read Mail.Read';
 
 // ============================================================
 // Types
@@ -61,7 +61,7 @@ export function buildAuthUrl(state: string): string {
     response_type: 'code',
     redirect_uri: redirectUri,
     response_mode: 'query',
-    scope: SCOPES,
+    scope: OUTLOOK_SCOPES_STRING,
     state: state,
     prompt: 'select_account',
   });
@@ -81,7 +81,7 @@ export async function exchangeCodeForTokens(code: string): Promise<OutlookTokens
     code,
     redirect_uri: redirectUri,
     grant_type: 'authorization_code',
-    scope: SCOPES,
+    scope: OUTLOOK_SCOPES_STRING,
   });
 
   const res = await fetch(`${MS_AUTH_BASE}/${tenant}/oauth2/v2.0/token`, {
@@ -120,7 +120,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<OutlookT
     client_secret: clientSecret,
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
-    scope: SCOPES,
+    scope: OUTLOOK_SCOPES_STRING,
   });
 
   const res = await fetch(`${MS_AUTH_BASE}/${tenant}/oauth2/v2.0/token`, {

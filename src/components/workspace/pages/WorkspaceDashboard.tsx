@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/src/components/ui";
 import { useWorkspace } from "@/src/components/workspace/WorkspaceContext";
+import { ReconnectBanner } from "@/src/components/workspace/ReconnectBanner";
 import { getWorkspaceStats } from "@/src/lib/supabase/workspace-queries";
 import type { WorkspaceStats } from "@/src/lib/types/workspace";
 
@@ -20,6 +21,7 @@ export function WorkspaceDashboard() {
 
   return (
     <div className="space-y-5">
+      <ReconnectBanner workspace={workspace} />
       <h1 className="text-lg font-semibold text-slate-100">Dashboard</h1>
 
       {loading ? (

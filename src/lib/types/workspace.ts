@@ -68,6 +68,7 @@ export interface ConnectedAccount {
   last_synced_at: string | null;
   sync_status: SyncStatus;
   sync_error: string | null;
+  backfill_days: number | null;
   created_at: string;
   updated_at: string;
 }

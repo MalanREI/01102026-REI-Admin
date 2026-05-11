@@ -105,6 +105,16 @@ export async function GET(request: NextRequest) {
   const accountCount = existingCount ?? 0;
   const colorHex = COLOR_PALETTE[accountCount % COLOR_PALETTE.length];
 
+  // Microsoft does NOT include 'offline_access' in response.scope even
+  // when it grants offline access. The presence of refresh_token is
+  // the proof. Add it manually so scope detection reflects reality.
+  const grantedScopeList = tokens.scope
+    ? tokens.scope.split(" ").filter(Boolean)
+    : [];
+  if (tokens.refresh_token && !grantedScopeList.includes("offline_access")) {
+    grantedScopeList.push("offline_access");
+  }
+
   // Check if account already exists (for upsert logic)
   const { data: existing } = await db
     .from("connected_accounts")
@@ -123,7 +133,7 @@ export async function GET(request: NextRequest) {
         refresh_token: tokens.refresh_token,
         access_token: tokens.access_token,
         token_expires_at: tokens.expires_at,
-        scopes: tokens.scope.split(" "),
+        scopes: grantedScopeList,
         is_active: true,
         sync_status: "idle",
         sync_error: null,
@@ -152,7 +162,7 @@ export async function GET(request: NextRequest) {
         refresh_token: tokens.refresh_token,
         access_token: tokens.access_token,
         token_expires_at: tokens.expires_at,
-        scopes: tokens.scope.split(" "),
+        scopes: grantedScopeList,
         is_active: true,
         sync_status: "idle",
         sync_error: null,
@@ -167,18 +177,22 @@ export async function GET(request: NextRequest) {
     accountId = inserted!.id;
   }
 
-  // Queue initial backfill sync job
-  await db.from("sync_jobs").insert({
-    user_id: user.id,
-    account_id: accountId,
-    job_type: "initial_backfill",
-    status: "pending",
-    backfill_days: backfillDays,
-  });
+  const isReconnect = !!existing;
+
+  // Only queue initial backfill for new accounts, not reconnects
+  if (!isReconnect) {
+    await db.from("sync_jobs").insert({
+      user_id: user.id,
+      account_id: accountId,
+      job_type: "initial_backfill",
+      status: "pending",
+      backfill_days: backfillDays,
+    });
+  }
 
   // Clear CSRF cookie and redirect to workspace
   const successUrl = new URL(`/workspace/${accountId}`, request.url);
-  successUrl.searchParams.set("status", "connected");
+  successUrl.searchParams.set("status", isReconnect ? "reconnected" : "connected");
   const response = NextResponse.redirect(successUrl);
   response.cookies.set("outlook_oauth_csrf", "", { maxAge: 0, path: "/" });
 
