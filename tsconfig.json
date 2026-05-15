@@ -42,6 +42,8 @@
     "node_modules",
     "supabase/**",
     "supabase/functions/**",
-    "supabase/migrations/**"
+    "supabase/migrations/**",
+    "app/_archive/**/*",
+    "src/components/_archive/**/*"
   ]
 }
