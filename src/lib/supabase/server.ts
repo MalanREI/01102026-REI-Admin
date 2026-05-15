@@ -17,10 +17,14 @@ export async function supabaseServer() {
       setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
+            cookieStore.set(name, value, {
+              ...options,
+              sameSite: 'none' as const,
+              secure: true,
+            });
           });
         } catch {
-          // Server Components can’t set cookies directly; middleware handles refresh.
+          // Server Components can't set cookies directly; middleware handles refresh.
         }
       },
     },
