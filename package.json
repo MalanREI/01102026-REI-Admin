@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:addin": "next dev --experimental-https --experimental-https-key ~/.office-addin-dev-certs/localhost.key --experimental-https-cert ~/.office-addin-dev-certs/localhost.crt",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
