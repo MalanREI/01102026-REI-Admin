@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/src/lib/supabase/server";
 import { exchangeCodeForTokens, fetchUserProfile } from "@/src/lib/auth/outlook";
+import { logAuditEvent } from "@/src/lib/audit/log";
 
 const COLOR_PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
 
@@ -189,6 +190,15 @@ export async function GET(request: NextRequest) {
       backfill_days: backfillDays,
     });
   }
+
+  await logAuditEvent({
+    userId: user.id,
+    action: 'oauth.grant',
+    resourceType: 'connected_account',
+    resourceId: accountId,
+    metadata: { provider: 'microsoft', isReconnect },
+    request,
+  });
 
   // Clear CSRF cookie and redirect to home (Phase 6 will retarget to add-in)
   const successUrl = new URL(`/`, request.url);
