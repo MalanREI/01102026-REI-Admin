@@ -2,6 +2,8 @@
 import { useOfficeItem } from './OfficeItemContext';
 import SenderContextPanel from './SenderContextPanel';
 import ThreadContextPanel from './ThreadContextPanel';
+import SummaryPanel from './SummaryPanel';
+import AskClaudePanel from './AskClaudePanel';
 
 export default function MessageContextPanel() {
   const { message: msg } = useOfficeItem();
@@ -35,6 +37,11 @@ export default function MessageContextPanel() {
 
       <hr className="border-gray-200" />
       <section>
+        <SummaryPanel />
+      </section>
+
+      <hr className="border-gray-200" />
+      <section>
         <SenderContextPanel />
       </section>
 
@@ -43,9 +50,12 @@ export default function MessageContextPanel() {
         <ThreadContextPanel />
       </section>
 
-      <p className="pt-2 text-xs text-gray-400">
-        Phase 7.1: live item refresh. Phase 8 wires AI analysis.
-      </p>
+      <hr className="border-gray-200" />
+      <section>
+        <AskClaudePanel />
+      </section>
+
+      <p className="pt-2 text-xs text-gray-400">Phase 8a: AI active.</p>
     </div>
   );
 }
