@@ -824,3 +824,70 @@ export async function searchEmailsSemantic(
   if (error) throw error;
   return data ?? [];
 }
+
+// ============================================================
+// PROJECTS (Phase 8b)
+// ============================================================
+
+export async function listUserProjects() {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('projects')
+    .select('id, name, slug, description, color, parent_id, is_active')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createProject(input: {
+  name: string;
+  slug: string;
+  description?: string;
+  color?: string;
+  parentId?: string;
+}) {
+  const db = supabaseBrowser();
+  const { data: { user } } = await db.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const { data, error } = await db.from('projects').insert({
+    user_id: user.id,
+    name: input.name,
+    slug: input.slug,
+    description: input.description,
+    color: input.color,
+    parent_id: input.parentId,
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function listReviewQueue() {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('email_project_assignments')
+    .select(`email_id, project_id, confidence_score, assigned_at, needs_review,
+       projects (id, name, color),
+       emails (id, subject, from_name, from_address, received_at, snippet)`)
+    .eq('needs_review', true)
+    .order('assigned_at', { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function reviewProjectAssignment(emailId: string, newProjectId: string | null) {
+  const db = supabaseBrowser();
+  if (newProjectId === null) {
+    const { error } = await db.from('email_project_assignments').delete().eq('email_id', emailId);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await db.from('email_project_assignments').update({
+    project_id: newProjectId,
+    assigned_by: 'user',
+    needs_review: false,
+    assigned_at: new Date().toISOString(),
+  }).eq('email_id', emailId);
+  if (error) throw error;
+}
