@@ -37,18 +37,20 @@ export type CurrentMessageContext = {
   fromEmail: string | null;
   fromName: string | null;
   internetMessageId: string | null;
+  conversationId: string | null;
 };
 
 export function readCurrentMessage(): CurrentMessageContext {
   const item = Office.context?.mailbox?.item;
   if (!item) {
-    return { subject: null, fromEmail: null, fromName: null, internetMessageId: null };
+    return { subject: null, fromEmail: null, fromName: null, internetMessageId: null, conversationId: null };
   }
   return {
     subject: item.subject ?? null,
     fromEmail: item.from?.emailAddress ?? null,
     fromName: item.from?.displayName ?? null,
     internetMessageId: item.internetMessageId ?? null,
+    conversationId: item.conversationId ?? null,
   };
 }
 

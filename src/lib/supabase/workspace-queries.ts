@@ -248,6 +248,55 @@ export async function listEmailAttachmentsForEmail(emailId: string): Promise<Ema
   return data as EmailAttachment[];
 }
 
+/**
+ * Phase 7: emails from a specific sender, newest first.
+ * Used by the add-in's sender context panel.
+ */
+export async function listEmailsFromSender(
+  accountId: string,
+  fromAddress: string,
+  options: { limit?: number } = {},
+): Promise<Email[]> {
+  const db = supabaseBrowser();
+  const { data, error } = await db
+    .from('emails')
+    .select('*')
+    .eq('account_id', accountId)
+    .ilike('from_address', fromAddress.toLowerCase())
+    .order('received_at', { ascending: false })
+    .limit(options.limit ?? 20);
+  if (error) throw error;
+  return (data ?? []) as Email[];
+}
+
+/**
+ * Phase 7: look up a conversation by its thread_id (= Graph conversationId = Office.js conversationId).
+ * Returns the conversation + its emails if found.
+ */
+export async function getConversationByThreadId(
+  accountId: string,
+  threadId: string,
+): Promise<{ conversation: Conversation; emails: Email[] } | null> {
+  const db = supabaseBrowser();
+  const { data: conv, error: convErr } = await db
+    .from('conversations')
+    .select('*')
+    .eq('account_id', accountId)
+    .eq('provider_thread_id', threadId)
+    .maybeSingle();
+  if (convErr) throw convErr;
+  if (!conv) return null;
+
+  const { data: emails, error: emailErr } = await db
+    .from('emails')
+    .select('*')
+    .eq('conversation_id', conv.id)
+    .order('sent_at', { ascending: true });
+  if (emailErr) throw emailErr;
+
+  return { conversation: conv as Conversation, emails: (emails ?? []) as Email[] };
+}
+
 export async function setEmailUserState(
   emailId: string,
   userState: EmailUserState | null,
