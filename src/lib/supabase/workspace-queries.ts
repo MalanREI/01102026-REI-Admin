@@ -799,12 +799,28 @@ export async function getTodayDigest(accountId: string): Promise<DailyDigest | n
 }
 
 // ============================================================
-// ASK-CLAUDE (stub — Phase 6)
+// SEMANTIC SEARCH (Phase 8a)
 // ============================================================
 
-export async function askClaude(
-  _query: string,
-  _opts: { accountId?: string }
-): Promise<never> {
-  throw new Error('Ask-Claude is not yet wired up — Phase 6.');
+/**
+ * Search emails semantically using the existing match_workspace_embeddings RPC.
+ * Caller must provide the pre-computed query embedding vector.
+ */
+export async function searchEmailsSemantic(
+  queryEmbedding: number[],
+  options: { matchThreshold?: number; matchCount?: number } = {},
+) {
+  const db = supabaseBrowser();
+  const { data: { user } } = await db.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data, error } = await db.rpc('match_workspace_embeddings', {
+    query_embedding: JSON.stringify(queryEmbedding),
+    filter_user_id: user.id,
+    match_count: options.matchCount ?? 15,
+    similarity_threshold: options.matchThreshold ?? 0.65,
+    filter_source_types: ['email'],
+  });
+  if (error) throw error;
+  return data ?? [];
 }
