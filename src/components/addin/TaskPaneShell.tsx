@@ -2,7 +2,19 @@
 import { useEffect, useState } from 'react';
 import AddinAuthGate from './AddinAuthGate';
 import MessageContextPanel from './MessageContextPanel';
+import CalendarContextPanel from './CalendarContextPanel';
+import PinHint from './PinHint';
 import { waitForOffice, type OfficeHostInfo } from '@/src/lib/office/office-ready';
+
+/// <reference types="office-js" />
+
+function getItemType(): 'message' | 'appointment' | 'unknown' {
+  const item = Office.context?.mailbox?.item;
+  if (!item) return 'unknown';
+  if (item.itemType === Office.MailboxEnums.ItemType.Message) return 'message';
+  if (item.itemType === Office.MailboxEnums.ItemType.Appointment) return 'appointment';
+  return 'unknown';
+}
 
 export default function TaskPaneShell() {
   const [officeReady, setOfficeReady] = useState<OfficeHostInfo | null>(null);
@@ -33,9 +45,12 @@ export default function TaskPaneShell() {
     );
   }
 
+  const itemType = getItemType();
+
   return (
     <AddinAuthGate>
-      <MessageContextPanel />
+      <PinHint />
+      {itemType === 'appointment' ? <CalendarContextPanel /> : <MessageContextPanel />}
     </AddinAuthGate>
   );
 }
