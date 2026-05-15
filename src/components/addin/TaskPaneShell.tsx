@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import AddinAuthGate from './AddinAuthGate';
 import MessageContextPanel from './MessageContextPanel';
 import CalendarContextPanel from './CalendarContextPanel';
@@ -87,6 +88,11 @@ export default function TaskPaneShell() {
         <OfficeItemProvider>
           <PinHint />
           {itemType === 'appointment' ? <CalendarContextPanel /> : <MessageContextPanel />}
+          <footer className="border-t border-gray-200 px-3 py-2 flex gap-3 text-xs text-gray-500">
+            <Link href="/addin/setup" target="_blank" className="hover:text-gray-900">Projects</Link>
+            <Link href="/addin/review" target="_blank" className="hover:text-gray-900">Review</Link>
+            <Link href="/addin/settings" target="_blank" className="hover:text-gray-900">Settings</Link>
+          </footer>
         </OfficeItemProvider>
       </AddinAuthGate>
     </>
