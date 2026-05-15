@@ -1,5 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { readOfficeDiagnostics, type OfficeDiagnostics } from '@/src/lib/office/diagnostics';
+import { waitForOffice } from '@/src/lib/office/office-ready';
 
 type SettingsState = {
   anthropicApiKeyLastFour: string | null;
@@ -17,6 +19,14 @@ export default function SettingsPage() {
     error: null,
     newKey: '',
   });
+
+  const [diag, setDiag] = useState<OfficeDiagnostics | null>(null);
+
+  useEffect(() => {
+    waitForOffice()
+      .then(() => setDiag(readOfficeDiagnostics()))
+      .catch(() => setDiag(null));
+  }, []);
 
   const refresh = useCallback(async () => {
     setS((p) => ({ ...p, loading: true, error: null }));
@@ -123,6 +133,33 @@ export default function SettingsPage() {
               (Phase 8+); saving it here now has no effect yet.
             </p>
           </>
+        )}
+      </section>
+
+      <section className="mt-6 border-t border-gray-200 pt-4">
+        <h2 className="text-xs uppercase text-gray-500">Diagnostics</h2>
+        {!diag ? (
+          <p className="mt-2 text-gray-500">Reading Office.js capabilities…</p>
+        ) : (
+          <dl className="mt-2 space-y-1 text-xs">
+            <div>
+              <dt className="text-gray-500">Host</dt>
+              <dd>{diag.hostName} · {diag.platform} · v{diag.hostVersion}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Outlook account</dt>
+              <dd>{diag.userEmail ?? <em>(not detected)</em>}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Mailbox API requirement sets</dt>
+              <dd className="font-mono">
+                1.5: {diag.supportsMailbox15 ? '✓' : '✗'} · 1.6: {diag.supportsMailbox16 ? '✓' : '✗'} · 1.7: {diag.supportsMailbox17 ? '✓' : '✗ (no pinning)'} · 1.8: {diag.supportsMailbox18 ? '✓' : '✗'} · 1.9: {diag.supportsMailbox19 ? '✓' : '✗'}
+              </dd>
+            </div>
+            <p className="pt-2 text-gray-400">
+              Pinning requires Mailbox 1.7. If 1.7 shows ✗, this Outlook client doesn't support pinning.
+            </p>
+          </dl>
         )}
       </section>
     </div>
