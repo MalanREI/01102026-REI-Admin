@@ -3,11 +3,9 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { NAV_ITEMS, type NavItem } from "@/src/config/app.config";
 import { Button } from "@/src/components/ui";
-import { listUserWorkspaces } from "@/src/lib/supabase/workspace-queries";
-import type { WorkspaceListItem } from "@/src/lib/types/workspace";
 
 function GearIcon() {
   return (
@@ -21,15 +19,6 @@ function GearIcon() {
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<string[]>([]);
-  const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
-  const [workspacesLoading, setWorkspacesLoading] = useState(true);
-
-  useEffect(() => {
-    listUserWorkspaces()
-      .then((data) => setWorkspaces(data))
-      .catch((err) => console.error("Failed to load workspaces:", err))
-      .finally(() => setWorkspacesLoading(false));
-  }, []);
 
   function toggleExpanded(href: string) {
     setExpanded((prev) =>
@@ -50,9 +39,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   function renderNavItem(item: NavItem, depth = 0, parentKey = "") {
     const key = `${parentKey}${item.href}-${item.label}-${depth}`;
     const active = itemIsActive(item);
-    const hasStaticChildren = Array.isArray(item.children) && item.children.length > 0;
-    const hasDynamic = item.dynamic === "workspaces";
-    const hasChildren = hasStaticChildren || hasDynamic;
+    const hasChildren = Array.isArray(item.children) && item.children.length > 0;
     const open = hasChildren && (isExpanded(key) || active);
 
     if (hasChildren && !collapsed) {
@@ -68,17 +55,12 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                 : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
             ].join(" ")}
           >
-            <Link href={item.href as Route} onClick={(e) => e.stopPropagation()}>
-              <span>{collapsed ? item.label.slice(0, 1) : item.label}</span>
-            </Link>
+            <span>{collapsed ? item.label.slice(0, 1) : item.label}</span>
             <span className="text-xs">{open ? "▾" : "▸"}</span>
           </button>
           {open && (
             <div className={["mt-1 space-y-1 border-l border-white/[0.06]", depth > 0 ? "ml-6 pl-3" : "ml-3 pl-3"].join(" ")}>
-              {/* Static children */}
-              {item.children?.map((child) => renderNavItem(child, depth + 1, `${key}-`))}
-              {/* Dynamic workspace children */}
-              {hasDynamic && renderDynamicWorkspaces(depth + 1)}
+              {item.children!.map((child) => renderNavItem(child, depth + 1, `${key}-`))}
             </div>
           )}
         </div>
@@ -100,60 +82,6 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         <span>{collapsed ? item.label.slice(0, 1) : item.label}</span>
       </Link>
     );
-  }
-
-  function renderDynamicWorkspaces(depth: number) {
-    if (workspacesLoading) {
-      return (
-        <div key="ws-loading" className={["px-3 py-2 text-xs text-slate-500 italic", depth > 0 ? "ml-3" : ""].join(" ")}>
-          Loading…
-        </div>
-      );
-    }
-
-    const items: React.ReactNode[] = [];
-
-    for (const ws of workspaces) {
-      const wsHref = `/workspace/${ws.id}`;
-      const wsActive = pathname === wsHref || pathname.startsWith(wsHref + "/");
-      items.push(
-        <Link
-          key={ws.id}
-          href={wsHref as Route}
-          className={[
-            "flex items-center rounded-lg px-3 py-2 text-sm transition-colors",
-            depth > 0 ? "ml-3" : "",
-            wsActive
-              ? "bg-emerald-500/10 text-emerald-400 font-medium"
-              : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
-          ].join(" ")}
-        >
-          <span
-            className="inline-block w-2 h-2 rounded-full mr-2 shrink-0"
-            style={{ backgroundColor: ws.color_hex }}
-          />
-          <span className="truncate">{ws.display_name}</span>
-        </Link>
-      );
-    }
-
-    items.push(
-      <Link
-        key="ws-connect"
-        href={"/workspace/connect" as Route}
-        className={[
-          "block rounded-lg px-3 py-2 text-xs italic transition-colors",
-          depth > 0 ? "ml-3" : "",
-          pathname === "/workspace/connect"
-            ? "bg-emerald-500/10 text-emerald-400 font-medium"
-            : "text-emerald-400/70 hover:text-emerald-400",
-        ].join(" ")}
-      >
-        + Connect account
-      </Link>
-    );
-
-    return items;
   }
 
   return (

@@ -10,7 +10,6 @@ export type NavItem = {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Home", href: "/home" },
-  { label: "Workspace", href: "/workspace", dynamic: "workspaces" },
   { label: "Meetings", href: "/meetings" },
   { label: "Sales Funnel", href: "/sales-funnel" },
   {

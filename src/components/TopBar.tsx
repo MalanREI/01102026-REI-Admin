@@ -5,7 +5,6 @@ import Link from "next/link";
 import { supabaseBrowser } from "@/src/lib/supabase/browser";
 import { Button, Modal, Input } from "@/src/components/ui";
 import { useRecording } from "@/src/context/RecordingContext";
-import { AskClaudeBar } from "@/src/components/workspace/AskClaudeBar";
 
 const MAX_UNREAD_NOTIFICATIONS = 99;
 
@@ -16,8 +15,6 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [askOpen, setAskOpen] = useState(false);
-
   const [p1, setP1] = useState("");
   const [p2, setP2] = useState("");
   const [busy, setBusy] = useState(false);
@@ -103,15 +100,6 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
         )}
 
         <div className="flex items-center gap-2">
-          {/* Ask Claude trigger */}
-          <button
-            onClick={() => setAskOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded border border-white/[0.08] text-sm text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition-colors"
-          >
-            Ask Claude
-            <kbd className="text-xs text-slate-500">⌘K</kbd>
-          </button>
-
           {/* Notification bell */}
           <Link
             href="/social-media/library?status=pending_approval"
@@ -193,8 +181,6 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
           {err && <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2">{err}</div>}
         </div>
       </Modal>
-
-      <AskClaudeBar open={askOpen} onOpenChange={setAskOpen} />
     </header>
   );
 }
