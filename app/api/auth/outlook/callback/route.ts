@@ -5,7 +5,7 @@ import { exchangeCodeForTokens, fetchUserProfile } from "@/src/lib/auth/outlook"
 const COLOR_PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
 
 function redirectError(request: NextRequest, reason: string) {
-  const url = new URL("/workspace/connect", request.url);
+  const url = new URL("/", request.url);
   url.searchParams.set("status", "error");
   url.searchParams.set("reason", reason);
   const response = NextResponse.redirect(url);
@@ -190,9 +190,10 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Clear CSRF cookie and redirect to workspace
-  const successUrl = new URL(`/workspace/${accountId}`, request.url);
+  // Clear CSRF cookie and redirect to home (Phase 6 will retarget to add-in)
+  const successUrl = new URL(`/`, request.url);
   successUrl.searchParams.set("status", isReconnect ? "reconnected" : "connected");
+  successUrl.searchParams.set("accountId", accountId);
   const response = NextResponse.redirect(successUrl);
   response.cookies.set("outlook_oauth_csrf", "", { maxAge: 0, path: "/" });
 
