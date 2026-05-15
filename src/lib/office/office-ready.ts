@@ -54,6 +54,11 @@ export function readCurrentMessage(): CurrentMessageContext {
   };
 }
 
+export function readCurrentUserEmail(): string | null {
+  const profile = Office.context?.mailbox?.userProfile;
+  return profile?.emailAddress ?? null;
+}
+
 export function subscribeItemChanged(onChange: () => void): () => void {
   const mailbox = Office.context?.mailbox;
   if (!mailbox) return () => {};
