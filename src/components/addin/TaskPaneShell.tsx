@@ -4,6 +4,7 @@ import AddinAuthGate from './AddinAuthGate';
 import MessageContextPanel from './MessageContextPanel';
 import CalendarContextPanel from './CalendarContextPanel';
 import PinHint from './PinHint';
+import { OfficeItemProvider } from './OfficeItemContext';
 import { waitForOffice, type OfficeHostInfo } from '@/src/lib/office/office-ready';
 
 /// <reference types="office-js" />
@@ -49,8 +50,10 @@ export default function TaskPaneShell() {
 
   return (
     <AddinAuthGate>
-      <PinHint />
-      {itemType === 'appointment' ? <CalendarContextPanel /> : <MessageContextPanel />}
+      <OfficeItemProvider>
+        <PinHint />
+        {itemType === 'appointment' ? <CalendarContextPanel /> : <MessageContextPanel />}
+      </OfficeItemProvider>
     </AddinAuthGate>
   );
 }
