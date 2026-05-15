@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { getConversationByThreadId } from '@/src/lib/supabase/workspace-queries';
 import { resolveAccountByOutlookEmail } from '@/src/lib/addin/account-resolution';
-import { readCurrentMessage, readCurrentUserEmail } from '@/src/lib/office/office-ready';
+import { useOfficeItem } from './OfficeItemContext';
 import type { Email, Conversation } from '@/src/lib/types/workspace';
 
 type LoadState =
@@ -15,6 +15,8 @@ type LoadState =
   | { status: 'error'; message: string };
 
 export default function ThreadContextPanel() {
+  const { message, userEmail, refreshNonce } = useOfficeItem();
+  const conversationId = message.conversationId;
   const [state, setState] = useState<LoadState>({ status: 'idle' });
 
   useEffect(() => {
@@ -22,14 +24,12 @@ export default function ThreadContextPanel() {
 
     async function load() {
       setState({ status: 'loading' });
-      const userEmail = readCurrentUserEmail();
-      const message = readCurrentMessage();
 
       if (!userEmail) {
         if (!cancelled) setState({ status: 'no-account' });
         return;
       }
-      if (!message.conversationId) {
+      if (!conversationId) {
         if (!cancelled) setState({ status: 'no-thread' });
         return;
       }
@@ -40,7 +40,7 @@ export default function ThreadContextPanel() {
           if (!cancelled) setState({ status: 'no-account' });
           return;
         }
-        const result = await getConversationByThreadId(account.id, message.conversationId);
+        const result = await getConversationByThreadId(account.id, conversationId);
         if (!result) {
           if (!cancelled) setState({ status: 'not-synced' });
           return;
@@ -55,7 +55,7 @@ export default function ThreadContextPanel() {
 
     void load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userEmail, conversationId, refreshNonce]);
 
   if (state.status === 'idle' || state.status === 'loading') {
     return <p className="text-xs text-gray-500">Loading thread context…</p>;

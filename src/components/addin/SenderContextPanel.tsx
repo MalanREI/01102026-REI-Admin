@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { listEmailsFromSender } from '@/src/lib/supabase/workspace-queries';
 import { resolveAccountByOutlookEmail } from '@/src/lib/addin/account-resolution';
-import { readCurrentMessage, readCurrentUserEmail } from '@/src/lib/office/office-ready';
+import { useOfficeItem } from './OfficeItemContext';
 import type { Email } from '@/src/lib/types/workspace';
 
 type LoadState =
@@ -14,6 +14,8 @@ type LoadState =
   | { status: 'error'; message: string };
 
 export default function SenderContextPanel() {
+  const { message, userEmail, refreshNonce } = useOfficeItem();
+  const fromEmail = message.fromEmail;
   const [state, setState] = useState<LoadState>({ status: 'idle' });
 
   useEffect(() => {
@@ -21,14 +23,12 @@ export default function SenderContextPanel() {
 
     async function load() {
       setState({ status: 'loading' });
-      const userEmail = readCurrentUserEmail();
-      const message = readCurrentMessage();
 
       if (!userEmail) {
         if (!cancelled) setState({ status: 'no-account' });
         return;
       }
-      if (!message.fromEmail) {
+      if (!fromEmail) {
         if (!cancelled) setState({ status: 'no-sender' });
         return;
       }
@@ -39,7 +39,7 @@ export default function SenderContextPanel() {
           if (!cancelled) setState({ status: 'no-account' });
           return;
         }
-        const emails = await listEmailsFromSender(account.id, message.fromEmail, { limit: 10 });
+        const emails = await listEmailsFromSender(account.id, fromEmail, { limit: 10 });
         if (!cancelled) setState({ status: 'loaded', emails });
       } catch (err) {
         if (!cancelled) {
@@ -50,7 +50,7 @@ export default function SenderContextPanel() {
 
     void load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userEmail, fromEmail, refreshNonce]);
 
   if (state.status === 'idle' || state.status === 'loading') {
     return <p className="text-xs text-gray-500">Loading sender context…</p>;
@@ -62,7 +62,7 @@ export default function SenderContextPanel() {
     return <p className="text-xs text-gray-500">No sender for this item.</p>;
   }
   if (state.status === 'error') {
-    return <p className="text-xs text-red-700">Error: {state.message}</p>;
+    return <p className="text-xs text-red-700">Error loading sender history: {state.message}</p>;
   }
   if (state.emails.length === 0) {
     return <p className="text-xs text-gray-500">No prior emails from this sender in your workspace.</p>;

@@ -1,22 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
-import {
-  readCurrentMessage,
-  subscribeItemChanged,
-  type CurrentMessageContext,
-} from '@/src/lib/office/office-ready';
+import { useOfficeItem } from './OfficeItemContext';
 import SenderContextPanel from './SenderContextPanel';
 import ThreadContextPanel from './ThreadContextPanel';
 
 export default function MessageContextPanel() {
-  const [msg, setMsg] = useState<CurrentMessageContext>(readCurrentMessage());
-
-  useEffect(() => {
-    const unsubscribe = subscribeItemChanged(() => {
-      setMsg(readCurrentMessage());
-    });
-    return unsubscribe;
-  }, []);
+  const { message: msg } = useOfficeItem();
 
   if (!msg.subject && !msg.fromEmail) {
     return (
@@ -27,10 +15,10 @@ export default function MessageContextPanel() {
   }
 
   return (
-    <div className="p-4 text-sm space-y-4">
+    <div className="p-4 text-sm space-y-3">
       <section>
         <h2 className="font-semibold">Current message</h2>
-        <dl className="mt-1 space-y-1">
+        <dl className="space-y-1 mt-2">
           <div>
             <dt className="text-xs uppercase text-gray-500">Subject</dt>
             <dd>{msg.subject ?? <em>(none)</em>}</dd>
@@ -47,16 +35,16 @@ export default function MessageContextPanel() {
 
       <hr className="border-gray-200" />
       <section>
-        <SenderContextPanel key={msg.fromEmail ?? 'no-sender'} />
+        <SenderContextPanel />
       </section>
 
       <hr className="border-gray-200" />
       <section>
-        <ThreadContextPanel key={msg.conversationId ?? 'no-thread'} />
+        <ThreadContextPanel />
       </section>
 
       <p className="pt-2 text-xs text-gray-400">
-        Phase 7: workspace context. Phase 8 wires AI analysis.
+        Phase 7.1: live item refresh. Phase 8 wires AI analysis.
       </p>
     </div>
   );
